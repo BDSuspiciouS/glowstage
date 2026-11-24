@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 
@@ -23,6 +24,16 @@ DEFAULT_PRESETS = [
     {"name": "Cyberpunk", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "wave",
                                   "color": "#ff0090", "color2": "#00f0ff", "speed": 45}},
     {"name": "Movie", "all": {"on": True, "brightness": 70, "mode": "effect", "effect": "screen"}},
+    {"name": "Late night", "all": {"on": True, "brightness": 45, "mode": "effect", "effect": "wave",
+                                   "color": "#2a3cff", "color2": "#8a2cff", "speed": 15}},
+    {"name": "Festival", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "music_show",
+                                 "speed": 70}},
+    {"name": "Party", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "music_party",
+                              "speed": 60}},
+    {"name": "Club", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "music_ripple",
+                             "speed": 55}},
+    {"name": "Slow jam", "all": {"on": True, "brightness": 70, "mode": "effect", "effect": "music_romantic",
+                                 "color": "#0a1aff", "color2": "#b0002e", "speed": 35}},
 ]
 
 DEFAULTS = {
@@ -33,9 +44,11 @@ DEFAULTS = {
     "states": {},       # id -> LightState dict (restored on launch)
     "presets": DEFAULT_PRESETS,
     "openrgb": {"auto_launch": True, "elevated": False, "path": "", "port": 6742, "zone_sizes": {}},
+    "show_layout": {},  # id -> [start, end, "front"|"back"]: where a light sits on the stage
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
-                 "room_lights_off_at_shutdown": True, "show_strobe": True},
+                 "room_lights_off_at_shutdown": True, "show_strobe": True,
+                 "setup_done": False},   # the welcome tour ran (or was skipped)
 }
 
 
@@ -61,6 +74,9 @@ class Config:
             except (OSError, ValueError) as e:
                 log.warning("Could not read %s (%s); starting fresh", path, e)
                 path.replace(path.with_suffix(".broken.json"))
+        if data and "setup_done" not in data.get("settings", {}):
+            # Someone who already used the app (or the older RGB Control) doesn't need the welcome tour.
+            data.setdefault("settings", {})["setup_done"] = True
         self.data = _merge(DEFAULTS, data)
 
     def __getitem__(self, key):

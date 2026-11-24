@@ -806,6 +806,9 @@ def stage_spans(devices, overrides: dict | None = None) -> dict[str, tuple[float
             spans[d.id] = (0.22, 0.52, "front")
         elif d.kind == "nanoleaf":
             spans[d.id] = (0.0, 1.0, "back")
+    for d in devices:   # anything else: bulbs wash the room from behind, strips and bars span the front
+        if d.id not in spans:
+            spans[d.id] = (0.0, 1.0, "back" if d.pixel_count <= 1 else "front")
     for dev_id, span in (overrides or {}).items():
         if isinstance(span, (list, tuple)) and len(span) in (2, 3):
             spans[dev_id] = (float(span[0]), float(span[1]), str(span[2]) if len(span) == 3 else "front")

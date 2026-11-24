@@ -19,6 +19,9 @@ function h(tag, attrs = {}, ...kids) {
   return node;
 }
 
+/** Replaces a node's children, skipping empty (null/false) entries. */
+const fill = (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false));
+
 function hexToRgb(hex) {
   let s = String(hex || "").trim().replace("#", "");
   if (s.length === 3) s = [...s].map(c => c + c).join("");
@@ -94,7 +97,8 @@ async function call(method, ...args) {
 const S = {
   data: null,
   selected: null,          // null = all lights, otherwise an array of device ids
-  tab: "color",
+  tab: "presets",
+  arrange: false,          // the stage plot is in Arrange mode
   dragging: null,          // id of the fader being dragged
   quietUntil: 0,           // ignore polls right after local edits so sliders don't jump back
   native: {},              // device id -> {effects, palettes}
@@ -143,10 +147,17 @@ function render() {
   renderPresets();
   renderStrips();
   renderTarget();
+  renderStage();
   if (S.tab === "color") renderColor();
   else if (S.tab === "effects") renderEffects();
-  else renderNative();
+  else if (S.tab === "show") renderShow();
+  else if (S.tab === "native") renderNative();
   if (S.settingsOpen) renderSettings();
+  if (S.wiz && S.wiz.open) renderWizard();
+  const about = S.data.about || {};
+  const donate = (about.donate || [])[0];
+  $("#support").hidden = !donate;
+  if (donate) $("#support").onclick = () => call("open_link", donate.url);
 }
 
 /* ---- presets ---- */
@@ -186,7 +197,7 @@ function renderPresets() {
   );
   const lighting = S.data.presets.filter(p => !isMusicPreset(p));
   const music = S.data.presets.filter(isMusicPreset);
-  host.replaceChildren(...lighting.map(chip),
+  fill(host, ...lighting.map(chip),
     music.length ? h("span", { class: "eyebrow preset-group", text: "♪ Music" }) : null,
     ...music.map(chip));
 }
@@ -235,7 +246,7 @@ function lampLook(d) {
 }
 
 function stripMeta(d) {
-  if (d.kind === "nanoleaf" && !d.paired) return { text: "Not paired", warn: true };
+  if (d.paired === false) return { text: "Not paired", warn: true };
   if (!d.online) return { text: d.error || "Offline", warn: true };
   if (d.state.on && d.state.mode === "effect") {
     const fx = S.data.effects.find(e => e.id === d.state.effect);
@@ -287,7 +298,7 @@ function toggleStrip(id) {
   }
   const d = byId(id);
   if (!d) return;
-  if (d.kind === "nanoleaf" && !d.paired) return openPairDialog(d);
+  if (d.paired === false) return openPairDialog(d);
   send([id], { on: !d.state.on }, "on:" + id);
 }
 
@@ -336,7 +347,7 @@ function renderStrips() {
   }
   for (const [id, node] of S.strips) if (!order.includes(id)) { node.remove(); S.strips.delete(id); }
   const current = [...host.children].map(n => n.dataset.id || "__sep");
-  if (current.join("|") !== order.join("|")) host.replaceChildren(...order.map(id => S.strips.get(id)));
+  if (current.join("|") !== order.join("|")) fill(host, ...order.map(id => S.strips.get(id)));
 
   const sel = new Set(targetIds());
   // master
@@ -364,6 +375,8 @@ function renderStrips() {
     node.classList.toggle("is-off", !st.on);
     node.classList.toggle("is-offline", !d.online);
     node.style.setProperty("--c", hexToRgb(st.color) ? st.color : "#888888");
+    const place = S.data.stage && S.data.stage[d.id];
+    node.style.setProperty("--tape", place && place.layer === "back" ? "var(--tape-back)" : d.group === "pc" ? "var(--tape-pc)" : "var(--tape-front)");
     node.style.setProperty("--lit", on ? (0.25 + 0.75 * st.brightness / 100).toFixed(2) : 0);
     const lamp = $(".lamp", node);
     const look = lampLook(d);
@@ -380,11 +393,11 @@ function renderStrips() {
     fader.setAttribute("aria-label", `Brightness, ${d.name}`);
     if (S.dragging !== d.id) setFader(fader, st.brightness);
     const t = $(".strip-toggle", node);
-    const needsPair = d.kind === "nanoleaf" && !d.paired;
+    const needsPair = d.paired === false;
     t.textContent = needsPair ? "Pair" : st.on ? "On" : "Off";
     t.classList.toggle("is-on", !needsPair && st.on);
     t.classList.toggle("is-pair", needsPair);
-    t.title = needsPair ? "Pair these panels" : st.on ? `Turn ${d.name} off` : `Turn ${d.name} on`;
+    t.title = needsPair ? `Pair ${d.name}` : st.on ? `Turn ${d.name} off` : `Turn ${d.name} on`;
   }
 }
 
@@ -396,7 +409,7 @@ function renderTarget() {
   $("#target-name").textContent = name;
   const offline = ids.filter(id => !byId(id).online).length;
   $("#target-meta").textContent = !S.selected
-    ? `${ids.length} lights${offline ? ` · ${offline} offline` : ""} · Ctrl+click faders to pick several`
+    ? `${ids.length} lights${offline ? ` · ${offline} offline` : ""}`
     : ids.length > 1 ? `${ids.length} lights` : (byId(ids[0]).label || "");
 }
 
@@ -671,10 +684,10 @@ function buildEffects() {
   const card = e => h("button", {
     class: "fx-card" + (e.group === "music" ? " fx-music" : ""), type: "button", "data-fx": e.id,
     onclick: () => sendTargets({ mode: "effect", on: true, effect: e.id }, "fx"),
-  }, h("canvas", { height: "16" }), h("span", { class: "fx-name", text: e.name }));
+  }, h("canvas", { height: "14" }), h("span", { class: "fx-name", text: e.name, title: e.name }));
   const anim = S.data.effects.filter(e => e.group !== "music");
   const music = S.data.effects.filter(e => e.group === "music");
-  $("#fx-grid").replaceChildren(
+  fill($("#fx-grid"), 
     h("div", { class: "fx-group" }, h("span", { class: "eyebrow", text: "Animations" })),
     ...anim.map(card),
     music.length ? h("div", { class: "fx-group" }, h("span", { class: "eyebrow", text: "Music" }),
@@ -723,6 +736,46 @@ function showNote(show, audio) {
   return `${genre} · ${SHOW_SECTIONS[show.section] || show.section}${tempo}${chord}. Speed sets how wild it gets.`;
 }
 
+/* ---- light show tab ---- */
+
+const showTargets = () => targetIds().map(byId).filter(Boolean);
+const showRunning = () => { const t = showTargets(); return t.length && t.every(d => d.state.on && d.state.mode === "effect" && d.state.effect === "music_show"); };
+
+function renderShow() {
+  const running = showRunning();
+  const n = targetIds().length;
+  const btn = $("#show-start");
+  btn.textContent = running ? "Stop the show" : "Start the light show";
+  btn.classList.toggle("is-running", !!running);
+  const audio = S.data.audio || {};
+  $("#show-sub").textContent = (running ? "Running on " : "Runs on ")
+    + (S.selected ? `${n} selected light${n === 1 ? "" : "s"}` : `all ${n} lights`)
+    + ` · listening to ${audio.device || "your PC's sound output"}`;
+  const show = S.data.show;
+  const cell = (eyebrow, value, sub) => h("div", { class: "readout-cell" },
+    h("div", { class: "eyebrow", text: eyebrow }), h("div", { class: "readout-value", text: value }),
+    sub ? h("div", { class: "readout-sub", text: sub, title: sub }) : null);
+  const ro = $("#show-readout");
+  const sig = JSON.stringify(show);
+  if (ro.dataset.sig !== sig) {
+    ro.dataset.sig = sig;
+    fill(ro, ...(show ? [
+      cell(show.ai ? "AI hears" : "Style", show.style || "…",
+        show.ai ? [show.genres.slice(0, 2).join(", "), show.mood].filter(Boolean).join(" · ") : (show.aiError || "The AI is still listening")),
+      cell("Section", SHOW_SECTIONS_TITLE[show.section] || show.section || "…", show.section === "drop" ? "Everything goes" : show.section === "build" ? "Tension rising" : ""),
+      cell("Tempo", show.bpm ? `${show.bpm} BPM` : "Finding the beat", show.half ? "Half time" : ""),
+      cell("Harmony", show.chord || "…", show.chord ? "Colors follow the chords" : ""),
+    ] : []));
+  }
+  const p = showTargets()[0];
+  const speed = $("#show-intensity");
+  if (p && document.activeElement !== speed) speed.value = p.state.speed;
+  $("#show-int-val").textContent = p ? p.state.speed : "";
+  $("#show-strobe").checked = S.data.settings.show_strobe !== false;
+}
+const SHOW_SECTIONS_TITLE = { groove: "Groove", break: "Break", build: "Build-up", gap: "About to drop", drop: "Drop",
+  calm: "Calm part", silent: "Waiting for music" };
+
 let fxFrame = 0;
 function animatePreviews(ts) {
   requestAnimationFrame(animatePreviews);
@@ -730,7 +783,7 @@ function animatePreviews(ts) {
   fxFrame = ts;
   const st = currentFxState(), t = ts / 1000, dpr = window.devicePixelRatio || 1;
   for (const card of document.querySelectorAll("#fx-grid .fx-card")) {
-    const cv = card.firstChild, w = Math.round(cv.clientWidth * dpr), hgt = Math.round(16 * dpr);
+    const cv = card.firstChild, w = Math.round(cv.clientWidth * dpr), hgt = Math.round(14 * dpr);
     if (!w) continue;
     if (cv.width !== w || cv.height !== hgt) { cv.width = w; cv.height = hgt; }
     const ctx = cv.getContext("2d");
@@ -780,13 +833,13 @@ async function renderNative() {
   if (S.nativeBuiltFor !== sig) {
     S.nativeBuiltFor = sig;
     const items = opts.effects.filter(e => !query || e.name.toLowerCase().includes(query));
-    list.replaceChildren(...items.map(e => h("button", {
+    fill(list, ...items.map(e => h("button", {
       class: "native-item", type: "button", "data-id": e.id, title: e.name, text: e.name,
       onclick: () => send([d.id], { mode: "native", native: e.id, on: true }, "native:" + d.id),
     })));
     if (!items.length) list.append(h("p", { class: "hint", text: `No effects match “${query}”.` }));
     const pal = $("#native-palette");
-    pal.replaceChildren(h("option", { value: "", text: "Effect default" }),
+    fill(pal, h("option", { value: "", text: "Effect default" }),
       ...opts.palettes.map(p => h("option", { value: String(p.id), text: p.name })));
   }
   const cur = d.state.mode === "native" ? String(d.state.native) : null;
@@ -799,167 +852,13 @@ async function renderNative() {
   if (document.activeElement !== sp) sp.value = d.state.speed;
 }
 
-/* ============================== settings ============================== */
-
-function settingsSignature() {
-  const d = S.data;
-  return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label]),
-    d.openrgb, d.settings]);
-}
-
-function renderSettings(force = false) {
-  const body = $("#settings-body");
-  if (!force && body.contains(document.activeElement) && document.activeElement.matches("input, select")) return;
-  const sig = settingsSignature();
-  if (!force && sig === S.settingsSig) return;
-  S.settingsSig = sig;
-  const scroll = body.scrollTop;
-  body.replaceChildren(lightsSection(), addSection(), openrgbSection(), appSection());
-  body.scrollTop = scroll;
-}
-
-function lightsSection() {
-  const rows = S.data.devices.map(d => {
-    const name = h("input", { class: "text-input", value: d.name, "aria-label": `Name of ${d.name}`, maxlength: "40" });
-    const commit = async () => { if (name.value.trim() !== d.name) { await call("rename", d.id, name.value); refresh(true); } };
-    name.addEventListener("change", commit);
-    name.addEventListener("keydown", e => { if (e.key === "Enter") name.blur(); });
-    const meta = stripMeta(d);
-    const dotClass = "dev-dot" + (d.online ? " is-on" : meta.warn ? " is-warn" : "");
-    const sub = [d.kind === "openrgb" ? "PC · OpenRGB" : d.kind === "wled" ? "WLED" : "Nanoleaf", d.host, d.online ? d.label : meta.text]
-      .filter(Boolean).join(" · ");
-    const actions = h("div", { class: "dev-actions" },
-      d.kind === "nanoleaf" && !d.paired ? h("button", { class: "btn btn-primary", type: "button", text: "Pair", onclick: () => openPairDialog(d) }) : null,
-      h("button", {
-        class: "btn", type: "button", text: d.hidden ? "Show in fader bank" : "Hide from fader bank",
-        onclick: async () => { await call("set_hidden", d.id, !d.hidden); refresh(true); },
-      }),
-      d.kind !== "openrgb" ? h("button", {
-        class: "btn btn-quiet", type: "button", text: "Forget",
-        onclick: async () => { await call("forget", d.id); refresh(true); },
-      }) : null);
-    const zones = (d.zones || []).filter(z => z.resizable);
-    const zoneGrid = zones.length ? h("div", { class: "zone-grid" },
-      h("span", { class: "eyebrow", style: "grid-column: 1 / -1", text: "LEDs per channel" }),
-      zones.flatMap(z => {
-        const inp = h("input", { class: "text-input mono", type: "number", min: z.min, max: z.max, value: z.leds, "aria-label": `${z.name} LED count` });
-        inp.addEventListener("change", async () => {
-          await call("resize_zone", d.id, z.index, clamp(Number(inp.value) || 0, z.min, z.max));
-          refresh(true);
-        });
-        const found = z.detected === -1 ? null : z.detected === null ? "Nothing connected" : `Fan with ${z.detected} LEDs found`;
-        return [h("span", {}, z.name, found ? h("span", { class: "zone-found", text: found }) : null), inp];
-      }),
-      h("p", { class: "hint", style: "grid-column: 1 / -1; font-size: 12px",
-        text: zones.some(z => z.detected !== -1)
-          ? "Filled in from what the controller detects. Only change a number if a fan lights up wrong."
-          : `How many LEDs are on this channel, 0 if nothing is plugged in. Add up everything daisy-chained on it: Corsair RS120 ARGB fans and the Nautilus RS pump have 8 each. Max ${zones[0].max}.` })) : null;
-    return h("div", { class: "dev-row" },
-      h("div", { class: "dev-line" }, h("span", { class: dotClass }), name),
-      h("div", { class: "dev-sub", text: sub }),
-      actions, zoneGrid);
-  });
-  return h("section", { class: "set-section" },
-    h("h3", { text: "Lights" }),
-    h("p", { class: "hint", text: "Rename lights, hide ones you don't use, and set up fan LED counts." }),
-    rows.length ? rows : h("p", { class: "hint", text: "No lights found yet." }));
-}
-
-function addSection() {
-  const kind = h("select", { "aria-label": "Light type" },
-    h("option", { value: "wled", text: "WLED" }), h("option", { value: "nanoleaf", text: "Nanoleaf" }));
-  const host = h("input", { class: "text-input", placeholder: "IP address, e.g. 192.168.1.40", "aria-label": "IP address" });
-  const add = h("button", {
-    class: "btn", type: "button", text: "Add light",
-    onclick: async () => {
-      if (!host.value.trim()) return toast("Enter the light's IP address.", true);
-      add.disabled = true;
-      const r = await callRaw("add_device", kind.value, host.value);
-      add.disabled = false;
-      if (!r.ok) return toast(`Couldn't reach ${host.value}: ${r.error}`, true);
-      toast("Light added");
-      host.value = "";
-      refresh(true);
-    },
-  });
-  return h("section", { class: "set-section" },
-    h("h3", { text: "Add a light" }),
-    h("p", { class: "hint", text: "WLED and Nanoleaf lights on your network show up on their own. Add one by IP address if it doesn't." }),
-    h("div", { class: "add-row" }, kind, host, add));
-}
-
-function openrgbSection() {
-  const o = S.data.openrgb;
-  const ok = o.status === "connected";
-  const pcCount = S.data.devices.filter(d => d.kind === "openrgb" && d.online).length;
-  const restart = elevated => async () => {
-    await call("openrgb_restart", elevated);
-    toast(elevated ? "Restarting OpenRGB as administrator. Approve the Windows prompt." : "Restarting OpenRGB");
-    setTimeout(() => refresh(true), 1500);
-  };
-  const auto = h("input", { type: "checkbox", checked: o.autoLaunch,
-    onchange: async e => { await call("set_openrgb_option", "auto_launch", e.target.checked); refresh(true); } });
-  return h("section", { class: "set-section" },
-    h("h3", { text: "PC lighting (OpenRGB)" }),
-    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (ok ? " is-on" : " is-warn") }),
-      ok ? `Connected · ${pcCount} PC device${pcCount === 1 ? "" : "s"}` : (o.message || o.status)),
-    h("p", { class: "hint", style: "margin-bottom:12px",
-      text: o.pawnio
-        ? "Memory (RAM) and some motherboard lighting only appear when OpenRGB runs as administrator."
-        : "Memory (RAM) lighting needs the PawnIO driver (pawnio.eu) and OpenRGB running as administrator." }),
-    h("div", { class: "dev-actions", style: "padding-left:0" },
-      h("button", { class: "btn btn-primary", type: "button", text: "Restart as administrator", onclick: restart(true) }),
-      h("button", { class: "btn", type: "button", text: "Restart normally", onclick: restart(false) }),
-      h("button", { class: "btn btn-quiet", type: "button", text: "Stop OpenRGB",
-        onclick: async () => { await call("openrgb_stop"); refresh(true); } })),
-    h("label", { class: "toggle-row" }, h("span", { text: "Start OpenRGB automatically" }), auto),
-    o.path ? h("p", { class: "path mono", text: o.path }) : null);
-}
-
-function appSection() {
-  const s = S.data.settings;
-  const row = (key, label) => h("label", { class: "toggle-row" }, h("span", { text: label }),
-    h("input", { type: "checkbox", checked: !!s[key],
-      onchange: async e => { await call("set_setting", key, e.target.checked); refresh(true); } }));
-  const about = S.data.about || {};
-  return h("section", { class: "set-section" },
-    h("h3", { text: "App" }),
-    h("p", { class: "hint", text: `${about.name || "Glowstage"} ${about.version || ""} · free and open source` }),
-    h("div", { class: "dev-actions", style: "padding-left:0; margin: 6px 0 4px" },
-      h("button", { class: "btn", type: "button", text: "Restart Glowstage",
-        onclick: async () => { toast("Restarting Glowstage…"); await call("restart_app"); } }),
-      ...(about.donate || []).map(d => h("button", { class: "btn btn-primary", type: "button",
-        text: `♥ Support on ${d.name}`, onclick: () => call("open_link", d.url) })),
-      about.repo ? h("button", { class: "btn", type: "button", text: "Project page",
-        onclick: () => call("open_link", about.repo) }) : null),
-    row("close_to_tray", "Keep running in the tray when I close the window"),
-    row("autostart", "Start with Windows"),
-    row("lights_on_at_startup", "Switch all lights on when Windows starts"),
-    row("pc_lights_off_at_shutdown", "Switch the PC's lights off when Windows shuts down"),
-    row("room_lights_off_at_shutdown", "Switch the room lights (WLED, Nanoleaf) off when Windows shuts down"),
-    row("show_strobe", "Strobe flashes in the light show"),
-    row("start_minimized", "Start hidden in the tray"),
-    row("restore_on_launch", "Restore my lights when the app starts"));
-}
-
-function openSettings() {
-  S.settingsOpen = true;
-  $("#settings").hidden = false;
-  $("#scrim").hidden = false;
-  renderSettings(true);
-}
-function closeSettings() {
-  S.settingsOpen = false;
-  $("#settings").hidden = true;
-  $("#scrim").hidden = true;
-}
-
-/* ============================== modal, pairing, toasts ============================== */
+/* ============================== modal and toasts ============================== */
 
 let modalOk = null;
-function openModal({ title, body, ok, onOk }) {
+function openModal({ title, body, ok, onOk, wide = false }) {
   $("#modal-title").textContent = title;
-  $("#modal-body").replaceChildren(body);
+  $(".modal-card").classList.toggle("is-wide", wide);
+  fill($("#modal-body"), body);
   $("#modal-ok").textContent = ok;
   $("#modal-ok").disabled = false;
   $("#modal-error").hidden = true;
@@ -968,24 +867,6 @@ function openModal({ title, body, ok, onOk }) {
   setTimeout(() => $("#modal-ok").focus(), 20);
 }
 function closeModal() { $("#modal").hidden = true; modalOk = null; }
-
-function openPairDialog(d) {
-  openModal({
-    title: `Pair ${d.name}`,
-    body: h("ol", {},
-      h("li", { text: "Hold the power button on the Nanoleaf controller for 5–7 seconds, until the panels flash." }),
-      h("li", { text: "Press Pair within 30 seconds." })),
-    ok: "Pair",
-    onOk: async () => {
-      const r = await callRaw("pair_nanoleaf", d.id);
-      if (!r.ok) return r.error;
-      toast(`Paired with ${d.name}`);
-      delete S.native[d.id];
-      refresh(true);
-      return true;
-    },
-  });
-}
 
 function toast(msg, isError = false) {
   const t = h("div", { class: "toast" + (isError ? " is-error" : ""), role: isError ? "alert" : "status", text: msg });
@@ -998,7 +879,7 @@ function toast(msg, isError = false) {
 function switchTab(tab) {
   S.tab = tab;
   for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
-  for (const id of ["color", "effects", "native"]) $(`#tab-${id}`).hidden = id !== tab;
+  for (const id of ["presets", "show", "color", "effects", "native"]) $(`#tab-${id}`).hidden = id !== tab;
   render();
 }
 
@@ -1009,7 +890,7 @@ function bindStatic() {
   drawWheel();
   bindWheel();
   bindKelvin();
-  $("#swatches").replaceChildren(...SWATCHES.map(([name, c]) => h("button", {
+  fill($("#swatches"), ...SWATCHES.map(([name, c]) => h("button", {
     class: "swatch", type: "button", title: name, "aria-label": name, "data-color": c, style: `background:${c}`,
     onclick: () => sendTargets({ mode: "color", on: true, color: c }, "color"),
   })));
@@ -1032,9 +913,13 @@ function bindStatic() {
   });
 
   $("#save-preset").addEventListener("click", openSavePreset);
-  $("#open-settings").addEventListener("click", openSettings);
-  $("#close-settings").addEventListener("click", closeSettings);
-  $("#scrim").addEventListener("click", closeSettings);
+  $("#show-start").addEventListener("click", () => {
+    if (showRunning()) sendTargets({ mode: "color" }, "fx");
+    else sendTargets({ mode: "effect", on: true, effect: "music_show" }, "fx");
+  });
+  $("#show-intensity").addEventListener("input", e => sendTargets({ speed: Number(e.target.value) }, "speed"));
+  $("#show-strobe").addEventListener("change", async e => { await call("set_setting", "show_strobe", e.target.checked); refresh(true); });
+  bindSetup();
   $("#modal-cancel").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
   $("#modal-ok").addEventListener("click", async () => {
@@ -1049,6 +934,7 @@ function bindStatic() {
     if (e.key !== "Escape") return;
     if (!$("#modal").hidden) closeModal();
     else if (S.settingsOpen) closeSettings();
+    else if (S.arrange) { S.arrange = false; renderStage(); }
   });
 }
 
@@ -1057,9 +943,11 @@ async function start() {
   if (started) return;
   started = true;
   bindStatic();
+  bindStage();
   requestAnimationFrame(animatePreviews);
   await refresh(true);
   setInterval(refresh, 1000);
+  if (S.data && S.data.settings.setup_done === false) openWizard();
 }
 
 window.addEventListener("pywebviewready", start);

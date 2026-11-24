@@ -24,6 +24,7 @@ from openrgb.utils import ModeColors, OpenRGBDisconnected, RGBColor
 from .. import winutil
 from ..colors import RGB, hex_to_rgb, rgb_to_hex, scale
 from ..paths import APP_NAME, DATA_DIR, INSTALL_DIR
+from . import openrgb_install as installer
 from ..state import LightState
 from . import commander_core
 from .base import Device
@@ -31,9 +32,18 @@ from .base import Device
 log = logging.getLogger(__name__)
 
 # OpenRGB next to the app (a source checkout's tools folder), or the copy the app downloaded.
-BUNDLED_EXES = [INSTALL_DIR / "tools" / "OpenRGB" / "OpenRGB Windows 64-bit" / "OpenRGB.exe",
-                DATA_DIR / "OpenRGB" / "OpenRGB Windows 64-bit" / "OpenRGB.exe"]
-BUNDLED_EXE = next((p for p in BUNDLED_EXES if p.is_file()), BUNDLED_EXES[-1])
+BUNDLED_DIRS = [INSTALL_DIR / "tools" / "OpenRGB", DATA_DIR / "OpenRGB"]
+
+
+def bundled_exe() -> Path | None:
+    """The portable OpenRGB the app manages (looked up each time: it may have just been downloaded)."""
+    for folder in BUNDLED_DIRS:
+        found = sorted(folder.glob("**/OpenRGB.exe")) if folder.is_dir() else []
+        if found:
+            return found[0]
+    return None
+
+
 INSTALLED_EXE = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "OpenRGB" / "OpenRGB.exe"
 # Protocol 3 skips the plugin-list request, which OpenRGB 1.x never answers in --server mode.
 PROTOCOL_VERSION = 3
@@ -262,7 +272,7 @@ class OpenRGBProvider:
 
     def exe_path(self) -> Path | None:
         custom = self.settings.get("path")
-        for candidate in (Path(custom) if custom else None, BUNDLED_EXE, INSTALLED_EXE):
+        for candidate in (Path(custom) if custom else None, bundled_exe(), INSTALLED_EXE):
             if candidate and candidate.is_file():
                 return candidate
         return None
@@ -272,7 +282,7 @@ class OpenRGBProvider:
         if not exe:
             raise FileNotFoundError("OpenRGB.exe not found. Set its path in Settings.")
         args = ["--server", "--server-port", str(self.port)]
-        if exe == BUNDLED_EXE:
+        if exe == bundled_exe():
             args.append("--localconfig")
         if not openrgb_running():
             self._detect_fan_leds()  # only safe while OpenRGB isn't talking to the controller
@@ -479,7 +489,8 @@ class OpenRGBProvider:
             "status": self.status,
             "message": self.message,
             "path": str(exe) if exe else "",
-            "bundled": exe == BUNDLED_EXE,
+            "bundled": exe is not None and exe == bundled_exe(),
+            "install": installer.describe(),
             "elevated": self.launched_elevated or bool(self.settings.get("elevated")),
             "pawnio": pawnio_installed(),
             "autoLaunch": bool(self.settings.get("auto_launch", True)),

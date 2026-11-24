@@ -15,6 +15,7 @@ from itertools import chain
 
 from ..colors import RGB, hex_to_rgb, rgb_to_hex
 from ..state import LightState
+from . import registry
 from .base import Device
 from .net import http_json
 
@@ -130,3 +131,24 @@ class WledDevice(Device):
 
     def extra_info(self) -> dict:
         return {"host": self.host, "version": self.version, "label": f"WLED {self.version}".strip()}
+
+
+class Driver(registry.Driver):
+    kind, title = "wled", "WLED"
+    mdns = ("_wled._tcp.local.",)
+
+    def from_mdns(self, service, name, host, port, props):
+        mac = props.get("mac", "").lower().replace(":", "")
+        return registry.Found("wled", f"wled:{mac or host}", host, port, name)
+
+    def probe(self, values):
+        host = values.get("host", "").strip().removeprefix("http://").rstrip("/")
+        try:
+            info = http_json("GET", f"http://{host}/json/info", timeout=4.0)
+        except Exception as e:
+            raise ValueError(f"No WLED answered at {host} ({e})") from None
+        mac = str(info.get("mac", "")).lower().replace(":", "")
+        return registry.Found("wled", f"wled:{mac or host}", host, 80, info.get("name") or "WLED")
+
+    def create(self, dev_id, entry):
+        return WledDevice(dev_id, entry.get("label") or "WLED", entry["host"])

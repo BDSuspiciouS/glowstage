@@ -11,16 +11,16 @@ import struct
 
 from ..colors import RGB, hsv, kelvin_to_rgb, rgb_to_hex, rgb_to_hsv
 from ..state import LightState
+from . import registry
 from .base import Device
+from .hub import NotPairedError
 from .net import HttpError, http_json
 
 STREAM_PORT = 60222
 # Shape types without LEDs: Shapes controller, Lines connector, controller cap, power connector.
 NO_LED_SHAPES = {12, 16, 19, 20}
-
-
-class NotPairedError(Exception):
-    pass
+PAIRING = ("Hold the controller's power button for 5-7 seconds until the lights flash, "
+           "then press Pair within 30 seconds.")
 
 
 class NanoleafDevice(Device):
@@ -54,10 +54,7 @@ class NanoleafDevice(Device):
             data = http_json("POST", f"http://{self.host}:{self.port}/api/v1/new", timeout=5.0)
         except HttpError as e:
             if e.status == 403:
-                raise NotPairedError(
-                    "The panels aren't in pairing mode. Hold the power button for 5-7 seconds "
-                    "until the lights flash, then press Pair again within 30 seconds."
-                ) from None
+                raise NotPairedError("The panels aren't in pairing mode. " + PAIRING) from None
             raise
         self.token = data["auth_token"]
         return self.token
@@ -148,3 +145,29 @@ class NanoleafDevice(Device):
             label += f" · {self.pixel_count} panels"
         return {"host": self.host, "paired": self.paired, "model": self.model,
                 "firmware": self.firmware, "label": label}
+
+
+class Driver(registry.Driver):
+    kind, title = "nanoleaf", "Nanoleaf"
+    mdns = ("_nanoleafapi._tcp.local.",)
+    pairing = PAIRING
+
+    def from_mdns(self, service, name, host, port, props):
+        return registry.Found("nanoleaf", f"nanoleaf:{props.get('id', host).upper()}", host, port or 16021, name)
+
+    def probe(self, values):
+        host = values.get("host", "").strip()
+        try:   # without a token the controller answers 401: that's enough to know it's there
+            http_json("GET", f"http://{host}:16021/api/v1/", timeout=4.0)
+        except HttpError:
+            pass
+        except Exception as e:
+            raise ValueError(f"No Nanoleaf answered at {host} ({e})") from None
+        return registry.Found("nanoleaf", f"nanoleaf:{host}", host, 16021, "Nanoleaf")
+
+    def create(self, dev_id, entry):
+        return NanoleafDevice(dev_id, entry.get("label") or "Nanoleaf", entry["host"],
+                              int(entry.get("port") or 16021), entry.get("token"))
+
+    def pair(self, target):
+        return {"token": target.pair()}

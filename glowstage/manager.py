@@ -11,18 +11,20 @@ from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .devices.base import Device
 from .devices.discovery import Discovery
-from .devices.nanoleaf import NanoleafDevice, NotPairedError
-from .devices.net import http_json
+from .devices.hub import Hub, NotPairedError
 from .devices.openrgb_dev import OpenRGBProvider
-from .devices.wled import WledDevice
+from .devices.registry import Found, drivers
 from .effects import EFFECTS
 from .engine import EffectEngine
+from .show import stage_spans
 from .state import LightState
 
 log = logging.getLogger(__name__)
 
-NETWORK_KINDS = ("wled", "nanoleaf")
-RECONNECT_KINDS = NETWORK_KINDS + ("qmk",)   # retried every 15 s while offline (e.g. keyboard re-plugged)
+
+def is_network(dev: Device) -> bool:
+    """A light the app reaches over the network (any brand in the driver registry)."""
+    return dev.kind in drivers()
 
 
 def friendly_error(exc: Exception) -> str:
@@ -68,6 +70,7 @@ class DeviceManager:
         self.config = config
         self.lock = threading.RLock()
         self.devices: dict[str, Device] = {}
+        self.hubs: dict[str, Hub] = {}         # bridges with many lights: Hue, Home Assistant, DMX
         self.states: dict[str, LightState] = {}
         self.workers: dict[str, DeviceWorker] = {}
         self.listeners: list[Callable[[], None]] = []
@@ -85,7 +88,7 @@ class DeviceManager:
 
     def start(self) -> None:
         for dev_id, entry in list(self.config["devices"].items()):
-            self._add_network_device(dev_id, entry)
+            self._add_entry(dev_id, entry)
         self.openrgb.start()
         self.discovery.start()
         self.engine.start()
@@ -109,6 +112,8 @@ class DeviceManager:
         self.engine.stop()
         self.discovery.stop()
         self.openrgb.stop()
+        for hub in list(self.hubs.values()):
+            hub.close()
         self.config.save_now()
 
     def _changed(self) -> None:
@@ -129,18 +134,48 @@ class DeviceManager:
             self.workers.setdefault(dev.id, DeviceWorker(dev, self.report_error))
             dev.name = self.config["names"].get(dev.id) or dev.name
 
-    def _add_network_device(self, dev_id: str, entry: dict) -> Device | None:
-        kind, label = entry.get("kind"), entry.get("label")
-        if kind == "wled":
-            dev = WledDevice(dev_id, label or "WLED", entry["host"])
-        elif kind == "nanoleaf":
-            dev = NanoleafDevice(dev_id, label or "Nanoleaf", entry["host"], int(entry.get("port", 16021)),
-                                 entry.get("token"))
-        else:
+    def _add_entry(self, dev_id: str, entry: dict) -> Device | Hub | None:
+        """Make the light (or hub) for a config entry and connect it in the background."""
+        driver = drivers().get(entry.get("kind", ""))
+        if driver is None:
             return None
-        self._register(dev)
-        self._connect_async(dev)
-        return dev
+        try:
+            made = driver.create(dev_id, entry)
+        except Exception:
+            log.exception("Could not set up %s", dev_id)
+            return None
+        if isinstance(made, Hub):
+            self.hubs[dev_id] = made
+            self._connect_hub_async(made)
+        else:
+            self._register(made)
+            self._connect_async(made)
+        return made
+
+    def _connect_hub_async(self, hub: Hub) -> None:
+        with self.lock:
+            if hub.id in self._connecting:
+                return
+            self._connecting.add(hub.id)
+        threading.Thread(target=self._connect_hub, args=(hub,), name=f"connect:{hub.id}", daemon=True).start()
+
+    def _connect_hub(self, hub: Hub) -> None:
+        try:
+            hub.connect()
+        except NotPairedError as e:
+            hub.online, hub.error = False, str(e)
+        except Exception as e:
+            hub.online, hub.error = False, friendly_error(e)
+        else:
+            hub.online, hub.error = True, None
+            for dev in list(hub.devices.values()):
+                if dev.id not in self.devices:
+                    self._register(dev)
+                self._connect_async(dev)
+        finally:
+            with self.lock:
+                self._connecting.discard(hub.id)
+            self._changed()
 
     def _connect_async(self, dev: Device) -> None:
         with self.lock:
@@ -189,28 +224,43 @@ class DeviceManager:
                 self._came_online(dev)
         self._changed()
 
-    def _on_discovered(self, kind: str, dev_id: str, host: str, port: int, label: str) -> None:
+    def _on_discovered(self, found: Found) -> None:
+        """A light or hub seen on the network (or added by hand): add it, or follow a new IP."""
         with self.lock:
-            dev = self.devices.get(dev_id) or next(
-                (d for d in self.devices.values() if d.kind == kind and getattr(d, "host", None) == host), None)
-            if dev is None:
-                entry = {"kind": kind, "host": host, "port": port, "label": label}
-                self.config["devices"][dev_id] = entry
+            known = self.hubs.get(found.dev_id) or self.devices.get(found.dev_id) or next(
+                (d for d in [*self.hubs.values(), *self.devices.values()]
+                 if d.id in self.config["devices"] and d.kind == found.kind
+                 and getattr(d, "host", None) == found.host), None)
+            if known is None:
+                entry = found.entry()
+                self.config["devices"][found.dev_id] = entry
                 self.config.save_soon()
-        if dev is None:
-            self._add_network_device(dev_id, entry)
+        if known is None:
+            log.info("Found %s %s at %s", found.kind, found.label or found.dev_id, found.host)
+            self._add_entry(found.dev_id, entry)
+            self._changed()
             return
-        if getattr(dev, "host", host) != host:
-            dev.host = host
-            self.config["devices"].get(dev.id, {})["host"] = host
+        if found.host and getattr(known, "host", found.host) != found.host:
+            known.host = found.host
+            self.config["devices"].get(known.id, {})["host"] = found.host
             self.config.save_soon()
-        if not dev.online:
-            self._connect_async(dev)
+        if not known.online:
+            self._reconnect(known)
+
+    def _reconnect(self, target: Device | Hub) -> None:
+        if isinstance(target, Hub):
+            self._connect_hub_async(target)
+        else:
+            self._connect_async(target)
 
     def _monitor(self) -> None:
         while not self._stop.wait(15):
+            for hub in list(self.hubs.values()):
+                if not hub.online and hub.paired:
+                    self._connect_hub_async(hub)
             for dev in list(self.devices.values()):
-                if dev.kind in RECONNECT_KINDS and not dev.online and getattr(dev, "paired", True):
+                # Retried while offline: network lights, and a keyboard that was re-plugged.
+                if (is_network(dev) or dev.kind == "qmk") and not dev.online and getattr(dev, "paired", True):
                     self._connect_async(dev)
 
     def report_error(self, dev: Device, exc: Exception) -> None:
@@ -286,7 +336,7 @@ class DeviceManager:
                 continue
             try:
                 dev.streaming = False
-                if dev.kind in NETWORK_KINDS:  # without WLED/Nanoleaf answering, don't wait long
+                if is_network(dev):   # when a network light doesn't answer, don't wait long
                     dev.power_off(timeout=max(0.2, min(1.0, deadline - time.monotonic())))
                 else:
                     dev.power_off()
@@ -325,42 +375,58 @@ class DeviceManager:
         self._changed()
 
     def forget(self, dev_id: str) -> None:
-        """Remove a network light (it comes back if discovery sees it again)."""
+        """Remove a network light or hub (it comes back if discovery sees it again)."""
         with self.lock:
-            dev = self.devices.get(dev_id)
-            if not dev or dev.kind not in NETWORK_KINDS:
-                return
-            dev.streaming = False
-            dev.online = False
-            self.devices.pop(dev_id, None)
-            self.workers.pop(dev_id, None)
+            hub = self.hubs.pop(dev_id, None)
+            if hub is not None:
+                hub.close()
+                gone = list(hub.devices)
+            else:
+                dev = self.devices.get(dev_id)
+                if not dev or not is_network(dev):
+                    return
+                gone = [dev_id]
+            for i in gone:
+                dev = self.devices.pop(i, None)
+                if dev is not None:
+                    dev.streaming = dev.online = False
+                self.workers.pop(i, None)
+                self.config["states"].pop(i, None)
             self.config["devices"].pop(dev_id, None)
-            self.config["states"].pop(dev_id, None)
         self.config.save_soon()
         self._changed()
 
-    def pair_nanoleaf(self, dev_id: str) -> None:
-        dev = self.devices[dev_id]
-        if not isinstance(dev, NanoleafDevice):
-            raise ValueError("Not a Nanoleaf device")
-        token = dev.pair()
-        self.config["devices"].setdefault(dev_id, {"kind": "nanoleaf", "host": dev.host, "port": dev.port})["token"] = token
+    def pair(self, dev_id: str) -> None:
+        """Pair a light or hub after the user did what its brand asks (press the link button,
+        hold the power button, ...); stores the credentials it hands out."""
+        target = self.hubs.get(dev_id) or self.devices.get(dev_id)
+        if target is None:
+            raise ValueError("That light is gone")
+        updates = drivers()[target.kind].pair(target)
+        entry = self.config["devices"].setdefault(dev_id, {"kind": target.kind, "host": getattr(target, "host", "")})
+        entry.update(updates)
+        if isinstance(target, Hub):
+            target.entry.update(updates)
         self.config.save_now()
-        self._connect(dev)
-
-    def add_manual(self, kind: str, host: str) -> str:
-        host = host.strip().removeprefix("http://").rstrip("/")
-        if kind == "wled":
-            info = http_json("GET", f"http://{host}/json/info", timeout=4.0)
-            dev_id = f"wled:{info.get('mac', host)}"
-            label = info.get("name") or "WLED"
-            port = 80
-        elif kind == "nanoleaf":
-            dev_id, label, port = f"nanoleaf:{host}", "Nanoleaf", 16021
+        if isinstance(target, Hub):
+            self._connect_hub(target)
         else:
-            raise ValueError("Unknown device type")
-        self._on_discovered(kind, dev_id, host, port, label)
-        return dev_id
+            self._connect(target)
+
+    def add_manual(self, kind: str, values: dict | str) -> str:
+        """"Add a light by hand": check it with its brand's driver, then add it like a found one."""
+        driver = drivers().get(kind)
+        if driver is None:
+            raise ValueError("Unknown kind of light")
+        if isinstance(values, str):
+            values = {"host": values}
+        found = driver.probe({k: (v.strip() if isinstance(v, str) else v) for k, v in values.items()})
+        self._on_discovered(found)
+        return found.dev_id
+
+    def search(self) -> None:
+        """Look for lights on the network right now."""
+        self.discovery.scan_now()
 
     def resize_zone(self, dev_id: str, index: int, size: int) -> None:
         self.openrgb.save_zone_size(dev_id, index, size)
@@ -443,4 +509,53 @@ class DeviceManager:
             "effects": [e.describe() for e in EFFECTS.values()],
             "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active},
             "show": self.engine.show.info() if self.engine.show_active else None,
+            "hubs": [h.describe() for h in list(self.hubs.values())],
+            "drivers": [d.describe() for d in drivers().values()],
+            "stage": self.stage(),
         }
+
+    # ---- stage layout (where each light sits for the light show) ------------------------------
+
+    def stage(self) -> dict:
+        overrides = self.config.data.get("show_layout") or {}
+        with self.lock:
+            devices = list(self.devices.values())
+        return {dev_id: {"start": a, "end": b, "layer": layer, "custom": dev_id in overrides}
+                for dev_id, (a, b, layer) in stage_spans(devices, overrides).items()}
+
+    def set_stage(self, dev_id: str, span) -> None:
+        """Place a light on the stage: [start, end, "front"|"back"] (0 = left, 1 = right; start >
+        end runs it the other way), or None to put it back where Glowstage would put it."""
+        layout = self.config.data.setdefault("show_layout", {})
+        if span is None:
+            layout.pop(dev_id, None)
+        else:
+            a, b = (round(min(1.0, max(0.0, float(v))), 3) for v in span[:2])
+            layer = span[2] if len(span) > 2 and span[2] in ("front", "back") else "front"
+            if abs(a - b) < 0.02:
+                raise ValueError("A light needs some width on the stage")
+            layout[dev_id] = [a, b, layer]
+        self.config.save_soon()
+        self._changed()
+
+    def reset_stage(self) -> None:
+        self.config.data["show_layout"] = {}
+        self.config.save_soon()
+        self._changed()
+
+    def set_dmx_fixtures(self, hub_id: str, fixtures: list[dict]) -> None:
+        """Patch the fixtures of a DMX universe (from the DMX editor)."""
+        hub = self.hubs.get(hub_id)
+        if hub is None or hub.kind != "dmx":
+            raise ValueError("Not a DMX universe")
+        self.config["devices"][hub_id]["fixtures"] = fixtures
+        hub.entry["fixtures"] = fixtures
+        with self.lock:
+            for old in list(hub.devices):
+                self.devices.pop(old, None)
+                self.workers.pop(old, None)
+        for dev in hub.set_fixtures(fixtures):
+            self._register(dev)
+            self._connect_async(dev)
+        self.config.save_soon()
+        self._changed()

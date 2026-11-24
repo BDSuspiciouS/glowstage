@@ -23,18 +23,53 @@
     revision: 1,
     devices: [
       { id: "openrgb:Corsair Commander Core", kind: "openrgb", group: "pc", name: "Commander Core", online: true, error: null,
-        pixels: 131, hasNative: false, label: "Cooler · 131 LEDs", zones, state: st({ mode: "effect", effect: "rainbow" }), hidden: false },
+        pixels: 131, hasNative: false, label: "Cooler · 131 LEDs", zones, state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
       { id: "openrgb:QCK", kind: "openrgb", group: "pc", name: "QCK Prism XL", online: true, error: null, pixels: 2,
         hasNative: false, label: "Mousemat · 2 LEDs", zones: [], state: st({ color: "#ff0090" }), hidden: false },
+      { id: "asrock_gpu:0", kind: "asrock_gpu", group: "pc", name: "Graphics card", online: true, error: null, pixels: 12,
+        hasNative: false, label: "ASRock · 12 LEDs", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
+      { id: "qmk:gx87", kind: "qmk", group: "pc", name: "Keyboard", online: true, error: null, pixels: 87,
+        hasNative: false, label: "GX87 · 87 keys", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
       { id: "wled:1", kind: "wled", group: "room", name: "Desk strip", online: true, error: null, pixels: 297, hasNative: true,
-        label: "WLED 0.15.3", host: "192.168.1.26", state: st({ color: "#ff7a00", brightness: 70 }), hidden: false },
+        label: "WLED 0.15.3", host: "192.168.1.26", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
       { id: "wled:2", kind: "wled", group: "room", name: "Monitor", online: true, error: null, pixels: 99, hasNative: true,
-        label: "WLED 0.15.3", host: "192.168.1.27", state: st({ on: false, color: "#1e00ff" }), hidden: false },
-      { id: "nanoleaf:1", kind: "nanoleaf", group: "room", name: "Shapes 1FF1", online: false, error: "Not paired", pixels: 0,
-        hasNative: false, label: "Nanoleaf", host: "192.168.1.30", paired: false, state: st(), hidden: false },
+        label: "WLED 0.15.3", host: "192.168.1.27", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
+      { id: "nanoleaf:1", kind: "nanoleaf", group: "room", name: "Shapes", online: true, error: null, pixels: 9,
+        hasNative: true, label: "Nanoleaf Shapes · 9 panels", host: "192.168.1.30", paired: true, state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
+      { id: "hue:001788:3", kind: "hue", group: "room", name: "Floor lamp", online: false, error: "Not paired", pixels: 1,
+        hasNative: false, label: "Hue color lamp", host: "192.168.1.41", paired: false, state: st({ color: "#ffb46b" }), hidden: false },
     ],
+    hubs: [{ id: "hue:001788", kind: "hue", name: "Hue bridge", host: "192.168.1.41", online: false, error: "Not paired", paired: false, lights: 1 },
+      { id: "dmx:artnet-0", kind: "dmx", name: "Art-Net universe 0", host: "", online: true, error: null, paired: true, lights: 2,
+        protocol: "artnet", universe: 0, layouts: ["RGB", "GRB", "RGBW", "DRGB", "DRGBW"],
+        fixtures: [{ id: "f1", name: "Par left", start: 1, pixels: 1, layout: "DRGB" }, { id: "f2", name: "Par right", start: 5, pixels: 1, layout: "DRGB" }] }],
+    drivers: [["wled", "WLED"], ["nanoleaf", "Nanoleaf", "Hold the controller's power button for 5-7 seconds until the lights flash, then press Pair within 30 seconds."],
+      ["hue", "Philips Hue", "Press the round link button on the Hue bridge, then press Pair within 30 seconds.", true],
+      ["govee", "Govee", "Turn on LAN Control for the light in the Govee Home app (device settings → LAN Control).", true],
+      ["lifx", "LIFX", "", true], ["yeelight", "Yeelight", "Turn on LAN Control for the light in the Yeelight app.", true],
+      ["elgato", "Elgato", "", true], ["twinkly", "Twinkly", "", true], ["magichome", "Magic Home", "", true]]
+      .map(([kind, title, pairing, beta]) => ({ kind, title, hub: kind === "hue", pairing: pairing || "", beta: !!beta,
+        fields: [{ key: "host", label: "IP address", placeholder: "192.168.1.40" }] }))
+      .concat([{ kind: "homeassistant", title: "Home Assistant", hub: true, beta: true,
+        pairing: "Create a long-lived access token in Home Assistant (your profile → Security → Long-lived access tokens) and add it here.",
+        fields: [{ key: "url", label: "Home Assistant address", placeholder: "http://homeassistant.local:8123" },
+          { key: "token", label: "Long-lived access token", placeholder: "From your Home Assistant profile → Security", secret: true }] },
+        { kind: "dmx", title: "DMX (Art-Net / sACN)", hub: true, beta: true, pairing: "",
+          fields: [{ key: "protocol", label: "Protocol", options: ["artnet", "sacn"], placeholder: "artnet" },
+            { key: "host", label: "Node IP address (empty = broadcast / multicast)", placeholder: "192.168.1.60" },
+            { key: "universe", label: "Universe", placeholder: "0" }] }]),
+    stage: {
+      "wled:1": { start: 0, end: 0.68, layer: "front", custom: false }, "wled:2": { start: 0.12, end: 0.6, layer: "front", custom: false },
+      "qmk:gx87": { start: 0.22, end: 0.52, layer: "front", custom: false },
+      "asrock_gpu:0": { start: 0.72, end: 0.82, layer: "front", custom: false },
+      "openrgb:Corsair Commander Core": { start: 0.82, end: 0.91, layer: "front", custom: false },
+      "openrgb:QCK": { start: 0.91, end: 1, layer: "front", custom: false },
+      "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
+    },
+    about: { name: "Glowstage", version: "0.9.0", repo: "https://github.com/example/glowstage",
+      donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
-      bundled: true, elevated: false, pawnio: true, autoLaunch: true },
+      bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
     presets: [{ name: "Rainbow", effects: ["rainbow"], colors: [] }, { name: "Warm white", effects: [], colors: ["#ffb46b"] },
       { name: "Focus", effects: [], colors: ["#eaf1ff"] }, { name: "Chill", effects: ["wave"], colors: ["#5b2bff", "#00b8ff"] },
       { name: "Cyberpunk", effects: ["wave"], colors: ["#ff0090", "#00f0ff"] }, { name: "Movie", effects: ["screen"], colors: [] },
@@ -61,12 +96,34 @@
     audio: { device: "Speakers (Realtek(R) Audio)", listening: false },
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
-    settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false },
+    settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true,
+      lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true,
+      setup_done: !/[?&]tour\b/.test(location.search) },
   };
   const wledFx = ["Android", "Aurora", "Blink", "Bouncing Balls", "Breathe", "Candle", "Chase", "Colorloop", "Fire 2012",
     "Fireworks", "Lake", "Meteor", "Noise 1", "Pacifica", "Plasma", "Rainbow", "Ripple", "Sinelon", "Twinkle", "Wipe"]
     .map((name, i) => ({ id: String(i + 1), name }));
   const ok = result => Promise.resolve({ ok: true, result });
+  // A made-up 128 BPM show: a block chasing across the front, the back wall pumping on the beat.
+  const live = () => {
+    const t = performance.now() / 1000, beat = t / (60 / 128), pal = [[0, 229, 255], [255, 0, 200], [42, 75, 255]];
+    const c = pal[Math.floor(beat / 4) % 3], pump = Math.exp(-(beat % 1) * 3);
+    const out = {};
+    for (const d of data.devices) {
+      if (!d.online || !d.state.on || d.state.mode !== "effect") continue;
+      const s = data.stage[d.id] || { start: 0, end: 1, layer: "front" }, n = Math.min(24, Math.max(1, d.pixels));
+      out[d.id] = Array.from({ length: n }, (_, i) => {
+        let v;
+        if (s.layer === "back") v = 0.15 + 0.85 * pump;
+        else {
+          const x = s.start + (s.end - s.start) * (i + 0.5) / n, pos = (beat / 2) % 2 < 1 ? (beat / 2) % 1 : 1 - (beat / 2) % 1;
+          v = 0.06 + 0.94 * Math.max(0, 1 - Math.abs(x - pos) / 0.18) ** 1.5;
+        }
+        return "#" + c.map(k => Math.round(k * v).toString(16).padStart(2, "0")).join("");
+      });
+    }
+    return out;
+  };
   window.pywebview = { api: {
     get_state: () => ok(JSON.parse(JSON.stringify(data))),
     update: (ids, patch) => {
@@ -79,5 +136,24 @@
     add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), resize_zone: () => ok(),
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(), set_setting: () => ok(),
     hide_window: () => ok(),
+    get_live: () => ok(live()),
+    set_stage: (id, span) => {
+      if (span) data.stage[id] = { start: span[0], end: span[1], layer: span[2], custom: true };
+      else delete data.stage[id].custom;
+      return ok();
+    },
+    reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),
+    pair: () => Promise.resolve({ ok: false, error: "The bridge's link button wasn't pressed." }),
+    set_dmx_fixtures: (id, fixtures) => { data.hubs[1].fixtures = fixtures; return ok(); },
+    openrgb_install: () => {
+      const inst = data.openrgb.install;
+      Object.assign(inst, { state: "downloading", progress: 0, message: "Downloading OpenRGB…" });
+      const tick = setInterval(() => {
+        inst.progress = Math.min(1, inst.progress + 0.1);
+        inst.message = `Downloading OpenRGB… ${Math.round(inst.progress * 31)} of 31 MB`;
+        if (inst.progress >= 1) { clearInterval(tick); Object.assign(inst, { state: "done", message: "OpenRGB 1.1 is installed" }); }
+      }, 400);
+      return ok();
+    },
   } };
 })();

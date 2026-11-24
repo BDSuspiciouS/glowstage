@@ -8,6 +8,7 @@ import threading
 import webbrowser
 
 from . import winutil
+from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
 
@@ -43,6 +44,19 @@ class Api:
         return snap
 
     @_safe
+    def get_live(self):
+        """What each light running an app effect shows right now (the stage view polls this)."""
+        return self._m.engine.live()
+
+    @_safe
+    def set_stage(self, dev_id, span):
+        self._m.set_stage(dev_id, span)
+
+    @_safe
+    def reset_stage(self):
+        self._m.reset_stage()
+
+    @_safe
     def open_link(self, url):
         """Open the project page or a donation page in the browser (only those, nothing else)."""
         allowed = {f"https://github.com/{REPO}", f"https://github.com/{REPO}/releases", *DONATE.values()}
@@ -70,12 +84,24 @@ class Api:
         self._m.delete_preset(name)
 
     @_safe
-    def pair_nanoleaf(self, dev_id):
-        self._m.pair_nanoleaf(dev_id)
+    def pair(self, dev_id):
+        self._m.pair(dev_id)
 
     @_safe
-    def add_device(self, kind, host):
-        return self._m.add_manual(kind, host)
+    def pair_nanoleaf(self, dev_id):   # older UI name
+        self._m.pair(dev_id)
+
+    @_safe
+    def search(self):
+        self._m.search()
+
+    @_safe
+    def set_dmx_fixtures(self, hub_id, fixtures):
+        self._m.set_dmx_fixtures(hub_id, fixtures)
+
+    @_safe
+    def add_device(self, kind, values):
+        return self._m.add_manual(kind, values)
 
     @_safe
     def rename(self, dev_id, name):
@@ -98,6 +124,13 @@ class Api:
         self._app.config["openrgb"]["elevated"] = bool(elevated)
         self._app.config.save_soon()
         threading.Thread(target=self._m.openrgb.restart, args=(bool(elevated),), daemon=True).start()
+
+    @_safe
+    def openrgb_install(self):
+        """Download OpenRGB from its makers (the user pressed the button), then start it."""
+        provider = self._m.openrgb
+        elevated = bool(self._app.config["openrgb"].get("elevated"))
+        installer.start(on_done=lambda: provider.restart(elevated))
 
     @_safe
     def openrgb_stop(self):

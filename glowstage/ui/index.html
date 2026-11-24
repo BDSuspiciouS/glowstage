@@ -12,61 +12,107 @@
       <span class="brand-lamp" aria-hidden="true"></span>
       <span class="brand-name">Glowstage</span>
     </div>
-    <nav class="presets" aria-label="Presets">
-      <span class="eyebrow">Presets</span>
-      <div id="preset-list" class="preset-list"></div>
-      <button id="save-preset" class="chip chip-ghost" type="button">Save current as preset</button>
-    </nav>
-    <button id="open-settings" class="icon-btn" type="button" aria-label="Settings" title="Settings">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.5 7.5 0 0 0 .05-.94 7.5 7.5 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.4 7.4 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7.4 7.4 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.6 7.6 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.05.7 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54a7.4 7.4 0 0 0 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
-    </button>
+    <div class="topbar-actions">
+      <button id="support" class="btn btn-support" type="button" hidden>♥ Support Glowstage</button>
+      <button id="open-settings" class="btn btn-setup" type="button" title="Lights, brands, PC lighting and app settings">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.5 7.5 0 0 0 .05-.94 7.5 7.5 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.4 7.4 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7.4 7.4 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.6 7.6 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.05.7 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54a7.4 7.4 0 0 0 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+        Setup
+      </button>
+    </div>
   </header>
 
-  <main class="stage">
-    <div class="stage-head">
-      <div class="target">
-        <span class="eyebrow">Editing</span>
-        <h1 id="target-name">All lights</h1>
-        <span id="target-meta" class="target-meta"></span>
-      </div>
-      <div class="tabs" role="tablist" aria-label="Lighting mode">
-        <button role="tab" type="button" data-tab="color" aria-selected="true">Color</button>
-        <button role="tab" type="button" data-tab="effects" aria-selected="false">Synced effects</button>
-        <button role="tab" type="button" data-tab="native" aria-selected="false">Built-in effects</button>
-      </div>
-    </div>
-
-    <section id="tab-color" class="tab-panel" role="tabpanel">
-      <div class="color-layout">
-        <div class="wheel-wrap">
-          <canvas id="wheel" width="600" height="600" aria-label="Color wheel"></canvas>
-          <div id="wheel-handle" class="wheel-handle" aria-hidden="true"></div>
+  <main class="main">
+    <!-- The stage: every light where it is in the room, glowing in the colors it shows right now. -->
+    <section class="plot" aria-label="Stage">
+      <div class="plot-head">
+        <div class="plot-title">
+          <span class="eyebrow">Stage</span>
+          <span id="plot-hint" class="plot-hint">Click a light to edit it · Ctrl+click for several</span>
         </div>
-        <div class="color-side">
-          <label class="field">
-            <span class="eyebrow">Hex</span>
-            <input id="hex" class="hex-input mono" maxlength="7" spellcheck="false" autocomplete="off">
-          </label>
-          <div>
-            <div class="eyebrow">Colors</div>
-            <div id="swatches" class="swatches"></div>
-          </div>
-          <div>
-            <div class="eyebrow">White</div>
-            <div id="kelvin" class="kelvin-track" role="slider" tabindex="0" aria-label="White temperature"
-                 aria-valuemin="2200" aria-valuemax="6500"><div class="kelvin-thumb"></div></div>
-            <div class="kelvin-scale mono"><span>2200K warm</span><span>4000K</span><span>6500K daylight</span></div>
-          </div>
+        <div class="plot-tools">
+          <button id="stage-reset" class="btn btn-quiet" type="button" hidden>Reset layout</button>
+          <button id="arrange" class="btn" type="button" aria-pressed="false">Arrange</button>
         </div>
       </div>
+      <div id="plot-floor" class="plot-floor">
+        <canvas id="plot-canvas" aria-label="Your lights on the stage, as seen from your chair"></canvas>
+        <div id="plot-empty" class="plot-empty" hidden>
+          <p class="empty-title">No lights yet</p>
+          <p>Glowstage looks for lights on your network and in your PC all the time.</p>
+          <button id="plot-setup" class="btn btn-primary" type="button">Find lights</button>
+        </div>
+      </div>
+      <div id="plot-hud" class="hud" hidden></div>
+      <div id="inspector" class="inspector" hidden></div>
     </section>
 
-    <section id="tab-effects" class="tab-panel" role="tabpanel" hidden>
-      <div class="fx-layout">
-        <div id="fx-grid" class="fx-grid"></div>
-        <div class="fx-side">
-          <p class="hint">These run on every selected light at the same time, so your PC, strips and panels move together.</p>
+    <!-- What the selected lights do. -->
+    <section class="look" aria-label="Look">
+      <div class="look-head">
+        <div class="target">
+          <span class="eyebrow">Editing</span>
+          <h1 id="target-name">All lights</h1>
+        </div>
+        <span id="target-meta" class="target-meta"></span>
+      </div>
+      <div class="tabs" role="tablist" aria-label="What the lights do">
+        <button role="tab" type="button" data-tab="presets" aria-selected="true">Presets</button>
+        <button role="tab" type="button" data-tab="show" aria-selected="false">Light show</button>
+        <button role="tab" type="button" data-tab="color" aria-selected="false">Color</button>
+        <button role="tab" type="button" data-tab="effects" aria-selected="false">Effects</button>
+        <button role="tab" type="button" data-tab="native" aria-selected="false">Built-in</button>
+      </div>
+
+      <section id="tab-presets" class="tab-panel" role="tabpanel">
+        <div id="preset-list" class="preset-list"></div>
+        <button id="save-preset" class="chip chip-ghost" type="button">+ Save current as preset</button>
+      </section>
+
+      <section id="tab-show" class="tab-panel" role="tabpanel" hidden>
+        <div class="show-layout">
+          <div class="show-cta">
+            <button id="show-start" class="btn btn-show" type="button">Start the light show</button>
+            <p id="show-sub" class="hint"></p>
+          </div>
+          <div id="show-readout" class="readout"></div>
           <label class="field">
+            <span class="eyebrow">Intensity <span id="show-int-val" class="mono"></span></span>
+            <input type="range" id="show-intensity" min="1" max="100">
+            <span class="range-ends"><span>Smooth</span><span>Wild</span></span>
+          </label>
+          <label class="toggle-row"><span>Strobe flashes on the big moments</span><input type="checkbox" id="show-strobe"></label>
+          <p class="hint show-foot">The show listens to whatever your PC plays (no microphone), hears the genre with a small AI model on your own PC, and follows the beat, build-ups and drops. Put your lights in the right spot on the stage so chases run the right way.</p>
+        </div>
+      </section>
+
+      <section id="tab-color" class="tab-panel" role="tabpanel" hidden>
+        <div class="color-layout">
+          <div class="wheel-wrap">
+            <canvas id="wheel" width="480" height="480" aria-label="Color wheel"></canvas>
+            <div id="wheel-handle" class="wheel-handle" aria-hidden="true"></div>
+          </div>
+          <div class="color-side">
+            <label class="field">
+              <span class="eyebrow">Hex</span>
+              <input id="hex" class="hex-input mono" maxlength="7" spellcheck="false" autocomplete="off">
+            </label>
+            <div>
+              <div class="eyebrow">Colors</div>
+              <div id="swatches" class="swatches"></div>
+            </div>
+          </div>
+        </div>
+        <div class="kelvin-block">
+          <div class="eyebrow">White</div>
+          <div id="kelvin" class="kelvin-track" role="slider" tabindex="0" aria-label="White temperature"
+               aria-valuemin="2200" aria-valuemax="6500"><div class="kelvin-thumb"></div></div>
+          <div class="kelvin-scale mono"><span>2200K warm</span><span>4000K</span><span>6500K daylight</span></div>
+        </div>
+      </section>
+
+      <section id="tab-effects" class="tab-panel" role="tabpanel" hidden>
+        <div class="fx-bar">
+          <label class="field fx-speed">
             <span class="eyebrow">Speed <span id="fx-speed-val" class="mono"></span></span>
             <input type="range" id="fx-speed" min="1" max="100">
           </label>
@@ -74,41 +120,55 @@
             <label class="color-well"><input type="color" id="fx-c1"><span>Color 1</span></label>
             <label class="color-well"><input type="color" id="fx-c2"><span>Color 2</span></label>
           </div>
-          <p id="fx-note" class="hint"></p>
         </div>
-      </div>
-    </section>
+        <p id="fx-note" class="hint fx-note"></p>
+        <div id="fx-grid" class="fx-grid"></div>
+      </section>
 
-    <section id="tab-native" class="tab-panel" role="tabpanel" hidden>
-      <div id="native-empty" class="empty">
-        <p class="empty-title">Pick one strip or panel set</p>
-        <p>Built-in effects run on the light itself. Select a single WLED strip or Nanoleaf panel set in the fader bank below.</p>
-      </div>
-      <div id="native-body" class="native-layout" hidden>
-        <div class="native-tools">
-          <input id="native-search" class="search" type="search" placeholder="Search effects" autocomplete="off">
-          <label id="native-speed-wrap" class="inline-field"><span class="eyebrow">Speed</span>
-            <input type="range" id="native-speed" min="1" max="100"></label>
-          <label id="native-palette-wrap" class="inline-field"><span class="eyebrow">Palette</span>
-            <select id="native-palette"></select></label>
+      <section id="tab-native" class="tab-panel" role="tabpanel" hidden>
+        <div id="native-empty" class="empty">
+          <p class="empty-title">Pick one strip or panel set</p>
+          <p>Built-in effects run on the light itself. Click a single WLED strip or Nanoleaf panel set on the stage or in the fader bank.</p>
         </div>
-        <div id="native-list" class="native-list"></div>
-      </div>
+        <div id="native-body" class="native-layout" hidden>
+          <div class="native-tools">
+            <input id="native-search" class="search" type="search" placeholder="Search effects" autocomplete="off">
+            <label id="native-speed-wrap" class="inline-field"><span class="eyebrow">Speed</span>
+              <input type="range" id="native-speed" min="1" max="100"></label>
+            <label id="native-palette-wrap" class="inline-field"><span class="eyebrow">Palette</span>
+              <select id="native-palette"></select></label>
+          </div>
+          <div id="native-list" class="native-list"></div>
+        </div>
+      </section>
     </section>
   </main>
 
-  <section class="bank" aria-label="Lights">
+  <section class="bank" aria-label="Brightness per light">
     <div id="strips" class="strips"></div>
   </section>
 
-  <aside id="settings" class="drawer" aria-label="Settings" hidden>
+  <aside id="settings" class="drawer" aria-label="Setup" hidden>
     <div class="drawer-head">
-      <h2>Settings</h2>
-      <button id="close-settings" class="icon-btn" type="button" aria-label="Close settings">✕</button>
+      <h2>Setup</h2>
+      <button id="close-settings" class="icon-btn" type="button" aria-label="Close setup">✕</button>
     </div>
     <div id="settings-body" class="drawer-body"></div>
   </aside>
   <div id="scrim" class="scrim" hidden></div>
+
+  <div id="wizard" class="wizard" hidden>
+    <div class="wizard-card" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+      <ol id="wizard-steps" class="wizard-steps" aria-label="Steps"></ol>
+      <div id="wizard-body" class="wizard-body"></div>
+      <div class="wizard-actions">
+        <button id="wizard-skip" class="btn btn-quiet" type="button">Skip the tour</button>
+        <span class="spacer"></span>
+        <button id="wizard-back" class="btn" type="button">Back</button>
+        <button id="wizard-next" class="btn btn-primary" type="button">Next</button>
+      </div>
+    </div>
+  </div>
 
   <div id="modal" class="modal" hidden>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -124,5 +184,7 @@
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="app.js"></script>
+  <script src="stage.js"></script>
+  <script src="setup.js"></script>
 </body>
 </html>

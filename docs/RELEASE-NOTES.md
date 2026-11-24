@@ -5,7 +5,10 @@ First public preview of Glowstage: light shows for your PC and room lights.
 **Highlights**
 - A festival-style light show to whatever your PC plays: beat-locked, hears build-ups and drops, learns the song while it plays.
 - Offline AI genre detection with its own choreography per genre; colors that follow the chords.
+- A new interface around a live stage view: every light drawn where it is in your room, glowing in its real colors; drag lights into place for the show.
+- A welcome tour that finds your lights and can fetch OpenRGB (from its makers) for the RGB inside your PC.
 - PC RGB through OpenRGB, WLED, Nanoleaf, ASRock Radeon cards and SignalRGB-protocol QMK keyboards.
+- New, in beta: Philips Hue, LIFX, Govee, Yeelight, Elgato, Twinkly, Magic Home, Home Assistant and DMX (Art-Net / sACN).
 - Lights on at boot, off at shutdown; lives in the tray.
 
-**Needs:** Windows 10/11 64-bit. For PC RGB, OpenRGB (see the README).
+**Needs:** Windows 10/11 64-bit. For PC RGB, OpenRGB: the welcome tour (or Setup → PC lighting) gets it for you.

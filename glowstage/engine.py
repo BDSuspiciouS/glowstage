@@ -29,6 +29,7 @@ class EffectEngine:
         self._epoch = time.monotonic()
         self._mem: dict[tuple[str, str], dict] = {}
         self._last: dict[str, float] = {}
+        self._live: dict[str, tuple[float, list]] = {}   # id -> (time, last frame), for the stage view
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="effects", daemon=True)
 
@@ -37,6 +38,23 @@ class EffectEngine:
 
     def stop(self) -> None:
         self._stop.set()
+
+    def live(self, samples: int = 24) -> dict[str, list[str]]:
+        """The colors each streaming light shows right now, a few samples along it (for the UI's
+        stage view). Lights that aren't running an app effect aren't in it."""
+        now = time.monotonic()
+        out = {}
+        for dev_id, (at, colors) in list(self._live.items()):
+            if now - at > 0.6:
+                self._live.pop(dev_id, None)
+                continue
+            n = len(colors)
+            if not n:
+                continue
+            k = min(n, samples)
+            picks = [colors[min(n - 1, int((i + 0.5) * n / k))] for i in range(k)]
+            out[dev_id] = ["#%02x%02x%02x" % tuple(max(0, min(255, int(v))) for v in c[:3]) for c in picks]
+        return out
 
     def _run(self) -> None:
         # Paced with time.sleep, which is exact to ~0.1 ms; Event.wait rounds to Windows' 15.6 ms
@@ -82,6 +100,7 @@ class EffectEngine:
             if not dev.hardware_brightness and st.brightness < 100:
                 f = st.brightness / 100
                 colors = [scale(c, f) for c in colors]
+            self._live[dev.id] = (now, colors)
             # Never stall the whole frame on a device that is busy with a slow HTTP call.
             if not dev.lock.acquire(blocking=False):
                 continue

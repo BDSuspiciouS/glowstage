@@ -5,7 +5,8 @@
 - **A real light show, not a VU meter.** A virtual lighting operator locks onto the beat, counts bars and phrases, hears build-ups coming, holds its breath before the drop and hits it on the one. It learns the song while it plays, so the second chorus looks like the first.
 - **It knows what it's listening to.** An offline AI model (Google's YAMNet) recognises the genre, and every genre gets its own choreography: hard step chases for techno, a disco floor for house, everything glowing with the 808 for hip-hop, slow washes for chill. Colors follow the song's chords.
 - **Everything moves together.** One clock, one stage: chases run across the whole room, from the monitor strip over the keyboard to the fans in your case, which spin with the beat.
-- **Works out of the box.** Lights on your network are found automatically; your PC's RGB is driven through OpenRGB, which Glowstage starts for you.
+- **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for your PC's RGB if you want it, and shows you where everything stands on the stage.
+- **See the show on screen.** The stage view draws every light where it is in your room, glowing live in the colors it shows; drag lights into place so chases run the right way.
 - **Lives in the tray.** Starts with Windows if you want, switches your lights on at boot and off at shutdown, and stays out of the way.
 
 ## Supported lights
@@ -17,14 +18,23 @@
 | Nanoleaf (Shapes, Canvas, Light Panels, Lines, Elements) | Found automatically; press Pair and hold the power button |
 | ASRock Radeon graphics cards (not supported by OpenRGB) | Directly over the card's I2C bus through the AMD driver |
 | QMK keyboards that speak SignalRGB's protocol (e.g. MCHOSE GX87), per key | Directly over USB |
+| Philips Hue *(beta)* | Bridge found automatically; press the link button, then Pair |
+| LIFX *(beta)* | Found automatically on the local network |
+| Govee *(beta)* | Found automatically once LAN Control is on in the Govee Home app |
+| Yeelight *(beta)* | Found automatically once LAN Control is on in the Yeelight app |
+| Elgato Key Light and Light Strip *(beta)* | Found automatically |
+| Twinkly *(beta)* | Found automatically; realtime streaming |
+| Magic Home / Flux LED WiFi controllers *(beta)* | Found automatically |
+| Anything in Home Assistant *(beta)* | Add your Home Assistant address and a long-lived access token |
+| DMX stage lights over Art-Net or sACN *(beta)* | Art-Net nodes found automatically; patch your fixtures in Setup |
 
-More are on the way: Philips Hue, Govee, LIFX, Yeelight, Elgato, Twinkly, Home Assistant, and DMX stage lights over Art-Net/sACN.
+Lights marked *beta* are new and haven't been tested on every model yet. If one misbehaves, please [open an issue](https://github.com/BDSuspiciouS/glowstage/issues).
 
 ## Install
 
 1. Download the latest `Glowstage-x.y.z-windows.zip` from [Releases](https://github.com/BDSuspiciouS/glowstage/releases).
 2. Unzip it anywhere (for example `C:\Program Files\Glowstage` or your Documents) and run `Glowstage.exe`.
-3. Glowstage finds your lights and adds itself to the Start menu. Pick the **Festival** preset and play some music.
+3. The welcome tour finds your lights and, if you want, gets OpenRGB for the RGB inside your PC. Glowstage adds itself to the Start menu. Press **Start the light show** and play some music.
 
 Windows 10 or 11, 64-bit. Windows may warn that the app is from an unknown publisher: choose *More info → Run anyway* (the app isn't code-signed yet).
 
