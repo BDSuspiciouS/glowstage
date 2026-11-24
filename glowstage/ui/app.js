@@ -96,15 +96,17 @@ async function call(method, ...args) {
 
 const S = {
   data: null,
+  page: "home",            // home | presets | show | setup
+  sheetOpen: false,        // the color & effects panel on the right
   selected: null,          // null = all lights, otherwise an array of device ids
-  tab: "presets",
-  arrange: false,          // the stage plot is in Arrange mode
-  dragging: null,          // id of the fader being dragged
+  tab: "color",            // the panel's tab
+  arrange: false,          // the stage is in Arrange mode
+  dragging: null,          // which slider is being dragged
   quietUntil: 0,           // ignore polls right after local edits so sliders don't jump back
   native: {},              // device id -> {effects, palettes}
   nativeBuiltFor: "",
-  strips: new Map(),
-  settingsOpen: false,
+  tiles: new Map(),
+  groups: null,
   settingsSig: "",
   fxBuilt: "",
 };
@@ -137,69 +139,361 @@ async function refresh(force = false) {
   render();
 }
 
-/* ============================== rendering ============================== */
+const SVG_NS = "http://www.w3.org/2000/svg";
+function icon(name) {
+  const svg = document.createElementNS(SVG_NS, "svg"), use = document.createElementNS(SVG_NS, "use");
+  use.setAttribute("href", "#i-" + name);
+  svg.setAttribute("aria-hidden", "true");
+  svg.append(use);
+  return svg;
+}
+
+/* ============================== pages ============================== */
+
+function go(page) {
+  S.page = page;
+  for (const id of ["home", "presets", "show", "setup"]) $(`#page-${id}`).hidden = id !== page;
+  if (page !== "show") S.arrange = false;
+  $(".main").scrollTop = 0;
+  if (page === "setup") S.settingsSig = "";
+  render();
+}
 
 function render() {
   if (!S.data) return;
   const p = primary();
-  const tint = p ? (hexToRgb(p.state.color) ? p.state.color : "#ffd6a0") : "#ffd6a0";
-  document.documentElement.style.setProperty("--tint", tint);
-  renderPresets();
-  renderStrips();
-  renderTarget();
-  renderStage();
-  if (S.tab === "color") renderColor();
-  else if (S.tab === "effects") renderEffects();
-  else if (S.tab === "show") renderShow();
-  else if (S.tab === "native") renderNative();
-  if (S.settingsOpen) renderSettings();
+  document.documentElement.style.setProperty("--tint", p && hexToRgb(p.state.color) ? p.state.color : "#8a6bff");
+  renderChrome();
+  if (S.page === "home") renderHome();
+  else if (S.page === "presets") renderPresetPage();
+  else if (S.page === "show") { renderShow(); renderStage(); }
+  else if (S.page === "setup") renderSettings();
+  if (S.sheetOpen) {
+    renderTarget();
+    if (S.tab === "color") renderColor();
+    else if (S.tab === "effects") renderEffects();
+    else renderNative();
+  }
   if (S.wiz && S.wiz.open) renderWizard();
+}
+
+function renderChrome() {
+  for (const b of document.querySelectorAll(".nav-item[data-page]")) {
+    if (b.dataset.page === S.page) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  }
   const about = S.data.about || {};
-  const donate = (about.donate || [])[0];
-  $("#support").hidden = !donate;
-  if (donate) $("#support").onclick = () => call("open_link", donate.url);
+  $("#support").hidden = !(about.donate || []).length;
+  $("#version").textContent = about.version ? `Version ${about.version}` : "";
+  $("#nav-live").hidden = !S.data.show;
+  $("#nav-badge").hidden = !(S.data.devices.some(d => d.paired === false && !d.hidden) || (S.data.hubs || []).some(x => x.paired === false));
 }
 
-/* ---- presets ---- */
+/* ============================== how a light looks ============================== */
 
-const RAINBOW = "conic-gradient(#ff3b3b, #ffd23b, #3bff6e, #3bd8ff, #6e3bff, #ff3bd2, #ff3b3b)";
+const RAINBOW = "linear-gradient(90deg, #ff3b5c, #ffb03b, #f6ff3b, #3bff8a, #3bc8ff, #6e5bff, #ff3bd2)";
+const FX_LOOK = {
+  rainbow: RAINBOW, spectrum: RAINBOW, music_party: RAINBOW, music_spectrum: RAINBOW, music_ripple: RAINBOW,
+  music_sparkle: RAINBOW, music_meteor: RAINBOW,
+  fire: "linear-gradient(90deg, #7a1000, #ff5a00, #ffb000, #ffd25a)", music_fire: "linear-gradient(90deg, #7a1000, #ff5a00, #ffb000, #ffd25a)",
+  aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)", music_aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)",
+  screen: "linear-gradient(90deg, #3a6bff, #ff8a3a, #2bd3c4)",
+  music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
+  music_show: "linear-gradient(90deg, #00e5ff, #2a4bff, #ff00c8, #ff0040)",
+};
+/** A color at full strength (brightness is the slider's job, not the fill's). */
+function vivid(rgb) {
+  const m = Math.max(...rgb);
+  return m < 8 ? [48, 48, 54] : rgb.map(v => v * 255 / m);
+}
+const liveOf = d => (typeof ST !== "undefined" && ST.live[d.id]) || null;
+
+/** The colors a light shows right now, for its card: live frames when an app effect runs. */
+function lightColors(d) {
+  const live = liveOf(d);
+  if (live && live.length) {
+    const step = Math.max(1, Math.floor(live.length / 10));
+    return live.filter((_, i) => i % step === 0).map(c => rgbToHex(vivid(hexToRgb(c) || [0, 0, 0])));
+  }
+  return null;
+}
+function fillFor(d) {
+  const st = d.state, live = lightColors(d);
+  if (live) return live.length > 1 ? `linear-gradient(90deg, ${live.join(", ")})` : live[0];
+  if (st.mode === "effect" && FX_LOOK[st.effect]) return FX_LOOK[st.effect];
+  if (st.mode === "effect" || st.mode === "native") return `linear-gradient(90deg, ${st.color}, ${st.color2 || st.color})`;
+  return hexToRgb(st.color) ? st.color : "#ffffff";
+}
+function glowColor(d) {
+  const live = lightColors(d);
+  if (live) return rgbToHex(vivid(average(live.map(hexToRgb))));
+  return hexToRgb(d.state.color) ? d.state.color : "#8a6bff";
+}
+
+function typeIcon(d) {
+  const text = `${d.name} ${d.label || ""}`.toLowerCase();
+  if (d.kind === "nanoleaf") return "panels";
+  if (d.kind === "qmk" || /keyboard/.test(text)) return "keyboard";
+  if (d.kind === "asrock_gpu" || /\bgpu\b|graphics|radeon|geforce/.test(text)) return "gpu";
+  if (d.group === "pc") return /mouse|mat\b|mousemat|pad|cloth|strip/.test(text) ? "strip" : "fan";
+  if ((d.pixels || 0) <= 1) return "bulb";
+  return "strip";
+}
+
+function stripMeta(d) {
+  if (d.paired === false) return { text: "Not paired", warn: true };
+  if (!d.online) return { text: d.error || "Offline", warn: true };
+  if (!d.state.on) return { text: "Off" };
+  let what = "Color";
+  if (d.state.mode === "effect") {
+    const fx = S.data.effects.find(e => e.id === d.state.effect);
+    what = fx ? fx.name : "Effect";
+  } else if (d.state.mode === "native") {
+    const list = S.native[d.id] && S.native[d.id].effects;
+    const fx = list && list.find(e => String(e.id) === String(d.state.native));
+    what = fx ? fx.name : "Built-in effect";
+  }
+  return { text: `${what} · ${d.state.brightness}%` };
+}
+
+/* ============================== sliders ============================== */
+
+function setSlider(el, v, fillCss, off) {
+  el.style.setProperty("--v", (v / 100).toFixed(3));
+  el.setAttribute("aria-valuenow", v);
+  if (fillCss) el.style.setProperty("--fill", fillCss);
+  el.classList.toggle("is-off", !!off);
+}
+
+/** A horizontal pill slider: drag, click or arrow keys. */
+function bindSlider(el, key, onValue, min = 0) {
+  const at = e => { const r = el.getBoundingClientRect(); return Math.round(clamp((e.clientX - r.left) / r.width, 0, 1) * 100); };
+  const set = v => { v = clamp(Math.round(v), min, 100); setSlider(el, v); onValue(v); };
+  el.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    el.setPointerCapture(e.pointerId);
+    S.dragging = key;
+    el.classList.add("is-dragging");
+    set(at(e));
+  });
+  el.addEventListener("pointermove", e => { if (el.hasPointerCapture(e.pointerId)) set(at(e)); });
+  const end = () => { S.dragging = null; el.classList.remove("is-dragging"); S.quietUntil = Date.now() + 900; };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+  el.addEventListener("click", e => e.stopPropagation());
+  el.addEventListener("keydown", e => {
+    const cur = Number(el.getAttribute("aria-valuenow")) || 0;
+    const step = { ArrowUp: 5, ArrowRight: 5, ArrowDown: -5, ArrowLeft: -5, PageUp: 20, PageDown: -20 }[e.key];
+    if (step) { e.preventDefault(); set(cur + step); }
+    if (e.key === "Home") set(min);
+    if (e.key === "End") set(100);
+  });
+}
+
+/* ============================== home ============================== */
+
+function renderHome() {
+  const devs = visible();
+  const on = devs.filter(d => d.online && d.state.on);
+  const anyOn = on.length > 0;
+  $("#home-sub").textContent = devs.length
+    ? `${on.length} of ${devs.length} lights on${S.data.show ? " · light show running" : ""}` : "";
+  $("#home-empty").hidden = devs.length > 0;
+  $("#master").hidden = !devs.length;
+  const power = $("#all-power");
+  power.querySelector("span").textContent = anyOn ? "All off" : "All on";
+  power.classList.toggle("btn-primary", !anyOn);
+  const avg = devs.length ? Math.round(devs.reduce((a, d) => a + d.state.brightness, 0) / devs.length) : 100;
+  if (S.dragging !== "__all") {
+    const colors = on.slice(0, 8).map(glowColor);
+    setSlider($("#master-slider"), avg, colors.length > 1 ? `linear-gradient(90deg, ${colors.join(", ")})` : colors[0] || "#f3f1ed", !anyOn);
+  }
+  $("#master-value").textContent = anyOn ? `${avg}% brightness` : "Off";
+  renderQuickPresets();
+  renderTiles();
+}
+
+function makeTile(id) {
+  const tile = h("div", { class: "tile", "data-id": id, role: "button", tabindex: "0" });
+  const power = h("button", { class: "tile-power", type: "button" }, icon("power"));
+  const pair = h("button", { class: "tile-pair", type: "button", text: "Pair" });
+  const slider = h("div", { class: "slider", role: "slider", tabindex: "0", "aria-valuemin": "0", "aria-valuemax": "100" },
+    h("div", { class: "slider-fill" }));
+  tile.append(
+    h("div", { class: "tile-top" },
+      h("span", { class: "tile-icon" }),
+      h("div", { class: "tile-text" }, h("span", { class: "tile-name" }), h("span", { class: "tile-meta" })),
+      pair, power),
+    slider);
+  tile.addEventListener("click", e => {
+    if (e.target.closest(".tile-power, .tile-pair")) return;
+    selectStrip(id, e.ctrlKey || e.shiftKey || e.metaKey);
+  });
+  tile.addEventListener("keydown", e => {
+    if (e.target === tile && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectStrip(id, false); }
+  });
+  power.addEventListener("click", () => toggleStrip(id));
+  pair.addEventListener("click", () => openPairDialog(byId(id)));
+  bindSlider(slider, id, v => send([id], { brightness: v }, "bri:" + id));
+  return tile;
+}
+
+function updateTile(node, d) {
+  const st = d.state, on = st.on && d.online;
+  node.classList.toggle("is-off", !st.on);
+  node.classList.toggle("is-offline", !d.online);
+  node.classList.toggle("is-selected", !!S.selected && S.selected.includes(d.id));
+  node.style.setProperty("--c", glowColor(d));
+  node.style.setProperty("--lit", on ? (0.35 + 0.65 * st.brightness / 100).toFixed(2) : 0);
+  const ic = typeIcon(d), box = $(".tile-icon", node);
+  if (box.dataset.icon !== ic) { box.dataset.icon = ic; fill(box, icon(ic)); }
+  $(".tile-name", node).textContent = d.name;
+  node.setAttribute("aria-label", `${d.name}, open color and effects`);
+  const meta = stripMeta(d), metaEl = $(".tile-meta", node);
+  metaEl.textContent = meta.text;
+  metaEl.title = meta.text;
+  metaEl.classList.toggle("is-warn", !!meta.warn);
+  const needsPair = d.paired === false;
+  $(".tile-pair", node).hidden = !needsPair;
+  const power = $(".tile-power", node);
+  power.hidden = needsPair;
+  power.classList.toggle("is-on", !!st.on);
+  power.setAttribute("aria-label", st.on ? `Turn ${d.name} off` : `Turn ${d.name} on`);
+  power.title = st.on ? "Turn off" : "Turn on";
+  const slider = $(".slider", node);
+  slider.setAttribute("aria-label", `Brightness, ${d.name}`);
+  if (S.dragging !== d.id) setSlider(slider, st.brightness, fillFor(d), !on);
+}
+
+function renderTiles() {
+  const host = $("#light-groups");
+  if (!S.groups) {
+    S.groups = {};
+    for (const [key, title] of [["pc", "In your PC"], ["room", "In your room"]]) {
+      const grid = h("div", { class: "tiles" }), count = h("span", { class: "count" });
+      const sec = h("section", { class: "light-group" }, h("div", { class: "section-head" }, h("h2", {}, title, count)), grid);
+      S.groups[key] = { sec, grid, count };
+      host.append(sec);
+    }
+  }
+  const devs = visible();
+  for (const [key, g] of Object.entries(S.groups)) {
+    const members = devs.filter(d => (d.group === "pc" ? "pc" : "room") === key);
+    g.sec.hidden = !members.length;
+    g.count.textContent = members.length;
+    for (const d of members) if (!S.tiles.has(d.id)) S.tiles.set(d.id, makeTile(d.id));
+    const order = members.map(d => d.id);
+    if ([...g.grid.children].map(n => n.dataset.id).join("|") !== order.join("|")) fill(g.grid, order.map(id => S.tiles.get(id)));
+  }
+  for (const [id, node] of S.tiles) if (!devs.some(d => d.id === id)) { node.remove(); S.tiles.delete(id); }
+  for (const d of devs) updateTile(S.tiles.get(d.id), d);
+}
+
+/* Live colors: while app effects run, the cards follow the lights about 10 times a second. */
+let tilesFrame = 0;
+function liveTiles(ts) {
+  requestAnimationFrame(liveTiles);
+  if (S.page !== "home" || !S.data || ts - tilesFrame < 100 || typeof ST === "undefined" || !Object.keys(ST.live).length) return;
+  tilesFrame = ts;
+  for (const d of visible()) {
+    if (!liveOf(d)) continue;
+    const node = S.tiles.get(d.id);
+    if (!node) continue;
+    node.style.setProperty("--c", glowColor(d));
+    if (S.dragging !== d.id) $(".slider", node).style.setProperty("--fill", fillFor(d));
+  }
+}
+
+function selectStrip(id, additive) {
+  if (id === "__all") S.selected = null;
+  else if (additive) {
+    const cur = new Set(S.selected || []);
+    cur.has(id) ? cur.delete(id) : cur.add(id);
+    S.selected = cur.size ? [...cur] : null;
+  } else S.selected = [id];
+  if (id !== "__all") openSheet();
+  else render();
+}
+
+function toggleStrip(id) {
+  if (id === "__all") {
+    const anyOn = visible().some(d => d.state.on && d.online);
+    send(null, { on: !anyOn }, "on:all");
+    return;
+  }
+  const d = byId(id);
+  if (!d) return;
+  if (d.paired === false) return openPairDialog(d);
+  send([id], { on: !d.state.on }, "on:" + id);
+}
+
+/* ============================== presets ============================== */
+
 const isMusicPreset = p => (p.effects || []).some(e => e.startsWith("music_"));
+const PRESET_PALETTES = {
+  rainbow: ["#ff3b5c", "#ffb03b", "#3bff8a", "#3bc8ff", "#8a5bff"], spectrum: ["#ff3b5c", "#3bff8a", "#3bc8ff", "#ff3bd2"],
+  music_party: ["#ff2f92", "#ffb03b", "#3bc8ff", "#8a5bff"], music_spectrum: ["#3bff8a", "#3bc8ff", "#ff3bd2"],
+  music_ripple: ["#2b6bff", "#00e5ff", "#ff2f92"], music_sparkle: ["#ffd23b", "#ff3bd2", "#3bc8ff"],
+  music_meteor: ["#ff5f3b", "#ffd23b", "#3b6bff"], screen: ["#3a6bff", "#ff8a3a", "#2bd3c4"],
+  fire: ["#ffd25a", "#ff5a00", "#8a1500"], music_fire: ["#ffd25a", "#ff5a00", "#8a1500"],
+  aurora: ["#2bff9a", "#2bd3ff", "#8a4bff"], music_aurora: ["#2bff9a", "#2bd3ff", "#8a4bff"],
+  music_organ: ["#ff2a2a", "#2aff5a", "#2a6bff"], music_show: ["#00e5ff", "#ff00c8", "#2a4bff", "#ff0040"],
+};
+const shade = (hex, f) => rgbToHex((hexToRgb(hex) || [128, 128, 128]).map(v => f >= 0 ? v + (255 - v) * f : v * (1 + f)));
 
-function gelBackground(p) {
-  if (p.off) return "#2a2c33";
-  const fx = p.effects || [];
-  if (fx.some(e => ["rainbow", "spectrum", "music_party", "music_spectrum", "music_ripple", "music_sparkle", "music_meteor"].includes(e))) return RAINBOW;
-  if (fx.includes("screen")) return "conic-gradient(#3a6bff, #ff8a3a, #2bd3c4, #3a6bff)";
-  if (fx.some(e => ["fire", "music_fire"].includes(e))) return "radial-gradient(circle at 50% 70%, #ffd25a, #ff5a00 55%, #7a1000)";
-  if (fx.some(e => ["aurora", "music_aurora"].includes(e))) return "conic-gradient(#2bff9a, #2bd3ff, #8a4bff, #2bff9a)";
-  if (fx.includes("music_organ")) return "conic-gradient(#ff2a2a, #2aff5a, #2a6bff, #ff2a2a)";
-  if (fx.includes("music_show")) return "conic-gradient(#00e5ff, #ff00c8, #ffffff, #2a4bff, #ff0040, #00e5ff)";
-  const c = p.colors || [];
-  if (c.length > 1) return `conic-gradient(${[...c, c[0]].join(", ")})`;
-  return c[0] || "#888";
+/** The art on a preset's card: a soft blend of its colors, like light falling on a wall. */
+function presetArt(p) {
+  if (p.off) return "linear-gradient(135deg, #24252b, #141418)";
+  const fx = (p.effects || []).find(e => PRESET_PALETTES[e]);
+  const c = fx ? PRESET_PALETTES[fx] : (p.colors || []).filter(hexToRgb);
+  if (!c.length) return "linear-gradient(135deg, #3a3b44, #1a1b20)";
+  if (c.length === 1) {
+    return `radial-gradient(120% 130% at 20% 0%, ${shade(c[0], 0.35)}, ${c[0]} 45%, ${shade(c[0], -0.55)} 100%)`;
+  }
+  const spots = [["0% 0%", 0], ["100% 10%", 1], ["30% 110%", 2], ["100% 100%", 3]];
+  return spots.slice(0, Math.max(2, Math.min(4, c.length)))
+    .map(([at, i]) => `radial-gradient(90% 110% at ${at}, ${c[i % c.length]} 0%, transparent 70%)`).join(", ")
+    + `, linear-gradient(135deg, ${shade(c[0], -0.4)}, ${shade(c[1 % c.length], -0.4)})`;
 }
 
-function renderPresets() {
+function presetCard(p) {
+  return h("button", {
+    class: "preset", type: "button", title: `Apply ${p.name}`,
+    onclick: async () => { await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); toast(`${p.name} is on`); },
+  },
+    h("span", { class: "preset-art", style: `background:${presetArt(p)}` }),
+    h("span", { class: "preset-name", text: p.name }),
+    isMusicPreset(p) ? h("span", { class: "preset-kind", title: "Moves to the music" }, icon("music")) : null,
+    h("span", {
+      class: "preset-x", role: "button", tabindex: "0", "aria-label": `Delete preset ${p.name}`, title: "Delete preset",
+      onclick: e => { e.stopPropagation(); confirmDeletePreset(p.name); },
+      onkeydown: e => { if (e.key === "Enter") { e.stopPropagation(); confirmDeletePreset(p.name); } },
+    }, icon("x")));
+}
+
+function renderQuickPresets() {
+  const host = $("#quick-presets");
+  const sig = JSON.stringify(S.data.presets);
+  if (host.dataset.sig === sig) return;
+  host.dataset.sig = sig;
+  fill(host, S.data.presets.map(presetCard));
+  $("#see-presets").firstChild.textContent = `All ${S.data.presets.length} presets`;
+}
+
+function renderPresetPage() {
   const host = $("#preset-list");
   const sig = JSON.stringify(S.data.presets);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
-  const chip = p => h("button", {
-    class: "chip", type: "button", title: `Apply “${p.name}”`,
-    onclick: async () => { await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); toast(`Applied ${p.name}`); },
-  },
-    h("span", { class: "chip-gel", style: `background:${gelBackground(p)}` }),
-    p.name,
-    h("span", {
-      class: "chip-x", role: "button", "aria-label": `Delete preset ${p.name}`, text: "✕",
-      onclick: e => { e.stopPropagation(); confirmDeletePreset(p.name); },
-    }),
-  );
   const lighting = S.data.presets.filter(p => !isMusicPreset(p));
   const music = S.data.presets.filter(isMusicPreset);
-  fill(host, ...lighting.map(chip),
-    music.length ? h("span", { class: "eyebrow preset-group", text: "♪ Music" }) : null,
-    ...music.map(chip));
+  const group = (title, ic, list, extra) => [
+    h("h2", { class: "preset-group-title" }, icon(ic), title, h("span", { class: "count", text: list.length })),
+    h("div", { class: "preset-grid" }, list.map(presetCard), extra)];
+  fill(host,
+    group("Lighting", "palette", lighting, h("button", { class: "preset-add", type: "button", onclick: openSavePreset },
+      icon("plus"), "Save current")),
+    music.length ? group("Moves to the music", "music", music) : null);
 }
 
 function confirmDeletePreset(name) {
@@ -214,7 +508,7 @@ function confirmDeletePreset(name) {
 function openSavePreset() {
   const input = h("input", { class: "text-input", style: "width:100%", placeholder: "e.g. Late night", maxlength: "40" });
   openModal({
-    title: "Save current as preset",
+    title: "Save as preset",
     body: h("div", {}, h("p", { class: "hint", style: "margin-bottom:12px", text: "Saves the color, effect and brightness of every light as they are now." }), input),
     ok: "Save preset",
     onOk: async () => {
@@ -230,187 +524,40 @@ function openSavePreset() {
   input.addEventListener("keydown", e => { if (e.key === "Enter") $("#modal-ok").click(); });
 }
 
-/* ---- fader bank ---- */
+/* ============================== the panel ============================== */
 
-function lampLook(d) {
-  const st = d.state;
-  if (st.mode === "effect") {
-    if (["rainbow", "spectrum"].includes(st.effect)) return RAINBOW;
-    if (st.effect === "fire") return "conic-gradient(#ff3a00, #ffb000, #ff5a00, #ffd25a, #ff3a00)";
-    if (st.effect === "aurora") return "conic-gradient(#2bff9a, #2bd3ff, #8a4bff, #2bff9a)";
-    if (st.effect === "screen") return "conic-gradient(#3a6bff, #ff8a3a, #2bd3c4, #3a6bff)";
-    return `conic-gradient(${st.color}, ${st.color2}, ${st.color})`;
-  }
-  if (st.mode === "native") return `conic-gradient(${st.color}, ${st.color2 || st.color}, ${st.color})`;
-  return null;
+function openSheet() {
+  S.sheetOpen = true;
+  $("#sheet").hidden = false;
+  render();
 }
-
-function stripMeta(d) {
-  if (d.paired === false) return { text: "Not paired", warn: true };
-  if (!d.online) return { text: d.error || "Offline", warn: true };
-  if (d.state.on && d.state.mode === "effect") {
-    const fx = S.data.effects.find(e => e.id === d.state.effect);
-    return { text: (fx ? fx.name : "Effect") + (d.stillEffects ? " · still" : "") };
-  }
-  if (d.state.on && d.state.mode === "native") {
-    const list = S.native[d.id] && S.native[d.id].effects;
-    const fx = list && list.find(e => String(e.id) === String(d.state.native));
-    return { text: fx ? fx.name : "Built-in effect" };
-  }
-  return { text: d.label || d.kind };
-}
-
-function makeStrip(id, master) {
-  const strip = h("div", { class: "strip" + (master ? " strip-master" : ""), "data-id": id });
-  const head = h("button", { class: "strip-head", type: "button", title: master ? "Edit all lights" : "Edit this light (Ctrl+click to add)" },
-    h("span", { class: "lamp" + (master ? " lamp-master" : "") }),
-    h("span", { class: "strip-name" }),
-    h("span", { class: "strip-meta" }));
-  const fader = h("div", { class: "fader", role: "slider", tabindex: "0", "aria-valuemin": "0", "aria-valuemax": "100" },
-    h("div", { class: "fader-scale" }),
-    h("div", { class: "fader-track" }, h("div", { class: "fader-fill" })),
-    h("div", { class: "fader-cap" }));
-  const value = h("div", { class: "strip-value mono" });
-  const toggle = h("button", { class: "strip-toggle", type: "button" });
-  strip.append(head, fader, value, toggle);
-
-  head.addEventListener("click", e => selectStrip(id, e.ctrlKey || e.shiftKey || e.metaKey));
-  toggle.addEventListener("click", () => toggleStrip(id));
-  bindFader(fader, id);
-  return strip;
-}
-
-function selectStrip(id, additive) {
-  if (id === "__all") S.selected = null;
-  else if (additive) {
-    const cur = new Set(S.selected || []);
-    cur.has(id) ? cur.delete(id) : cur.add(id);
-    S.selected = cur.size ? [...cur] : null;
-  } else S.selected = [id];
+function closeSheet() {
+  S.sheetOpen = false;
+  S.selected = null;
+  $("#sheet").hidden = true;
   render();
 }
 
-function toggleStrip(id) {
-  if (id === "__all") {
-    const anyOn = visible().some(d => d.state.on && d.online);
-    send(null, { on: !anyOn }, "on:all");
-    return;
-  }
-  const d = byId(id);
-  if (!d) return;
-  if (d.paired === false) return openPairDialog(d);
-  send([id], { on: !d.state.on }, "on:" + id);
-}
-
-function bindFader(fader, id) {
-  const valueAt = e => {
-    const r = fader.getBoundingClientRect();
-    return Math.round(clamp((r.bottom - 8 - e.clientY) / (r.height - 16), 0, 1) * 100);
-  };
-  const set = v => {
-    v = clamp(Math.round(v), 0, 100);
-    setFader(fader, v);
-    if (id === "__all") send(null, { brightness: v }, "bri:all");
-    else send([id], { brightness: v }, "bri:" + id);
-  };
-  fader.addEventListener("pointerdown", e => {
-    fader.setPointerCapture(e.pointerId);
-    S.dragging = id;
-    set(valueAt(e));
-  });
-  fader.addEventListener("pointermove", e => { if (fader.hasPointerCapture(e.pointerId)) set(valueAt(e)); });
-  const end = () => { S.dragging = null; S.quietUntil = Date.now() + 900; };
-  fader.addEventListener("pointerup", end);
-  fader.addEventListener("pointercancel", end);
-  fader.addEventListener("keydown", e => {
-    const cur = Number(fader.getAttribute("aria-valuenow")) || 0;
-    const step = { ArrowUp: 5, ArrowRight: 5, ArrowDown: -5, ArrowLeft: -5, PageUp: 20, PageDown: -20 }[e.key];
-    if (step) { e.preventDefault(); set(cur + step); }
-    if (e.key === "Home") set(0);
-    if (e.key === "End") set(100);
-  });
-}
-
-function setFader(fader, v) {
-  fader.style.setProperty("--v", (v / 100).toFixed(3));
-  fader.setAttribute("aria-valuenow", v);
-  fader.parentElement.querySelector(".strip-value").textContent = String(v).padStart(3, " ");
-}
-
-function renderStrips() {
-  const host = $("#strips");
-  const devs = visible();
-  const order = ["__all", "__sep", ...devs.map(d => d.id)];
-  for (const id of order) {
-    if (S.strips.has(id)) continue;
-    S.strips.set(id, id === "__sep" ? h("div", { class: "strip-sep" }) : makeStrip(id, id === "__all"));
-  }
-  for (const [id, node] of S.strips) if (!order.includes(id)) { node.remove(); S.strips.delete(id); }
-  const current = [...host.children].map(n => n.dataset.id || "__sep");
-  if (current.join("|") !== order.join("|")) fill(host, ...order.map(id => S.strips.get(id)));
-
-  const sel = new Set(targetIds());
-  // master
-  const m = S.strips.get("__all");
-  const anyOn = devs.some(d => d.state.on && d.online);
-  const avg = devs.length ? Math.round(devs.reduce((a, d) => a + d.state.brightness, 0) / devs.length) : 100;
-  m.classList.toggle("is-selected", !S.selected);
-  m.classList.toggle("is-off", !anyOn);
-  m.style.setProperty("--c", "#ffd6a0");
-  m.style.setProperty("--lit", anyOn ? 1 : 0);
-  $(".strip-name", m).textContent = "All lights";
-  $(".strip-meta", m).textContent = `${devs.filter(d => d.online).length} of ${devs.length} online`;
-  if (S.dragging !== "__all") setFader($(".fader", m), avg);
-  $(".fader", m).setAttribute("aria-label", "Brightness, all lights");
-  const mt = $(".strip-toggle", m);
-  mt.textContent = anyOn ? "On" : "Off";
-  mt.classList.toggle("is-on", anyOn);
-  mt.title = anyOn ? "Turn all lights off" : "Turn all lights on";
-
-  for (const d of devs) {
-    const node = S.strips.get(d.id);
-    const st = d.state;
-    const on = st.on && d.online;
-    node.classList.toggle("is-selected", !!S.selected && sel.has(d.id));
-    node.classList.toggle("is-off", !st.on);
-    node.classList.toggle("is-offline", !d.online);
-    node.style.setProperty("--c", hexToRgb(st.color) ? st.color : "#888888");
-    const place = S.data.stage && S.data.stage[d.id];
-    node.style.setProperty("--tape", place && place.layer === "back" ? "var(--tape-back)" : d.group === "pc" ? "var(--tape-pc)" : "var(--tape-front)");
-    node.style.setProperty("--lit", on ? (0.25 + 0.75 * st.brightness / 100).toFixed(2) : 0);
-    const lamp = $(".lamp", node);
-    const look = lampLook(d);
-    lamp.style.background = look || "";
-    lamp.classList.toggle("lamp-effect", !!look && on);
-    $(".strip-name", node).textContent = d.name;
-    $(".strip-name", node).title = d.name;
-    const meta = stripMeta(d);
-    const metaEl = $(".strip-meta", node);
-    metaEl.textContent = meta.text;
-    metaEl.title = meta.text;
-    metaEl.classList.toggle("is-warn", !!meta.warn);
-    const fader = $(".fader", node);
-    fader.setAttribute("aria-label", `Brightness, ${d.name}`);
-    if (S.dragging !== d.id) setFader(fader, st.brightness);
-    const t = $(".strip-toggle", node);
-    const needsPair = d.paired === false;
-    t.textContent = needsPair ? "Pair" : st.on ? "On" : "Off";
-    t.classList.toggle("is-on", !needsPair && st.on);
-    t.classList.toggle("is-pair", needsPair);
-    t.title = needsPair ? `Pair ${d.name}` : st.on ? `Turn ${d.name} off` : `Turn ${d.name} on`;
-  }
-}
-
 function renderTarget() {
-  const ids = targetIds();
-  const name = !S.selected ? "All lights"
-    : ids.length === 1 ? byId(ids[0]).name
-    : ids.map(id => byId(id).name).join(", ");
-  $("#target-name").textContent = name;
-  const offline = ids.filter(id => !byId(id).online).length;
+  const ids = targetIds(), devs = ids.map(byId).filter(Boolean);
+  const one = S.selected && devs.length === 1 ? devs[0] : null;
+  $("#target-name").textContent = !S.selected ? "All lights" : one ? one.name : `${devs.length} lights`;
+  const offline = devs.filter(d => !d.online).length;
   $("#target-meta").textContent = !S.selected
-    ? `${ids.length} lights${offline ? ` · ${offline} offline` : ""}`
-    : ids.length > 1 ? `${ids.length} lights` : (byId(ids[0]).label || "");
+    ? `${devs.length} lights${offline ? ` · ${offline} offline` : ""}`
+    : one ? [kindTitle(one), stripMeta(one).text].filter(Boolean).join(" · ") : devs.map(d => d.name).join(", ");
+  const box = $("#target-icon"), ic = one ? typeIcon(one) : "presets";
+  if (box.dataset.icon !== ic) { box.dataset.icon = ic; fill(box, icon(ic)); }
+  $(".sheet-target").style.setProperty("--c", one ? glowColor(one) : "#f3f1ed");
+  const anyOn = devs.some(d => d.state.on && d.online);
+  const power = $("#sheet-power");
+  power.classList.toggle("is-on", anyOn);
+  power.title = anyOn ? "Turn off" : "Turn on";
+  if (S.dragging !== "__sheet") {
+    const avg = devs.length ? Math.round(devs.reduce((a, d) => a + d.state.brightness, 0) / devs.length) : 100;
+    const cols = devs.filter(d => d.state.on && d.online).slice(0, 8).map(glowColor);
+    setSlider($("#sheet-slider"), avg, cols.length > 1 ? `linear-gradient(90deg, ${cols.join(", ")})` : cols[0] || "#f3f1ed", !anyOn);
+  }
 }
 
 /* ---- color tab ---- */
@@ -688,10 +835,10 @@ function buildEffects() {
   const anim = S.data.effects.filter(e => e.group !== "music");
   const music = S.data.effects.filter(e => e.group === "music");
   fill($("#fx-grid"), 
-    h("div", { class: "fx-group" }, h("span", { class: "eyebrow", text: "Animations" })),
+    h("div", { class: "fx-group" }, icon("spark"), "Animations"),
     ...anim.map(card),
-    music.length ? h("div", { class: "fx-group" }, h("span", { class: "eyebrow", text: "Music" }),
-      h("span", { class: "fx-group-hint", text: "Moves to whatever your PC is playing. No microphone." })) : null,
+    music.length ? h("div", { class: "fx-group" }, icon("music"), "Moves to the music",
+      h("span", { class: "fx-group-hint", text: "Follows what your PC plays" })) : null,
     ...music.map(card));
 }
 
@@ -736,50 +883,34 @@ function showNote(show, audio) {
   return `${genre} · ${SHOW_SECTIONS[show.section] || show.section}${tempo}${chord}. Speed sets how wild it gets.`;
 }
 
-/* ---- light show tab ---- */
+/* ---- light show page ---- */
 
-const showTargets = () => targetIds().map(byId).filter(Boolean);
-const showRunning = () => { const t = showTargets(); return t.length && t.every(d => d.state.on && d.state.mode === "effect" && d.state.effect === "music_show"); };
+const showLights = () => visible().filter(d => d.online);
+const runningShow = () => visible().filter(d => d.state.on && d.state.mode === "effect" && d.state.effect === "music_show");
+const showRunning = () => runningShow().length > 0;
 
 function renderShow() {
-  const running = showRunning();
-  const n = targetIds().length;
+  const running = runningShow(), all = showLights();
   const btn = $("#show-start");
-  btn.textContent = running ? "Stop the show" : "Start the light show";
-  btn.classList.toggle("is-running", !!running);
+  btn.textContent = running.length ? "Stop the show" : "Start the show";
+  btn.classList.toggle("btn-primary", !running.length);
+  btn.classList.toggle("is-running", !!running.length);
   const audio = S.data.audio || {};
-  $("#show-sub").textContent = (running ? "Running on " : "Runs on ")
-    + (S.selected ? `${n} selected light${n === 1 ? "" : "s"}` : `all ${n} lights`)
+  $("#show-sub").textContent = (running.length ? `Running on ${running.length} of ${all.length} lights` : `Uses all ${all.length} lights`)
     + ` · listening to ${audio.device || "your PC's sound output"}`;
-  const show = S.data.show;
-  const cell = (eyebrow, value, sub) => h("div", { class: "readout-cell" },
-    h("div", { class: "eyebrow", text: eyebrow }), h("div", { class: "readout-value", text: value }),
-    sub ? h("div", { class: "readout-sub", text: sub, title: sub }) : null);
-  const ro = $("#show-readout");
-  const sig = JSON.stringify(show);
-  if (ro.dataset.sig !== sig) {
-    ro.dataset.sig = sig;
-    fill(ro, ...(show ? [
-      cell(show.ai ? "AI hears" : "Style", show.style || "…",
-        show.ai ? [show.genres.slice(0, 2).join(", "), show.mood].filter(Boolean).join(" · ") : (show.aiError || "The AI is still listening")),
-      cell("Section", SHOW_SECTIONS_TITLE[show.section] || show.section || "…", show.section === "drop" ? "Everything goes" : show.section === "build" ? "Tension rising" : ""),
-      cell("Tempo", show.bpm ? `${show.bpm} BPM` : "Finding the beat", show.half ? "Half time" : ""),
-      cell("Harmony", show.chord || "…", show.chord ? "Colors follow the chords" : ""),
-    ] : []));
+  const p = running[0] || all[0];
+  if (S.dragging !== "__intensity") {
+    const v = p ? p.state.speed : 70;
+    setSlider($("#show-intensity"), v, null, false);
+    $("#show-int-val").textContent = `${v}%`;
   }
-  const p = showTargets()[0];
-  const speed = $("#show-intensity");
-  if (p && document.activeElement !== speed) speed.value = p.state.speed;
-  $("#show-int-val").textContent = p ? p.state.speed : "";
   $("#show-strobe").checked = S.data.settings.show_strobe !== false;
 }
-const SHOW_SECTIONS_TITLE = { groove: "Groove", break: "Break", build: "Build-up", gap: "About to drop", drop: "Drop",
-  calm: "Calm part", silent: "Waiting for music" };
 
 let fxFrame = 0;
 function animatePreviews(ts) {
   requestAnimationFrame(animatePreviews);
-  if (S.tab !== "effects" || !S.data || ts - fxFrame < 33) return;
+  if (!S.sheetOpen || S.tab !== "effects" || !S.data || ts - fxFrame < 33) return;
   fxFrame = ts;
   const st = currentFxState(), t = ts / 1000, dpr = window.devicePixelRatio || 1;
   for (const card of document.querySelectorAll("#fx-grid .fx-card")) {
@@ -879,11 +1010,25 @@ function toast(msg, isError = false) {
 function switchTab(tab) {
   S.tab = tab;
   for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
-  for (const id of ["presets", "show", "color", "effects", "native"]) $(`#tab-${id}`).hidden = id !== tab;
+  for (const id of ["color", "effects", "native"]) $(`#tab-${id}`).hidden = id !== tab;
   render();
 }
 
 function bindStatic() {
+  for (const b of document.querySelectorAll(".nav-item[data-page]")) b.addEventListener("click", () => go(b.dataset.page));
+  $("#support").addEventListener("click", () => { const d = ((S.data && S.data.about) || {}).donate || []; if (d[0]) call("open_link", d[0].url); });
+  $("#see-presets").addEventListener("click", () => go("presets"));
+  $("#home-setup").addEventListener("click", () => go("setup"));
+  $("#all-color").addEventListener("click", () => { S.selected = null; openSheet(); });
+  $("#all-power").addEventListener("click", () => toggleStrip("__all"));
+  bindSlider($("#master-slider"), "__all", v => send(null, { brightness: v }, "bri:all"));
+  $("#sheet-close").addEventListener("click", closeSheet);
+  $("#sheet-power").addEventListener("click", () => {
+    const anyOn = targetIds().map(byId).some(d => d && d.state.on && d.online);
+    sendTargets({ on: !anyOn }, "on:sheet");
+  });
+  bindSlider($("#sheet-slider"), "__sheet", v => sendTargets({ brightness: v }, "bri:sheet"));
+
   for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => switchTab(b.dataset.tab));
   $("#tab-native").addEventListener("input", e => { if (e.target.id === "native-search") renderNative(); });
 
@@ -914,10 +1059,15 @@ function bindStatic() {
 
   $("#save-preset").addEventListener("click", openSavePreset);
   $("#show-start").addEventListener("click", () => {
-    if (showRunning()) sendTargets({ mode: "color" }, "fx");
-    else sendTargets({ mode: "effect", on: true, effect: "music_show" }, "fx");
+    const running = runningShow();
+    if (running.length) send(running.map(d => d.id), { mode: "color" }, "fx:show");
+    else send(null, { mode: "effect", on: true, effect: "music_show" }, "fx:show");
   });
-  $("#show-intensity").addEventListener("input", e => sendTargets({ speed: Number(e.target.value) }, "speed"));
+  bindSlider($("#show-intensity"), "__intensity", v => {
+    $("#show-int-val").textContent = `${v}%`;
+    const running = runningShow();
+    send(running.length ? running.map(d => d.id) : null, { speed: v }, "speed:show");
+  }, 1);
   $("#show-strobe").addEventListener("change", async e => { await call("set_setting", "show_strobe", e.target.checked); refresh(true); });
   bindSetup();
   $("#modal-cancel").addEventListener("click", closeModal);
@@ -933,8 +1083,8 @@ function bindStatic() {
   document.addEventListener("keydown", e => {
     if (e.key !== "Escape") return;
     if (!$("#modal").hidden) closeModal();
-    else if (S.settingsOpen) closeSettings();
     else if (S.arrange) { S.arrange = false; renderStage(); }
+    else if (S.sheetOpen) closeSheet();
   });
 }
 
@@ -945,8 +1095,10 @@ async function start() {
   bindStatic();
   bindStage();
   requestAnimationFrame(animatePreviews);
+  requestAnimationFrame(liveTiles);
   await refresh(true);
   setInterval(refresh, 1000);
+  go("home");
   if (S.data && S.data.settings.setup_done === false) openWizard();
 }
 

@@ -4,7 +4,7 @@
    right across the front, lights on the back wall glow together as one wash. In Arrange mode the
    lights can be dragged into place (that's stored as the show layout). */
 
-const TAPE = { pc: "#ff5fa2", front: "#5fd0ff", back: "#f5d547" };
+const LABEL_FONT = "600 12px 'Segoe UI Variable Text', 'Segoe UI', sans-serif";
 const OFF_RGB = [29, 28, 34];
 
 const ST = {
@@ -29,7 +29,6 @@ function fixtureType(d) {
   if (d.group === "pc") return "pc";
   return "strip";
 }
-const tapeColor = (d, layer) => layer === "back" ? TAPE.back : d.group === "pc" ? TAPE.pc : TAPE.front;
 function hashTilt(id) {
   let x = 0;
   for (const ch of id) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
@@ -135,16 +134,16 @@ function drawStage(ts) {
 
   const arranging = S.arrange;
   // back wall
-  ctx.fillStyle = "rgba(245, 213, 71, 0.035)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.025)";
   roundRect(ctx, 10, 10, W - 20, B.backBottom - 4, 8);
   ctx.fill();
   if (arranging) {
     ctx.setLineDash([4, 5]);
-    ctx.strokeStyle = "rgba(245, 213, 71, 0.35)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  label(ctx, "BACK WALL", 20, 24, "rgba(245, 213, 71, 0.55)");
+  label(ctx, "Back wall", 20, 26, "rgba(156, 156, 165, 0.75)");
   if (!ST.fixtures.some(f => f.layer === "back")) {
     ctx.fillStyle = "rgba(155, 150, 163, 0.5)";
     ctx.font = "12px 'Segoe UI Variable Text', 'Segoe UI', sans-serif";
@@ -158,11 +157,11 @@ function drawStage(ts) {
   ctx.setLineDash([2, 6]);
   ctx.beginPath(); ctx.moveTo(14, B.seatY - 8); ctx.lineTo(W - 14, B.seatY - 8); ctx.stroke();
   ctx.setLineDash([]);
-  label(ctx, "LEFT", 16, B.seatY + 8, "rgba(155, 150, 163, 0.45)");
-  label(ctx, "RIGHT", W - 16, B.seatY + 8, "rgba(155, 150, 163, 0.45)", "right");
-  ctx.fillStyle = "rgba(255, 193, 120, 0.7)";
+  label(ctx, "Left", 16, B.seatY + 8, "rgba(156, 156, 165, 0.5)");
+  label(ctx, "Right", W - 16, B.seatY + 8, "rgba(156, 156, 165, 0.5)", "right");
+  ctx.fillStyle = "rgba(243, 241, 237, 0.75)";
   ctx.beginPath(); ctx.moveTo(W / 2, B.seatY - 2); ctx.lineTo(W / 2 - 7, B.seatY + 8); ctx.lineTo(W / 2 + 7, B.seatY + 8); ctx.closePath(); ctx.fill();
-  label(ctx, "YOU", W / 2 + 12, B.seatY + 8, "rgba(255, 193, 120, 0.7)", "left");
+  label(ctx, "You", W / 2 + 12, B.seatY + 8, "rgba(243, 241, 237, 0.75)", "left");
 
   // pass 1: light spilling onto the floor and wall
   const colorsOf = new Map();
@@ -203,13 +202,12 @@ function drawStage(ts) {
    cover another label. */
 function placeTapes(ctx) {
   ctx.save();
-  ctx.font = TAPE_FONT;
-  try { ctx.letterSpacing = "1px"; } catch (_) { /* older engines */ }
+  ctx.font = LABEL_FONT;
   const placed = [];
   const order = ST.fixtures.slice().sort((p, q) => p.x0 - q.x0);
   for (const f of order) {
-    const text = (f.d.name + (f.d.online ? "" : " · offline")).toUpperCase();
-    const tw = Math.min(ctx.measureText(text).width + 12, Math.max(60, ST.w - 40));
+    const text = f.d.name + (f.d.online ? "" : " · offline");
+    const tw = Math.min(ctx.measureText(text).width + 4, Math.max(60, ST.w - 40));
     let ty = f.layer === "back" ? f.y + 13 : f.y + (f.type === "keys" ? 21 : f.type === "pc" ? 19 : 14);
     let tx = f.type === "bulb" ? (f.x0 + f.x1) / 2 - tw / 2 : f.x0;
     tx = clamp(tx, 6, ST.w - tw - 6);
@@ -224,7 +222,7 @@ function placeTapes(ctx) {
   ctx.restore();
   return placed;
 }
-const TAPE_FONT = "600 10.5px 'Bahnschrift SemiCondensed', Bahnschrift, 'Segoe UI', sans-serif";
+
 
 function ledCount(f) {
   const w = f.x1 - f.x0;
@@ -293,20 +291,13 @@ function drawFixture(ctx, f, colors) {
 }
 
 function tape(ctx, t) {
-  const d = t.f.d;
+  const d = t.f.d, picked = S.arrange ? ST.focus === d.id : (S.selected || []).includes(d.id);
   ctx.save();
-  ctx.font = TAPE_FONT;
-  try { ctx.letterSpacing = "1px"; } catch (_) { /* older engines */ }
-  ctx.translate(t.tx, t.ty);
-  ctx.rotate(hashTilt(d.id));
-  ctx.fillStyle = d.online ? tapeColor(d, t.f.layer) : "#5b5764";
-  ctx.globalAlpha = 0.88;
-  ctx.fillRect(0, 0, t.tw, 15);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#141318";
+  ctx.font = LABEL_FONT;
   ctx.textBaseline = "middle";
-  ctx.beginPath(); ctx.rect(0, 0, t.tw, 15); ctx.clip();
-  ctx.fillText(t.text, 6, 8);
+  ctx.fillStyle = picked ? "#f3f1ed" : d.online ? "rgba(243, 241, 237, 0.62)" : "rgba(156, 156, 165, 0.45)";
+  ctx.beginPath(); ctx.rect(t.tx, t.ty, t.tw, 16); ctx.clip();
+  ctx.fillText(t.text, t.tx + 2, t.ty + 8);
   ctx.restore();
 }
 
@@ -325,7 +316,7 @@ function brackets(ctx, f) {
 function handles(ctx, f, focused) {
   if (f.layer === "back" || f.type === "bulb") return;
   ctx.save();
-  ctx.fillStyle = focused ? "#ffc178" : "rgba(255, 193, 120, 0.4)";
+  ctx.fillStyle = focused ? "#f3f1ed" : "rgba(243, 241, 237, 0.35)";
   for (const x of [f.x0, f.x1]) { roundRect(ctx, x - 2.5, f.y - 13, 5, 26, 2); ctx.fill(); }
   // which way the light runs: from its first LED to its last
   const head = f.rev ? f.x0 - 4 : f.x1 + 4, dir = f.rev ? -1 : 1;
@@ -335,8 +326,7 @@ function handles(ctx, f, focused) {
 
 function label(ctx, text, x, y, color, align = "left") {
   ctx.save();
-  ctx.font = "600 10px 'Bahnschrift SemiCondensed', Bahnschrift, 'Segoe UI', sans-serif";
-  try { ctx.letterSpacing = "1.6px"; } catch (_) { /* older engines */ }
+  ctx.font = "500 11.5px 'Segoe UI Variable Text', 'Segoe UI', sans-serif";
   ctx.fillStyle = color; ctx.textAlign = align;
   ctx.fillText(text, x, y);
   ctx.restore();
@@ -363,13 +353,16 @@ function renderStage() {
   if (sig !== ST.hudSig) {
     ST.hudSig = sig;
     if (show) {
-      const cell = (eyebrow, value, cls = "") => h("div", { class: "hud-cell" },
-        h("span", { class: "eyebrow", text: eyebrow }), h("span", { class: "hud-value " + cls, text: value }));
-      fill(hud, 
-        cell(show.ai ? "AI hears" : "Style", show.style || "…"),
-        cell("Section", SECTION_NAMES[show.section] || show.section || "…", show.section === "drop" ? "is-drop" : ""),
-        cell("Tempo", show.bpm ? `${show.bpm} BPM${show.half ? " ½" : ""}` : "…"),
-        show.chord ? cell("Harmony", show.chord) : null);
+      const cell = (label, value, sub, cls = "") => h("div", { class: "readout-cell" },
+        h("div", { class: "readout-label", text: label }), h("div", { class: "readout-value " + cls, text: value }),
+        h("div", { class: "readout-sub", text: sub || "\u00a0", title: sub || "" }));
+      fill(hud,
+        cell(show.ai ? "AI hears" : "Style", show.style || "…",
+          show.ai ? [show.genres.slice(0, 2).join(", "), show.mood].filter(Boolean).join(" · ") : (show.aiError || "Still listening")),
+        cell("Right now", SECTION_NAMES[show.section] || show.section || "…",
+          show.section === "drop" ? "Everything goes" : show.section === "build" ? "Tension rising" : "", show.section === "drop" ? "is-hot" : ""),
+        cell("Tempo", show.bpm ? `${show.bpm} BPM` : "Finding the beat", show.half ? "Half time" : ""),
+        cell("Harmony", show.chord || "…", show.chord ? "Colors follow the chords" : ""));
     }
   }
   renderInspector();
@@ -379,7 +372,7 @@ function renderInspector() {
   const box = $("#inspector");
   $("#plot-floor").classList.toggle("is-arranging", !!S.arrange);
   $("#arrange").setAttribute("aria-pressed", String(!!S.arrange));
-  $("#arrange").textContent = S.arrange ? "Done" : "Arrange";
+  $("#arrange span").textContent = S.arrange ? "Done" : "Arrange";
   $("#stage-reset").hidden = !S.arrange;
   $("#plot-hint").textContent = S.arrange
     ? "Drag each light to where it is, as seen from your chair"
@@ -398,7 +391,7 @@ function renderInspector() {
   const s = stageOf(d), type = fixtureType(d), back = s.layer === "back";
   const put = span => setStage(d.id, span);
   fill(box, 
-    h("span", { class: "tape" + (back ? " tape-back" : d.group === "pc" ? " tape-pc" : ""), text: back ? "Back wall" : "Front" }),
+    h("span", { class: "tape", text: back ? "Back wall" : "In front of you" }),
     h("span", { class: "inspector-name", text: d.name }),
     h("span", { class: "spacer" }),
     !back && type !== "bulb" ? h("button", { class: "btn", type: "button", text: "Flip direction", title: "The light runs the other way",

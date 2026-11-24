@@ -15,8 +15,8 @@ function kindTitle(d) {
 
 function placeTape(d) {
   const s = S.data.stage && S.data.stage[d.id];
-  if (s && s.layer === "back") return h("span", { class: "tape tape-back", text: "Back wall" });
-  return h("span", { class: "tape" + (d.group === "pc" ? " tape-pc" : ""), text: d.group === "pc" ? "PC" : "Front" });
+  if (s && s.layer === "back") return h("span", { class: "tape", text: "Back wall" });
+  return h("span", { class: "tape", text: d.group === "pc" ? "In your PC" : "In front of you" });
 }
 
 /* ============================== the drawer ============================== */
@@ -64,8 +64,11 @@ function lightsSection() {
         onclick: async () => { await call("forget", d.id); refresh(true); },
       }) : null);
     const zones = (d.zones || []).filter(z => z.resizable);
-    const zoneGrid = zones.length ? h("div", { class: "zone-grid" },
-      h("span", { class: "eyebrow", style: "grid-column: 1 / -1", text: "LEDs per channel" }),
+    const fans = zones.filter(z => z.detected > 0 || (z.detected === -1 && z.leds > 0)).length;
+    const zoneGrid = zones.length ? h("details", { class: "zones", open: S.openZones && S.openZones.has(d.id) ? "" : null,
+      ontoggle: e => { S.openZones = S.openZones || new Set(); e.target.open ? S.openZones.add(d.id) : S.openZones.delete(d.id); } },
+      h("summary", { text: `LEDs per channel · ${zones.length} channels${fans ? `, ${fans} in use` : ""}` }),
+      h("div", { class: "zone-grid" },
       zones.flatMap(z => {
         const inp = h("input", { class: "text-input mono", type: "number", min: z.min, max: z.max, value: z.leds, "aria-label": `${z.name} LED count` });
         inp.addEventListener("change", async () => {
@@ -78,7 +81,7 @@ function lightsSection() {
       h("p", { class: "hint", style: "grid-column: 1 / -1; font-size: 12px",
         text: zones.some(z => z.detected !== -1)
           ? "Filled in from what the controller detects. Only change a number if a fan lights up wrong."
-          : `How many LEDs are on this channel, 0 if nothing is plugged in. Add up everything daisy-chained on it. Max ${zones[0].max}.` })) : null;
+          : `How many LEDs are on this channel, 0 if nothing is plugged in. Add up everything daisy-chained on it. Max ${zones[0].max}.` }))) : null;
     return h("div", { class: "dev-row" },
       h("div", { class: "dev-line" }, h("span", { class: dotClass }), name, placeTape(d)),
       h("div", { class: "dev-sub", text: sub }),
@@ -232,17 +235,8 @@ function appSection() {
         onclick: () => call("open_link", about.repo + "/releases") }) : null));
 }
 
-function openSettings() {
-  S.settingsOpen = true;
-  $("#settings").hidden = false;
-  $("#scrim").hidden = false;
-  renderSettings(true);
-}
-function closeSettings() {
-  S.settingsOpen = false;
-  $("#settings").hidden = true;
-  $("#scrim").hidden = true;
-}
+function openSettings() { go("setup"); }
+function closeSettings() { go("home"); }
 
 /* ============================== pairing and the DMX patch ============================== */
 
@@ -270,8 +264,8 @@ function openDmxEditor(hub) {
   const table = h("div", { class: "fixture-table" });
   const draw = () => {
     fill(table, 
-      h("span", { class: "eyebrow", text: "Name" }), h("span", { class: "eyebrow", text: "Address" }),
-      h("span", { class: "eyebrow", text: "Pixels" }), h("span", { class: "eyebrow", text: "Channels" }), h("span"),
+      h("span", { class: "th", text: "Name" }), h("span", { class: "th", text: "Address" }),
+      h("span", { class: "th", text: "Pixels" }), h("span", { class: "th", text: "Channels" }), h("span"),
       ...rows.flatMap((f, i) => {
         const inp = (key, type, extra = {}) => {
           const el = h("input", { class: "text-input" + (type === "number" ? " mono" : ""), type, value: f[key] ?? "", ...extra });
@@ -390,10 +384,10 @@ function renderWizard(force = false) {
     fill(body, 
       h("h2", { id: "wizard-title", text: "Put them where they are" }),
       h("p", { class: "hint", text: "The light show runs chases from left to right across the lights in front of you, and lights the wall behind you as one wash. Glowstage made a first guess from what each light is." }),
-      h("p", { class: "hint", text: "Check the stage on the left of the window: if a light is in the wrong spot, press Arrange and drag it to where it is, as seen from your chair." }),
+      h("p", { class: "hint", text: "You'll find the stage under Light show in the menu: if a light is in the wrong spot, press Arrange and drag it to where it is, as seen from your chair." }),
       h("div", { class: "form-actions" },
         h("button", { class: "btn", type: "button", text: "Arrange the stage now",
-          onclick: async () => { await finishWizard(); S.arrange = true; renderStage(); } })));
+          onclick: async () => { await finishWizard(); go("show"); S.arrange = true; renderStage(); } })));
   } else {
     fill(body, 
       h("h2", { id: "wizard-title", text: "Play something loud" }),
@@ -402,16 +396,13 @@ function renderWizard(force = false) {
         onclick: async () => {
           await call("update", null, { on: true, mode: "effect", effect: "music_show" });
           await finishWizard();
-          switchTab("show");
+          go("show");
         } }),
-      h("p", { class: "hint", style: "margin-top:14px; font-size:12px", text: "Presets, colors and effects are on the right side of the window, brightness per light at the bottom." }));
+      h("p", { class: "hint", style: "margin-top:14px; font-size:12px", text: "Presets are on Home. Click any light to give it a color or an effect." }));
   }
 }
 
 function bindSetup() {
-  $("#open-settings").addEventListener("click", openSettings);
-  $("#close-settings").addEventListener("click", closeSettings);
-  $("#scrim").addEventListener("click", closeSettings);
   $("#wizard-skip").addEventListener("click", finishWizard);
   $("#wizard-back").addEventListener("click", () => { S.wiz.step = Math.max(0, S.wiz.step - 1); renderWizard(true); });
   $("#wizard-next").addEventListener("click", () => {
