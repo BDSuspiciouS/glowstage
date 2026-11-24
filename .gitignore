@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.log
+/build/
+/dist/
+/.diag/
+# OpenRGB is downloaded by the app (or put here by hand for a source checkout), not kept in git.
+/tools/OpenRGB/

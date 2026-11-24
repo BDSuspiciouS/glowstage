@@ -1,0 +1,8 @@
+pywebview>=6.2
+pystray>=0.19.5
+Pillow>=10
+openrgb-python>=0.3.8
+zeroconf>=0.150
+soundcard>=0.4.6
+numpy>=1.26
+onnxruntime>=1.32   # installed with --no-deps: inference needs only numpy
