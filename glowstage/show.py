@@ -230,6 +230,7 @@ class ShowDirector:
         self._bass_env = self._bass_peak = self._bass_max = 1e-6
         self._bass_seen: collections.deque[float] = collections.deque(maxlen=180)   # every 0.25 s, 45 s
         self._hush_since: float | None = None
+        self._hush_from = self._gap_from = "silent"   # the section a silence came out of
         self._quiet_frac = 0.0
         self._gone_since: float | None = None   # since when the bass has been away
         self._was_gone, self._back_at = 0.0, -99.0   # how many beats it was away, and when it came back
@@ -274,7 +275,7 @@ class ShowDirector:
         self._drop_at = 0.0
         self._unconfirmed_until: float | None = None
         self._impact: tuple[float, str] | None = None   # a drop on a bass hit, checked until beat ..., from section ...
-        self._impact_n = self._impact_bass = 0
+        self._impact_n = self._impact_bass = self._impact_kicks = self._kicks = 0
         self._fizzle_since: float | None = None
         self._build_cent = 0.0         # where the sound's weight sat when the build-up began
         # The "one" of the bar: votes per beat position (0-3) and the even/odd split from snares.
@@ -637,11 +638,16 @@ class ShowDirector:
             # The song's full bass: what it reaches in its top fifth over the last 45 s, not its
             # single loudest moment (the tail of the previous song, or one big hit, would make a
             # whole groove sound like a break). The slowly falling maximum of the bass's average
-            # keeps a long break a break. After a second of (near) silence it starts over: that is where one
-            # song ends and the next begins (or a drop comes in, which then sets it right away).
+            # keeps a long break a break. After a second of (near) silence out of a groove or a drop
+            # it starts over: that is where one song ends and the next begins (or a drop comes in,
+            # which then sets it right away). A pause in a break or a build-up is just a pause:
+            # starting over there made the bass-less music after it sound like the bass was back.
             hushed = rms < 0.08 * self._l_slow
+            if hushed and self._hush_since is None:
+                self._hush_from = self.section if self.section != "gap" else self._gap_from
             self._hush_since = (self._hush_since or now) if hushed else None
-            if self._hush_since is not None and now - self._hush_since >= 1.0 and self._bass_seen:
+            if (self._hush_since is not None and now - self._hush_since >= 1.0 and self._bass_seen
+                    and self._hush_from in ("groove", "drop", "silent")):
                 self._bass_seen.clear()
                 self._bass_max = 1e-6
             self._bass_seen.append(self._bass_env)
@@ -728,15 +734,18 @@ class ShowDirector:
         # After a break the bass may also come back over a moment (a filter opening): softer test.
         back = played and self._bass_fast > 0.5 * self._bass_peak and self._bass_fast > 1.6 * self._bass_avg
         thin_before = self._bass_avg < 0.35 * self._bass_peak
-        if sec == "drop" and self._impact is not None:   # a drop fired on a bass hit: does the bass stay?
+        kicks = a.get("beat_count", 0)
+        if sec == "drop" and self._impact is not None:   # a drop fired on a bass hit: does the beat stay?
             until, before = self._impact
             self._impact_n += 1
             self._impact_bass += self._bass_fast > 0.25 * self._bass_peak
             if self._beat > until:
                 self._impact = None
-                if self._impact_bass < 0.35 * self._impact_n:
-                    # One big hit in a break (an "impact") with the bass gone again: no drop.
+                # One big hit in a break (an "impact") with the bass gone again, or a bass note
+                # held without a beat under it: no drop. A drop brings the beat back.
+                if self._impact_bass < 0.35 * self._impact_n or kicks - self._impact_kicks < 2:
                     return "rebuild" if before == "build" else "unbreak"
+        self._kicks = kicks
         if sec == "drop" and self._unconfirmed_until is not None:   # a drop fired on the count ...
             if self._bass_fast > 0.4 * self._bass_peak:
                 self._unconfirmed_until = None                      # ... the bass came: it was right
@@ -755,7 +764,10 @@ class ShowDirector:
                 self._dip_at = now
             if self._gap_since is not None and now - self._gap_since > 0.15:
                 return "gap"
-            if sec in ("groove", "drop") and slam and now - self._dip_at < 1.5:
+            # (A new drop out of a drop only after it has run four bars: a bass line with a short
+            # gap in every bar is one drop, not a new one every bar.)
+            if sec in ("groove", "drop") and slam and now - self._dip_at < 1.5 and \
+                    (sec == "groove" or self._beat - self._entered_beat >= 16):
                 self._dip_at = -99.0
                 return "redrop"
         if sec == "build":
@@ -851,6 +863,8 @@ class ShowDirector:
             self._bass_max = 1e-6
         if sec in ("break", "build", "gap", "calm") and cand in ("groove", "drop"):
             self._grid_trust_at = now + 5.0
+        if cand == "gap":
+            self._gap_from = sec
         self.section, self._since, self._entered_beat, self._cand = cand, now, self._beat, None
         self._gap_since = None
         lead = self._lead * self.bpm / 60
@@ -882,6 +896,7 @@ class ShowDirector:
                 self._vote_bar(int(self._phrase_start), 2.0)
                 if sec in ("build", "break", "calm"):     # the bass must stay for a bar (see _candidate)
                     self._impact, self._impact_n, self._impact_bass = (self._beat + 4.0, sec), 0, 0
+                    self._impact_kicks = self._kicks
         cut = cand in ("drop", "gap", "build", "silent") or sec in ("gap", "build", "silent")
         self._next_scene(entry=True, cut=cut)
         self._phrase_idx = self._phrase_now()
