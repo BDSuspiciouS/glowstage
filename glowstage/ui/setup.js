@@ -26,7 +26,8 @@ S.addForm = { kind: "wled", values: {} };
 function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label]),
-    d.hubs, d.openrgb, d.genreAi, d.settings, (d.drivers || []).length, d.stage]);
+    d.hubs, d.openrgb, d.genreAi, d.settings, (d.drivers || []).length, d.stage, d.schedules,
+    (d.presets || []).map(p => p.name), d.hotkeysTaken]);
 }
 
 function renderSettings(force = false) {
@@ -36,7 +37,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), scheduleSection(), appSection());
   body.scrollTop = scroll;
 }
 
@@ -237,6 +238,50 @@ function genreSection() {
       quiet("About the model", () => call("open_link", g.aboutUrl))));
 }
 
+/* Schedule: a preset, on, off or the light show at set times on chosen days. */
+const DAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+function scheduleSection() {
+  const items = (S.data.schedules || []).map(s => ({ ...s, days: [...s.days] }));
+  const save = async () => {
+    const r = await callRaw("set_schedules", items);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save the schedule", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const actions = [["off", "Lights off"], ["on", "Lights on"], ["show", "Start the light show"],
+    ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])];
+  const row = (s, i) => h("div", { class: "sched-row" + (s.enabled === false ? " is-paused" : "") },
+    h("input", { class: "text-input sched-time", type: "time", value: s.time, "aria-label": "Time",
+      onchange: e => { if (e.target.value) { s.time = e.target.value; save(); } } }),
+    h("select", { class: "sched-action", "aria-label": "What happens", onchange: e => { s.action = e.target.value; save(); } },
+      actions.map(([v, t]) => h("option", { value: v, text: t, selected: v === s.action }))),
+    h("div", { class: "sched-days", role: "group", "aria-label": "Days" }, DAY_LETTERS.map((l, k) =>
+      h("button", { type: "button", class: "day" + (s.days.includes(k) ? " is-on" : ""), text: l, title: DAY_NAMES[k],
+        "aria-pressed": String(s.days.includes(k)), "aria-label": DAY_NAMES[k],
+        onclick: () => {
+          const on = s.days.includes(k);
+          if (on && s.days.length === 1) return;          // at least one day
+          s.days = on ? s.days.filter(x => x !== k) : [...s.days, k].sort();
+          save();
+        } }))),
+    h("input", { type: "checkbox", class: "switch", checked: s.enabled !== false, "aria-label": "On",
+      title: s.enabled !== false ? "On" : "Paused", onchange: e => { s.enabled = e.target.checked; save(); } }),
+    h("button", { class: "icon-btn", type: "button", "aria-label": `Remove ${s.time}`, title: "Remove",
+      onclick: () => { items.splice(i, 1); save(); } }, icon("x")));
+  return h("section", { class: "set-section" },
+    h("h3", { text: "Schedule" }),
+    h("p", { class: "hint", text: "Your lights change by themselves at these times, as long as Glowstage runs (in the tray is enough)." }),
+    items.length ? h("div", { class: "sched-list" }, items.map(row)) : null,
+    h("div", { class: "form-actions" },
+      h("button", { class: "btn", type: "button", text: items.length ? "Add another time" : "Add a time",
+        onclick: () => {
+          const late = (S.data.presets || []).find(p => /late night/i.test(p.name));
+          items.push({ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: late ? "preset:" + late.name : "off", enabled: true });
+          save();
+        } })));
+}
+
 function appSection() {
   const s = S.data.settings;
   const row = (key, label) => h("label", { class: "toggle-row" }, h("span", { text: label }),
@@ -253,6 +298,9 @@ function appSection() {
     row("pc_lights_off_at_shutdown", "Switch the PC's lights off when Windows shuts down"),
     row("room_lights_off_at_shutdown", "Switch the room lights off when Windows shuts down"),
     row("show_strobe", "Strobe flashes in the light show"),
+    row("hotkeys", "Hotkeys from any program: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets"),
+    (S.data.hotkeysTaken || []).length && s.hotkeys
+      ? h("p", { class: "hint", text: `Another program already uses ${S.data.hotkeysTaken.join(", ")}: those don't work here.` }) : null,
     h("div", { class: "form-actions", style: "margin-top:14px" },
       h("button", { class: "btn", type: "button", text: "Show the welcome tour", onclick: () => { closeSettings(); openWizard(); } }),
       h("button", { class: "btn", type: "button", text: "Restart Glowstage",

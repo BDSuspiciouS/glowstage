@@ -1,4 +1,4 @@
-"""System tray icon: open the window, switch everything on/off, apply presets, quit."""
+"""System tray icon: open the window, switch everything on/off, the light show, presets, quit."""
 
 from __future__ import annotations
 
@@ -22,9 +22,13 @@ class Tray:
         yield Menu.SEPARATOR
         yield MenuItem("All lights on", lambda: m.set_power_all(True))
         yield MenuItem("All lights off", lambda: m.set_power_all(False))
+        yield MenuItem("Stop the light show" if m.show_running() else "Start the light show", lambda: m.toggle_show())
         presets = m.preset_names()
         if presets:
-            yield MenuItem("Presets", Menu(*(MenuItem(name, self._preset_action(name)) for name in presets)))
+            active = m.config["settings"].get("active_preset", "")
+            yield MenuItem("Presets", Menu(*(MenuItem(name, self._preset_action(name), radio=True,
+                                                      checked=lambda item, n=name: n == active)
+                                             for name in presets)))
         yield Menu.SEPARATOR
         yield MenuItem(f"Restart {APP_NAME}", lambda: self.app.restart())
         yield MenuItem("Quit", lambda: self.app.quit())

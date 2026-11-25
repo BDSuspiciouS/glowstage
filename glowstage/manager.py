@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
+import re
 import threading
 import time
 from typing import Callable
@@ -97,6 +99,7 @@ class DeviceManager:
         self.discovery.start()
         self.engine.start()
         threading.Thread(target=self._monitor, name="monitor", daemon=True).start()
+        threading.Thread(target=self._scheduler, name="schedule", daemon=True).start()
         threading.Thread(target=self._discover_direct, name="direct-discovery", daemon=True).start()
 
     def _discover_direct(self) -> None:
@@ -326,6 +329,89 @@ class DeviceManager:
     def set_power_all(self, on: bool) -> None:
         self.update(None, {"on": on})
 
+    def any_on(self) -> bool:
+        with self.lock:
+            return any(self.states[i].on for i in self.visible_ids() if self.devices[i].online)
+
+    # ---- the light show, from the tray, hotkeys and schedules ------------------------------
+
+    def show_lights(self) -> list[str]:
+        """The lights that join the show: visible and online, not taken out of it."""
+        out = set(self.config.data.get("show_excluded") or [])
+        with self.lock:
+            return [i for i in self.visible_ids() if self.devices[i].online and i not in out]
+
+    def show_running(self) -> bool:
+        with self.lock:
+            return any(st.on and st.mode == "effect" and st.effect == "music_show"
+                       for i, st in self.states.items() if i in self.devices)
+
+    def start_show(self) -> None:
+        self._apply({i: {"on": True, "mode": "effect", "effect": "music_show"} for i in self.show_lights()},
+                    preset="")
+
+    def stop_show(self) -> None:
+        with self.lock:
+            running = [i for i, st in self.states.items()
+                       if i in self.devices and st.mode == "effect" and st.effect == "music_show"]
+        self._apply({i: {"mode": "color"} for i in running}, preset="")
+
+    def toggle_show(self) -> None:
+        self.stop_show() if self.show_running() else self.start_show()
+
+    # ---- schedules: presets, on, off or the show at set times ---------------------------------
+
+    def set_schedules(self, items) -> None:
+        clean = []
+        for s in items or []:
+            t = str(s.get("time", ""))
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
+                raise ValueError(f"{t or 'A time'} isn't a time of day (like 23:30)")
+            action = str(s.get("action", ""))
+            if action not in ("off", "on", "show") and not action.startswith("preset:"):
+                raise ValueError("Choose what should happen")
+            days = sorted({int(d) for d in s.get("days", range(7)) if 0 <= int(d) <= 6})
+            clean.append({"time": t, "days": days, "action": action, "enabled": bool(s.get("enabled", True))})
+        self.config.data["schedules"] = sorted(clean, key=lambda s: s["time"])
+        self.config.save_soon()
+        self._changed()
+
+    def _scheduler(self) -> None:
+        """Every 15 s: run what's due. A time missed by more than two minutes (the PC was asleep)
+        is skipped rather than run late."""
+        fired: dict[str, datetime.date] = {}
+        while not self._stop.wait(15):
+            for s in self.due_schedules(datetime.datetime.now(), fired):
+                log.info("Schedule %s: %s", s["time"], s["action"])
+                try:
+                    self.run_action(s["action"])
+                except Exception:
+                    log.exception("Schedule %s failed", s["time"])
+
+    def due_schedules(self, now: datetime.datetime, fired: dict) -> list[dict]:
+        """The schedules to run at `now` (each once a day; `fired` remembers which ran when)."""
+        due = []
+        for s in list(self.config.data.get("schedules") or []):
+            if not s.get("enabled", True) or now.weekday() not in s.get("days", range(7)):
+                continue
+            hh, mm = (int(v) for v in s["time"].split(":"))
+            late = (now - now.replace(hour=hh, minute=mm, second=0, microsecond=0)).total_seconds()
+            key = f"{s['time']} {s['action']}"
+            if 0 <= late < 120 and fired.get(key) != now.date():
+                fired[key] = now.date()
+                due.append(s)
+        return due
+
+    def run_action(self, action: str) -> None:
+        if action == "off":
+            self.set_power_all(False)
+        elif action == "on":
+            self.set_power_all(True)
+        elif action == "show":
+            self.start_show()
+        elif action.startswith("preset:"):
+            self.apply_preset(action[len("preset:"):])
+
     def lights_off_now(self, pc: bool = True, room: bool = True) -> None:
         """Windows is shutting down: switch the lights off right away. Their saved state stays
         as it is, so they come back as they were next time. Runs on the shutdown thread: no new
@@ -524,6 +610,7 @@ class DeviceManager:
             "presets": self.preset_previews(),
             "activePreset": self.config["settings"].get("active_preset", ""),
             "showExcluded": list(self.config.data.get("show_excluded") or []),
+            "schedules": list(self.config.data.get("schedules") or []),
             "effects": [e.describe() for e in EFFECTS.values()],
             "hubs": [h.describe() for h in list(self.hubs.values())],
             "drivers": [d.describe() for d in drivers().values()],

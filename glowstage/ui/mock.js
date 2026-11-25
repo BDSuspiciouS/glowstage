@@ -22,6 +22,9 @@
   const data = {
     revision: 1,
     showExcluded: [],
+    schedules: [{ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: "preset:Late night", enabled: true },
+      { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
+    hotkeysTaken: [],
     activePreset: "",
     devices: [
       { id: "openrgb:Corsair Commander Core", kind: "openrgb", group: "pc", name: "Commander Core", online: true, error: null,
@@ -151,6 +154,7 @@
       else delete data.stage[id].custom;
       return ok();
     },
+    set_schedules: items => { data.schedules = items; data.revision++; return ok(); },
     set_show_excluded: ids => { data.showExcluded = ids; data.revision++; return ok(); },
     set_show_sync: ms => { data.audio.sync = ms === null ? { ms: 200, auto: true } : { ms, auto: false }; return ok(); },
     reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),

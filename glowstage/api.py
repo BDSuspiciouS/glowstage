@@ -42,6 +42,7 @@ class Api:
         changed since, only the parts that change all the time: a small answer every second
         instead of every light, preset and effect."""
         extra = {"settings": {**self._app.config["settings"], "autostart": winutil.autostart_enabled()},
+                 "hotkeysTaken": list(self._app.hotkeys.failed),
                  "about": {"name": APP_NAME, "version": VERSION, "repo": f"https://github.com/{REPO}",
                            "donate": [{"name": k, "url": v} for k, v in DONATE.items() if v]}}
         if since is not None and since == self._m.revision:
@@ -60,6 +61,10 @@ class Api:
     @_safe
     def reset_stage(self):
         self._m.reset_stage()
+
+    @_safe
+    def set_schedules(self, items):
+        self._m.set_schedules(items)
 
     @_safe
     def set_show_excluded(self, ids):
@@ -178,6 +183,8 @@ class Api:
             raise ValueError(f"Unknown setting {key}")
         self._app.config["settings"][key] = value
         self._app.config.save_soon()
+        if key == "hotkeys":
+            self._app.hotkeys.set_enabled(bool(value))
 
     @_safe
     def hide_window(self):

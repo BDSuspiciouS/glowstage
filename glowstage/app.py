@@ -15,6 +15,7 @@ import webview
 from . import webfix, winutil
 from .api import Api
 from .config import Config
+from .hotkeys import Hotkeys
 from .icon import icon_file
 from .manager import DeviceManager
 from .paths import APP_DIR, APP_NAME, INSTALL_DIR, UI_DIR, VERSION, launch_command
@@ -29,10 +30,11 @@ class App:
         self.manager = DeviceManager(self.config)
         self.manager.force_on = autostart and bool(self.config["settings"].get("lights_on_at_startup", True))
         self.tray = Tray(self)
+        self.hotkeys = Hotkeys(self.manager)
         self.window: webview.Window | None = None
         self.start_minimized = start_minimized or bool(self.config["settings"].get("start_minimized"))
         self._quitting = False
-        self._preset_names: list[str] = []
+        self._preset_names: tuple = ()
         self._watch_stop = threading.Event()
         self.manager.listeners.append(self._on_change)
 
@@ -41,6 +43,7 @@ class App:
         winutil.watch_shutdown(self._on_windows_shutdown)
         self.manager.start()
         self.tray.start()
+        self.hotkeys.set_enabled(bool(self.config["settings"].get("hotkeys")))
         self.window = webview.create_window(
             APP_NAME, url=str(UI_DIR / "index.html"), js_api=Api(self),
             width=1240, height=820, min_size=(980, 680), background_color="#16171b",
@@ -51,13 +54,16 @@ class App:
         webview.start(gui="edgechromium", icon=str(icon_file(APP_DIR)), private_mode=False,
                       storage_path=str(APP_DIR / "webview"))
         self._watch_stop.set()
+        self.hotkeys.set_enabled(False)
         self.tray.stop()
         self.manager.stop()
 
     def _on_change(self) -> None:
-        names = self.manager.preset_names()
-        if names != self._preset_names:
-            self._preset_names = names
+        # The tray menu shows the presets, the one that's on and whether the show runs.
+        sig = (self.manager.preset_names(), self.config["settings"].get("active_preset", ""),
+               self.manager.show_running())
+        if sig != self._preset_names:
+            self._preset_names = sig
             self.tray.refresh()
 
     def _on_windows_shutdown(self) -> None:
