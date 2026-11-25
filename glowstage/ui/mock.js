@@ -93,7 +93,7 @@
       { name: "Red room", effects: ["music_pulse"], colors: ["#c8001a", "#5a00c8"] },
       { name: "After dark", effects: ["music_bloom", "music_heart", "music_romantic"], colors: ["#1a10c8", "#7a00a8", "#c0001c", "#6a0060"] }],
     effects,
-    audio: { device: "Speakers (Realtek(R) Audio)", listening: false },
+    audio: { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", sync: { ms: 200, auto: true } },
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
     settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true,
@@ -142,6 +142,7 @@
       else delete data.stage[id].custom;
       return ok();
     },
+    set_show_sync: ms => { data.audio.sync = ms === null ? { ms: 200, auto: true } : { ms, auto: false }; return ok(); },
     reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),
     pair: () => Promise.resolve({ ok: false, error: "The bridge's link button wasn't pressed." }),
     set_dmx_fixtures: (id, fixtures) => { data.hubs[1].fixtures = fixtures; return ok(); },

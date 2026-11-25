@@ -137,6 +137,12 @@
           <div id="show-intensity" class="slider" role="slider" tabindex="0" aria-label="Show intensity" aria-valuemin="1" aria-valuemax="100"><div class="slider-fill"></div></div>
           <div class="range-ends"><span>Smooth</span><span>Wild</span></div>
         </div>
+        <div class="card control">
+          <div class="control-head"><span class="control-title">Sync</span><span id="show-sync-val" class="num muted"></span></div>
+          <div id="show-sync" class="slider slider-zero" role="slider" tabindex="0" aria-label="When the lights react: earlier or later" aria-valuemin="0" aria-valuemax="100"><div class="slider-fill"></div></div>
+          <div class="range-ends"><span>Earlier</span><span>Later</span></div>
+          <div class="control-hint"><span id="show-sync-hint"></span> <button id="show-sync-auto" class="link-btn" type="button" hidden>Auto</button></div>
+        </div>
         <label class="card control control-switch">
           <span class="control-text"><span class="control-title">Strobe</span><span class="muted">Flashes on the big moments</span></span>
           <input type="checkbox" id="show-strobe" class="switch">

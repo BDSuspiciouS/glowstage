@@ -66,9 +66,42 @@ def estimate_tempo(onsets: np.ndarray) -> tuple[float, float, float, float]:
     return float(60 * BLOCK_RATE / period), float(max(0.0, min(1.0, b * 2))), best, clarity
 
 
+def output_kind(speaker) -> str:
+    """"bluetooth", "remote" (Remote Desktop) or "local": how the sound gets to your ears.
+    Bluetooth headphones and speakers play the sound 150-300 ms after the PC sends it."""
+    if "remote audio" in str(speaker.name).lower():
+        return "remote"
+    try:
+        import struct
+
+        from soundcard import mediafoundation as mf
+        store = mf._ffi.new("IPropertyStore **")
+        ptr = speaker._device_ptr()
+        hr = ptr[0][0].lpVtbl.OpenPropertyStore(ptr[0], 0, store)
+        mf._com.release(ptr)
+        mf._com.check_error(hr)
+        value = mf._PropVariant()
+        # PKEY_Device_EnumeratorName: "BTHENUM" (and BTHHFENUM, BTHLEDevice) for Bluetooth.
+        key = mf._ffi.new("PROPERTYKEY *", [[0xa45c254e, 0xdf1c, 0x4efd,
+                                             [0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0]], 24])
+        hr = store[0][0].lpVtbl.GetValue(store[0], key, value.ptr)
+        mf._com.release(store)
+        mf._com.check_error(hr)
+        if value.ptr[0].vt != 31:   # not a string
+            return "local"
+        data = mf._ffi.cast("short*", value.ptr[0].data)
+        n = next((i for i in range(256) if data[i] == 0), 256)
+        name = struct.pack("h" * n, *data[0:n]).decode("utf-16")
+        return "bluetooth" if name.upper().startswith("BTH") else "local"
+    except Exception as e:   # soundcard internals changed, or no such property: assume wired
+        log.debug("Could not tell how %s is connected: %s", speaker.name, e)
+        return "local"
+
+
 class AudioAnalyzer:
     def __init__(self):
         self.device = ""
+        self.device_kind = "local"
         self._snap = quiet()
         self._wanted_until = 0.0
         self._thread: threading.Thread | None = None
@@ -166,8 +199,9 @@ class AudioAnalyzer:
             try:
                 speaker = sc.default_speaker()
                 mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+                self.device_kind = output_kind(speaker)
                 self.device = speaker.name
-                log.info("Listening to %s for music effects", speaker.name)
+                log.info("Listening to %s (%s) for music effects", speaker.name, self.device_kind)
                 self._reset()
                 checked = time.monotonic()
                 with mic.recorder(samplerate=RATE, blocksize=BLOCK) as rec:

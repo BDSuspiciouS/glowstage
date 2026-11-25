@@ -255,7 +255,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .readout-value { font-family: var(--f-display); font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout-value.is-hot { color: var(--warn); }
 .readout-sub { color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.show-controls { display: grid; grid-template-columns: 1.3fr 1fr 1.4fr; gap: 12px; margin-top: 12px; }
+.show-controls { display: grid; grid-template-columns: 1fr 1.15fr 0.85fr 1.2fr; gap: 12px; margin-top: 12px; }
 .control { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .control-head { display: flex; justify-content: space-between; }
 .control-title { font-weight: 600; display: block; }
@@ -263,7 +263,19 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .control.control-switch { flex-direction: row; align-items: center; justify-content: space-between; cursor: pointer; }
 .control-note .muted { font-size: 12.5px; }
 .range-ends { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; }
-#show-intensity { flex: none; }
+#show-intensity, #show-sync { flex: none; }
+/* a slider with a "0" in the middle (sync): a notch marks it */
+.slider-zero::before {
+  content: ""; position: absolute; left: calc(var(--zero, .2) * 100%); top: 22%; bottom: 22%; width: 2px;
+  margin-left: -1px; border-radius: 1px; background: rgba(128,128,136,.7); z-index: 1; pointer-events: none;
+}
+.control-hint { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin-top: -2px; }
+.link-btn {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--text); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(255,255,255,.35);
+}
+.link-btn:hover { text-decoration-color: currentColor; }
+.link-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }
 
 /* switches */
 .switch {

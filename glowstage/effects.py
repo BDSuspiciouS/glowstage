@@ -483,7 +483,8 @@ class LightShow(MusicEffect):
         if frame is None:  # a still frame (the graphics card): festival colors side by side
             palette = show.STYLES["edm"].colors
             return [tuple(int(c * 255) for c in palette[i % len(palette)]) for i in range(n)]
-        return show.render(frame, n, ctx.get("span", (0.0, 1.0, "front")), mem, ctx.get("fixture"))
+        return show.render(frame, n, ctx.get("span", (0.0, 1.0, "front")), mem, ctx.get("fixture"),
+                           ctx.get("slow", False))
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (

@@ -57,6 +57,10 @@ class Api:
         self._m.reset_stage()
 
     @_safe
+    def set_show_sync(self, ms):
+        self._m.set_show_sync(ms)
+
+    @_safe
     def open_link(self, url):
         """Open the project page or a donation page in the browser (only those, nothing else)."""
         allowed = {f"https://github.com/{REPO}", f"https://github.com/{REPO}/releases", *DONATE.values()}

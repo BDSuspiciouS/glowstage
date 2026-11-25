@@ -5,10 +5,12 @@ and decides what all lights do together, the way a festival lighting jockey woul
 
 - A beat clock, locked to the kick drum, counts beats, bars and 8-bar phrases. The lights run
   LEAD seconds ahead of the analysis, so flashes land on the beat instead of just after it.
+  Sync shifts that per sound output: Bluetooth plays the sound ~0.2 s late, so the frames wait.
 - Sections: groove, break (the bass drops out), build-up (energy rising without bass), gap
   (the silence right before a drop), drop (the bass slams back in, or a chorus jumps up in
   energy), calm and silent. A section only changes once the music has stayed that way for a
-  beat or a few, so the show doesn't flicker between them.
+  beat or a few, so the show doesn't flicker between them. While a riser keeps climbing the
+  lights already lean into the build-up before it is certain.
 - Looks ("scenes") change on phrase boundaries and section changes, with a white hit on the
   first beat of a phrase. Each style has its own color pairs (a main color and an accent) and
   hardness: techno gets red and white with strobes, chill music slow washes and no flashes.
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import cmath
 import collections
+import copy
 import logging
 import math
 import random
@@ -149,6 +152,7 @@ class Frame:
     treble: float = 0.0
     half: bool = False         # felt at half time: beat and bpm above are the half-time ones
     build: float = 0.0         # build-up progress 0..1 (1 = the drop is due now)
+    tension: float = 0.0       # before a build-up is certain: how much the lights already lean into it
     blackout: bool = False     # the held breath on the last half beat before a drop
     flash: float = 0.0         # blinder, fading
     flash_color: np.ndarray = field(default_factory=lambda: WHITE)
@@ -173,6 +177,17 @@ class Frame:
 
 def _ema(prev: float, x: float, dt: float, tau: float) -> float:
     return prev + (x - prev) * (1 - math.exp(-dt / tau))
+
+
+def _climbing(vals: list[float], full: float, step: float) -> float:
+    """How clearly a series (one value per second) climbs steadily, 0..1: `full` = the rise over
+    the whole series that counts as all the way, `step` = the least each second must add. 0 when
+    it fell anywhere or when one or two seconds did most of the rising (a step, not a climb)."""
+    diffs = [b - a for a, b in zip(vals, vals[1:])]
+    total = vals[-1] - vals[0]
+    if total <= 0 or max(diffs) > 0.45 * total:
+        return 0.0
+    return max(0.0, min(1.0, total / full, min(diffs) / step))
 
 
 def _hash(i: int, seed: int) -> float:
@@ -222,6 +237,9 @@ class ShowDirector:
         self._bass_fast = self._bass_avg = 1e-6
         self._score = 0.0              # how much it sounds like a build-up right now, 0..1
         self._sweep_c = self._thin_c = 0.0   # two of its parts: a riser sweeping up, the bass thinned
+        self._climb_c = 0.0            # ... and the sound still climbing right now (0 for a step up)
+        self._climb_since: float | None = None   # since when it has kept climbing clearly
+        self._tension = 0.0            # how much the lights already lean into a possible build-up
         self._dip_at = -99.0           # the last moment the music cut out for an instant
         self._hits: collections.deque[float] = collections.deque(maxlen=24)   # snare/clap times
         self._prev_hit_ago = 99.0
@@ -250,6 +268,10 @@ class ShowDirector:
         self._bar_votes = [0.0, 0.0, 0.0, 0.0]
         self._parity = [0.0, 0.0]
         self._bar_phase: int | None = None
+        # Sync: with Bluetooth the sound reaches your ears ~0.2 s after the PC hears it, so the
+        # frames wait that long (_out); lights that lag behind the sound get more lead instead.
+        self._lead = LEAD
+        self._out: collections.deque[tuple[float, Frame]] = collections.deque(maxlen=64)
 
     # ---- what the UI shows ---------------------------------------------------------------
 
@@ -271,7 +293,22 @@ class ShowDirector:
 
     # ---- one frame -------------------------------------------------------------------------
 
-    def update(self, a: dict, now: float, intensity: float = 0.5, strobe: bool = True) -> Frame:
+    def update(self, a: dict, now: float, intensity: float = 0.5, strobe: bool = True,
+               sync: float = 0.0) -> Frame:
+        """The frame to show now. `sync` (seconds) > 0 holds every frame back that long, for sound
+        that reaches your ears late (Bluetooth); < 0 runs the beat clock that much further ahead,
+        for lights that react late."""
+        self._lead = LEAD + max(0.0, -sync)
+        f = self._update(a, now, intensity, strobe)
+        if sync <= 0:
+            self._out.clear()
+            return f
+        self._out.append((now, copy.copy(f)))
+        while len(self._out) > 1 and self._out[1][0] <= now - sync + 0.01:   # (to the nearest frame)
+            self._out.popleft()
+        return self._out[0][1]
+
+    def _update(self, a: dict, now: float, intensity: float, strobe: bool) -> Frame:
         dt = 0.02 if self._t is None else max(0.0, min(0.1, now - self._t))
         self._t = now
         self._ai = self.genre.request()
@@ -286,7 +323,7 @@ class ShowDirector:
         hard = style.hard + MOOD_HARDNESS.get(self._ai.get("mood") or "", 0.0) + (intensity - 0.5) * 0.8
         f.hard = max(0.0, min(1.0, hard))
         f.t, f.section = now, self.section
-        lead = LEAD * self.bpm / 60
+        lead = self._lead * self.bpm / 60
         silent = a.get("silent", True)
         hit_ago = a.get("hit_ago", 99.0)
         if hit_ago < self._prev_hit_ago - 0.02:
@@ -336,6 +373,15 @@ class ShowDirector:
         # Up at once (a drop must slam in at full power), down slowly.
         self._master = target if target > self._master else _ema(self._master, target, dt, 1.0)
         f.master = self._master
+        # Before a build-up is certain, the lights already lean into it while the sound keeps
+        # climbing (and, in a break, as it sounds more and more like one), so they rise with the
+        # riser instead of waking up when it is nearly over. If it doesn't build, they ease back.
+        lean = 0.0
+        if self.section in ("groove", "break", "calm") and f.hard >= 0.3 and style.drops:
+            lean = self._climb_c if self.section == "groove" else max(self._climb_c, (self._score - 0.3) / 0.3)
+            lean = max(0.0, min(1.0, (lean - 0.2) / 0.6))
+        self._tension = _ema(self._tension, lean, dt, 0.4 if lean > self._tension else 1.2)
+        f.tension = self._tension if self.section in ("groove", "break", "calm") else 0.0
         f.trans = min(1.0, max(0.0, (self._beat - self._trans_beat) / 1.0))   # a wipe takes one beat
         f.blackout, f.strobe = False, False
         if self.section in ("build", "gap"):
@@ -587,9 +633,9 @@ class ShowDirector:
         tighter, the bass being filtered away, and the whole thing getting louder. Compares the
         last second with the second four seconds ago."""
         h = list(self._hist)
-        if len(h) < 18:
+        if len(h) < 20:
             return 0.0
-        late, early = h[-4:], h[-18:-14]
+        late, mid, early = h[-4:], h[-8:-4], h[-18:-14]
         avg = lambda rows, k: sum(r[k] for r in rows) / len(rows)   # noqa: E731
         riser = (avg(late, 2) - avg(early, 2)) / 0.6                # +0.6 octave = a full riser
         bright = math.log2((avg(late, 1) + 1e-6) / (avg(early, 1) + 1e-6)) / 1.5
@@ -598,7 +644,18 @@ class ShowDirector:
         per_beat = sum(1 for t in self._hits if now - t < 1.5) / (1.5 * self.bpm / 60)
         roll = math.log2(max(per_beat, 1.0)) / 2
         clip = lambda v: max(0.0, min(1.0, v))                      # noqa: E731
+        # A riser keeps climbing: each of the last five seconds sits higher than the one before,
+        # and no single second did most of it. A drop or a chorus coming in is a step up instead,
+        # which lands in one or two of those seconds (and must not be taken for a build-up).
+        secs = [h[-20:-16], h[-16:-12], h[-12:-8], mid, late]
+        climb = _climbing([avg(s, 2) for s in secs], 0.5, 0.08)
+        brighter = _climbing([math.log2(avg(s, 1) + 1e-6) for s in secs], 1.2, 0.2)
         self._sweep_c, self._thin_c = clip(riser), clip(thin)
+        self._climb_c = clip(max(climb, brighter))
+        if self._climb_c >= 0.6:
+            self._climb_since = self._climb_since if self._climb_since is not None else now
+        else:
+            self._climb_since = None
         return (0.35 * clip(max(riser, bright)) + 0.25 * clip(roll) + 0.25 * clip(thin)
                 + 0.15 * clip(louder))
 
@@ -645,19 +702,26 @@ class ShowDirector:
                 return "drop"
             # It fizzled out when it stopped sounding like a build-up and the riser fell back down
             # (after a riser has swept all the way up, the score drops while the build goes on).
-            overdue = self._beat + LEAD * self.bpm / 60 - self._drop_at
+            overdue = self._beat + self._lead * self.bpm / 60 - self._drop_at
             fizzled = self._score < BUILD_OFF and (self._cent - self._build_cent < 0.5 or overdue > 16)
             self._fizzle_since = (self._fizzle_since or now) if fizzled else None
             if in_state > 40 or (self._fizzle_since is not None and now - self._fizzle_since > 3):
                 return "groove" if bass_ratio > 0.5 else "break"    # it didn't build to anything
             return "build"
         # A build-up: from a break, sounding like one is enough; out of a groove or a drop it also
-        # needs a riser really sweeping up or the bass being filtered away (a busy drop full of
-        # snares and bright synths scores high too, but has neither).
+        # needs a riser still climbing or the bass being filtered away (a busy drop full of
+        # snares and bright synths scores high too, but it came in as a step up, not a climb).
+        # A riser that keeps climbing for a second or two is a build-up by itself, before the
+        # snare roll and the missing bass make it sound like one all round.
         # (Out of a groove or drop only once it has run 5 s: the score looks 4 s back, and right
         # after a drop that is still the quieter, darker stretch before it.)
-        if drops and self._score > BUILD_ON and sec in ("groove", "break", "calm", "drop") and \
-                (sec in ("break", "calm") or (in_state > 5.0 and (self._sweep_c >= 0.6 or self._thin_c >= 0.5))):
+        settled = sec in ("break", "calm") or in_state > 5.0
+        climbing = self._climb_since is not None and now - self._climb_since >= (1.0 if sec in ("break", "calm") else 1.5)
+        # (A clearly built-up score with the sound swept up overall also counts, as it always did.)
+        if drops and sec in ("groove", "break", "calm", "drop") and settled and (
+                climbing or (self._score > BUILD_ON and (sec in ("break", "calm") or self._climb_c >= 0.6
+                                                         or self._thin_c >= 0.5
+                                                         or (self._sweep_c >= 0.6 and self._score > 0.65)))):
             return "build"
         if drops and sec in ("groove", "break", "calm") and (slam or (back and sec != "groove")) and \
                 (thin_before or sec != "groove"):
@@ -709,7 +773,7 @@ class ShowDirector:
             self._grid_trust_at = now + 5.0
         self.section, self._since, self._entered_beat, self._cand = cand, now, self._beat, None
         self._gap_since = None
-        lead = LEAD * self.bpm / 60
+        lead = self._lead * self.bpm / 60
         if cand == "build" and not resumed:
             # The build-up started on a bar line about a bar before it could be heard as one;
             # the drop is due eight bars after that.
@@ -737,7 +801,7 @@ class ShowDirector:
 
     def _phrase_now(self) -> int:
         length = 16 if self.section in ("break", "calm") else 32
-        return max(0, int((self._beat + LEAD * self.bpm / 60 - self._phrase_start) // length))
+        return max(0, int((self._beat + self._lead * self.bpm / 60 - self._phrase_start) // length))
 
     def _phrases(self) -> None:
         idx = self._phrase_now()
@@ -1043,7 +1107,7 @@ SCENES = {
 }
 
 
-def _back(f: Frame, n: int, mem) -> np.ndarray:
+def _back(f: Frame, n: int, mem, slow: bool = False) -> np.ndarray:
     """The wall behind you answers the front: it hits on the snare while the front hits the kick."""
     sec = f.section
     if sec == "gap":
@@ -1055,18 +1119,28 @@ def _back(f: Frame, n: int, mem) -> np.ndarray:
         if f.scene in ("flow", "breathe", "drift"):        # chill music: the back wall just glows along
             return _fill(n, f.accent, 0.05 + 0.35 * f.mid)
         # Snare in the accent color, hi-hats ticking softly (trap hat rolls), the beat underneath.
-        return _fill(n, f.accent, f.hit + 0.25 * f.hat) + _fill(n, f.main, 0.12 * f.pump)
+        # (Bulbs can't tick that fast: they leave out the hi-hats.)
+        return _fill(n, f.accent, f.hit + (0.0 if slow else 0.25 * f.hat)) + _fill(n, f.main, 0.12 * f.pump)
     if sec in ("break", "calm"):
         return _fill(n, f.accent, 0.06 + 0.3 * f.level * (0.5 - 0.5 * math.cos(math.pi * f.beat / 4)))
     return _fill(n, f.accent, 0.04)
 
 
-def _wiped(f: Frame, x: np.ndarray, mem: dict) -> np.ndarray:
+# Lights that take only ~10 updates a second (Hue, Home Assistant, Govee, Elgato: behind a bridge,
+# a hub or the cloud) can't step on every 16th note: they get the calmer look of the same kind.
+SLOW_FPS = 12
+SLOW_LOOKS = {"chase16": "chase", "strobe_chase": "pump", "random_zones": "alternate", "sparkle": "breathe"}
+HOLD_S = 0.2     # how long a slow light holds a short flash, fading, so its next update still shows it
+
+
+def _wiped(f: Frame, x: np.ndarray, mem: dict, slow: bool = False) -> np.ndarray:
     """The current look; while a new one comes in, wiped over the old one across the stage."""
-    new = SCENES.get(f.scene, _idle)(f, x, mem)
-    if f.trans >= 1.0 or f.prev_scene == f.scene:
+    scene, prev = (SLOW_LOOKS.get(f.scene, f.scene), SLOW_LOOKS.get(f.prev_scene, f.prev_scene)) if slow \
+        else (f.scene, f.prev_scene)
+    new = SCENES.get(scene, _idle)(f, x, mem)
+    if f.trans >= 1.0 or prev == scene:
         return new
-    old = SCENES.get(f.prev_scene, _idle)(f, x, mem.setdefault("prev", {}))
+    old = SCENES.get(prev, _idle)(f, x, mem.setdefault("prev", {}))
     edge = {0: x, 1: 1 - x, 2: np.abs(x - 0.5) * 2}[f.wipe]
     k = np.clip((f.trans * 1.25 - edge) / 0.25, 0, 1)[:, None]
     return old * (1 - k) + new * k
@@ -1099,17 +1173,36 @@ def _ripple(f: Frame, rgb: np.ndarray, geo: np.ndarray) -> np.ndarray:
     return out + (dist < 0.25).astype(np.float32)[:, None] * (f.accent * 0.8 * f.hit)[None, :]
 
 
-def render(f: Frame, n: int, span: tuple, mem: dict, fixture: dict | None = None) -> list[tuple[int, int, int]]:
+def _hold(rgb: np.ndarray, t: float, mem: dict) -> np.ndarray:
+    """For slow lights (rendered every frame, sent ~10 times a second): each pixel keeps the
+    brightest of what it shows now and what it showed lately, fading. A 60 ms snare flash then
+    reaches the light as a short pulse instead of slipping between two updates."""
+    held, at = mem.get("hold"), mem.get("hold_t")
+    if held is None or held.shape != rgb.shape or at is None or not 0 <= t - at < 1.0:
+        mem["hold"], mem["hold_t"] = rgb, t
+        return rgb
+    faded = held * math.exp(-(t - at) / HOLD_S)
+    keep = (faded.max(axis=1) > rgb.max(axis=1))[:, None]
+    out = np.where(keep, faded, rgb)
+    mem["hold"], mem["hold_t"] = out, t
+    return out
+
+
+def render(f: Frame, n: int, span: tuple, mem: dict, fixture: dict | None = None,
+           slow: bool = False) -> list[tuple[int, int, int]]:
+    """One light's part of the show frame. `slow`: a light that takes only ~10 updates a second
+    (it is rendered every frame all the same, so the hold catches the short flashes)."""
     if n <= 0:
         return []
     a, b = span[0], span[1]
+    back = len(span) > 2 and span[2] == "back"
+    x = (a + (b - a) * (np.arange(n) + 0.5) / n).astype(np.float32)
     if f.blackout:
         rgb = np.zeros((n, 3), dtype=np.float32)
-    elif len(span) > 2 and span[2] == "back":
-        rgb = _back(f, n, mem)
+    elif back:
+        rgb = _back(f, n, mem, slow)
     else:
-        x = (a + (b - a) * (np.arange(n) + 0.5) / n).astype(np.float32)
-        rgb = _wiped(f, x, mem)
+        rgb = _wiped(f, x, mem, slow)
         fixture = fixture or {}
         geo = fixture.get("geometry")
         if geo is not None and len(geo) == n and f.scene in RIPPLE_LOOKS and f.section in ("groove", "drop"):
@@ -1117,9 +1210,20 @@ def render(f: Frame, n: int, span: tuple, mem: dict, fixture: dict | None = None
         ring = fixture.get("ring")
         if ring and n % ring == 0 and f.scene not in ("blackout", "idle"):
             rgb = _spin(f, rgb, ring)
+    if f.tension > 0.02 and not f.blackout:
+        # Leaning into a possible build-up: part of the riser look, as far as the tension goes.
+        pre = copy.copy(f)
+        pre.section, pre.build = "build", 0.5 * f.tension
+        lean = _back(pre, n, mem, slow) if back else _riser(pre, x, mem)
+        k = 0.6 * f.tension
+        rgb = rgb * (1 - k) + lean * k
     rgb = rgb * f.master
-    if f.strobe:
+    if f.strobe and not slow:   # a bulb can't strobe: it builds up with the rest of the riser
         rgb = np.ones((n, 3), dtype=np.float32)
     elif f.flash > 0.01:
         rgb = rgb * (1 - f.flash) + (f.flash_color * f.flash)[None, :]
+    if slow and not f.blackout and f.section != "gap":   # (the breath before a drop goes dark at once)
+        rgb = _hold(rgb, f.t, mem)
+    elif slow:
+        mem.pop("hold", None)
     return [tuple(px) for px in (np.clip(rgb, 0, 1) * 255).astype(np.uint8).tolist()]

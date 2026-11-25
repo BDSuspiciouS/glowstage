@@ -21,6 +21,9 @@ from .state import LightState
 
 log = logging.getLogger(__name__)
 
+BLUETOOTH_SYNC_MS = 200          # a typical Bluetooth delay (SBC/AAC: 150-250 ms)
+SYNC_MIN_MS, SYNC_MAX_MS = -100, 400
+
 
 def is_network(dev: Device) -> bool:
     """A light the app reaches over the network (any brand in the driver registry)."""
@@ -507,7 +510,8 @@ class DeviceManager:
             "openrgb": self.openrgb.describe(),
             "presets": self.preset_previews(),
             "effects": [e.describe() for e in EFFECTS.values()],
-            "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active},
+            "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,
+                      "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
             "show": self.engine.show.info() if self.engine.show_active else None,
             "hubs": [h.describe() for h in list(self.hubs.values())],
             "drivers": [d.describe() for d in drivers().values()],
@@ -540,6 +544,32 @@ class DeviceManager:
 
     def reset_stage(self) -> None:
         self.config.data["show_layout"] = {}
+        self.config.save_soon()
+        self._changed()
+
+    # ---- sync: when you hear the sound, per sound output --------------------------------------
+
+    def show_sync(self) -> dict:
+        """How long the music lights wait for the sound to reach your ears (ms; below 0 they run
+        further ahead instead), for the sound output in use: what was set for it, else a guess
+        from how it is connected. Bluetooth plays the sound ~0.2 s after the PC sends it."""
+        audio = self.engine.audio
+        saved = self.config.data.get("show_sync") or {}
+        if audio.device and audio.device in saved:
+            return {"ms": int(saved[audio.device]), "auto": False}
+        if audio.device_kind == "bluetooth":
+            return {"ms": BLUETOOTH_SYNC_MS, "auto": True}
+        return {"ms": int(saved.get("", 0)), "auto": "" not in saved}
+
+    def set_show_sync(self, ms) -> None:
+        """Set the sync for the sound output in use (or, before anything was heard, for every
+        output that has none of its own); None goes back to the automatic guess."""
+        saved = self.config.data.setdefault("show_sync", {})
+        key = self.engine.audio.device or ""
+        if ms is None:
+            saved.pop(key, None)
+        else:
+            saved[key] = int(round(min(SYNC_MAX_MS, max(SYNC_MIN_MS, float(ms))) / 5) * 5)
         self.config.save_soon()
         self._changed()
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import logging
 import threading
 import time
@@ -11,7 +12,7 @@ from .colors import scale
 from .effects import EFFECTS, MUSIC_EFFECTS
 from .genre import GenreDetector
 from .screen import ScreenSampler
-from .show import ShowDirector, stage_spans
+from .show import SLOW_FPS, ShowDirector, stage_spans
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class EffectEngine:
         self._mem: dict[tuple[str, str], dict] = {}
         self._last: dict[str, float] = {}
         self._live: dict[str, tuple[float, list]] = {}   # id -> (time, last frame), for the stage view
+        self._heard: collections.deque[tuple[float, dict]] = collections.deque(maxlen=40)  # for the sync delay
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="effects", daemon=True)
 
@@ -55,6 +57,18 @@ class EffectEngine:
             picks = [colors[min(n - 1, int((i + 0.5) * n / k))] for i in range(k)]
             out[dev_id] = ["#%02x%02x%02x" % tuple(max(0, min(255, int(v))) for v in c[:3]) for c in picks]
         return out
+
+    def _delayed(self, now: float, heard: dict, sync: float) -> dict:
+        """The music analysis as it was `sync` seconds ago, for the music effects: with Bluetooth
+        you hear the sound that much later than the PC plays it. (The light show delays its own
+        frames: its beat clock keeps running on the live sound.)"""
+        if sync <= 0:
+            self._heard.clear()
+            return heard
+        self._heard.append((now, heard))
+        while len(self._heard) > 1 and self._heard[1][0] <= now - sync + 0.01:   # (to the nearest frame)
+            self._heard.popleft()
+        return self._heard[0][1]
 
     def _run(self) -> None:
         # Paced with time.sleep, which is exact to ~0.1 ms; Event.wait rounds to Windows' 15.6 ms
@@ -84,23 +98,32 @@ class EffectEngine:
         if any(st.effect == "screen" for _, st in targets):
             ctx["screen"] = self.screen.request()
         if any(st.effect in MUSIC_EFFECTS for _, st in targets):
-            ctx["audio"] = self.audio.request()  # one snapshot per frame keeps every light on the same beat
-        if show:  # one show for the whole room; its intensity is the speed of the lights running it
-            settings = self.manager.config["settings"]
-            intensity = sum(st.speed for st in show) / len(show) / 100
-            ctx["show"] = self.show.update(ctx["audio"], now, intensity, settings.get("show_strobe", True))
-            spans = stage_spans(list(self.manager.devices.values()), self.manager.config.data.get("show_layout"))
+            heard = self.audio.request()  # one snapshot per frame keeps every light on the same beat
+            sync = self.manager.show_sync()["ms"] / 1000
+            ctx["audio"] = self._delayed(now, heard, sync)
+            if show:  # one show for the whole room; its intensity is the speed of the lights running it
+                settings = self.manager.config["settings"]
+                intensity = sum(st.speed for st in show) / len(show) / 100
+                ctx["show"] = self.show.update(heard, now, intensity, settings.get("show_strobe", True), sync)
+                spans = stage_spans(list(self.manager.devices.values()), self.manager.config.data.get("show_layout"))
         for dev, st in targets:
-            if now - self._last.get(dev.id, 0.0) < 1 / dev.max_fps - 0.004:
+            due = now - self._last.get(dev.id, 0.0) >= 1 / dev.max_fps - 0.004
+            # Slow lights in the show are drawn every frame (only sent when due), so that their
+            # hold catches the flashes that fall between two of their updates.
+            slow = st.effect == "music_show" and dev.max_fps <= SLOW_FPS
+            if not due and not slow:
                 continue
             ctx["span"] = spans.get(dev.id, (0.0, 1.0, "front"))
             ctx["fixture"] = getattr(dev, "fixture", None)
+            ctx["slow"] = slow
             effect = EFFECTS.get(st.effect) or EFFECTS["rainbow"]
             colors = effect.render(t, dev.pixel_count, st, self._mem.setdefault((dev.id, effect.id), {}), ctx)
             if not dev.hardware_brightness and st.brightness < 100:
                 f = st.brightness / 100
                 colors = [scale(c, f) for c in colors]
             self._live[dev.id] = (now, colors)
+            if not due:
+                continue
             # Never stall the whole frame on a device that is busy with a slow HTTP call.
             if not dev.lock.acquire(blocking=False):
                 continue

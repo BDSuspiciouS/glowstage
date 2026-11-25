@@ -905,6 +905,31 @@ function renderShow() {
     $("#show-int-val").textContent = `${v}%`;
   }
   $("#show-strobe").checked = S.data.settings.show_strobe !== false;
+  renderSync(audio);
+}
+
+/* Sync: the slider runs from 100 ms earlier to 400 ms later, in steps of 5 ms (0 sits at 20%). */
+const SYNC_MIN = -100, SYNC_STEP = 5;
+const syncToSlider = ms => Math.round((ms - SYNC_MIN) / SYNC_STEP);
+const sliderToSync = v => SYNC_MIN + v * SYNC_STEP;
+const syncText = ms => ms === 0 ? "0 ms" : `${ms > 0 ? "+" : "−"}${Math.abs(ms)} ms`;
+
+function renderSync(audio) {
+  const sync = audio.sync || { ms: 0, auto: true };
+  const el = $("#show-sync");
+  el.style.setProperty("--zero", (syncToSlider(0) / 100).toFixed(3));
+  if (S.dragging !== "__sync") {
+    setSlider(el, syncToSlider(sync.ms), null, false);
+    el.setAttribute("aria-valuetext", syncText(sync.ms));
+    $("#show-sync-val").textContent = syncText(sync.ms);
+  }
+  const out = audio.device ? audio.device.replace(/^\w+ \((?:\d+- )?(.+)\)$/, "$1") : "";
+  $("#show-sync-hint").textContent = !sync.auto
+    ? `Set for ${out || "every sound output"}.`
+    : audio.kind === "bluetooth" ? "Bluetooth plays the sound about 0.2 s late, so the lights wait for it."
+    : audio.kind === "remote" ? "Remote Desktop delays the sound. Lights ahead of the music? Slide right."
+    : "Lights ahead of the music? Slide right. Behind it? Slide left.";
+  $("#show-sync-auto").hidden = !!sync.auto;
 }
 
 let fxFrame = 0;
@@ -1069,6 +1094,15 @@ function bindStatic() {
     send(running.length ? running.map(d => d.id) : null, { speed: v }, "speed:show");
   }, 1);
   $("#show-strobe").addEventListener("change", async e => { await call("set_setting", "show_strobe", e.target.checked); refresh(true); });
+  let syncTimer = 0;
+  bindSlider($("#show-sync"), "__sync", v => {
+    const ms = sliderToSync(v);
+    $("#show-sync-val").textContent = syncText(ms);
+    $("#show-sync").setAttribute("aria-valuetext", syncText(ms));
+    clearTimeout(syncTimer);   // (sent once the slider rests for 80 ms, not once per pixel dragged)
+    syncTimer = setTimeout(() => call("set_show_sync", ms), 80);
+  });
+  $("#show-sync-auto").addEventListener("click", async () => { await call("set_show_sync", null); refresh(true); });
   bindSetup();
   $("#modal-cancel").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });

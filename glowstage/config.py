@@ -45,6 +45,7 @@ DEFAULTS = {
     "presets": DEFAULT_PRESETS,
     "openrgb": {"auto_launch": True, "elevated": False, "path": "", "port": 6742, "zone_sizes": {}},
     "show_layout": {},  # id -> [start, end, "front"|"back"]: where a light sits on the stage
+    "show_sync": {},    # sound output name -> ms the music lights wait for the sound ("" = any output)
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
                  "room_lights_off_at_shutdown": True, "show_strobe": True,
