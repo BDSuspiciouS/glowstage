@@ -37,7 +37,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), scheduleSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), automaticSection(), scheduleSection(), appSection());
   body.scrollTop = scroll;
 }
 
@@ -241,6 +241,27 @@ function genreSection() {
 /* Schedule: a preset, on, off or the light show at set times on chosen days. */
 const DAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+function automaticSection() {
+  const s = S.data.settings;
+  const looks = [["", "Nothing"], ["screen", "Follow the screen"],
+    ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])];
+  const save = async (key, value) => {
+    const r = await callRaw("set_setting", key, value);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const pick = (key, label, options, value) => h("label", { class: "toggle-row" }, h("span", { text: label }),
+    h("select", { class: "auto-look", onchange: e => save(key, key === "auto_show" ? e.target.value === "show" : e.target.value) },
+      options.map(([v, t]) => h("option", { value: v, text: t, selected: v === value }))));
+  return h("section", { class: "set-section" },
+    h("h3", { text: "Automatic" }),
+    h("p", { class: "hint", text: "Your lights change by themselves and go back to how they were afterwards. Change anything yourself and Glowstage leaves them alone until it's over." }),
+    pick("auto_game", "When a game is full screen", looks, s.auto_game || ""),
+    pick("auto_video", "When a video is full screen (a browser or video player)", looks, s.auto_video || ""),
+    pick("auto_show", "When music plays", [["", "Nothing"], ["show", "Start the light show"]], s.auto_show ? "show" : ""));
+}
+
 function scheduleSection() {
   const items = (S.data.schedules || []).map(s => ({ ...s, days: [...s.days] }));
   const save = async () => {
@@ -298,7 +319,6 @@ function appSection() {
     row("pc_lights_off_at_shutdown", "Switch the PC's lights off when Windows shuts down"),
     row("room_lights_off_at_shutdown", "Switch the room lights off when Windows shuts down"),
     row("show_strobe", "Strobe flashes in the light show"),
-    row("auto_show", "Start the light show by itself when music plays, and put my lights back when it stops"),
     row("check_updates", "Check once a day for a new version (asks GitHub; sends nothing about you)"),
     row("hotkeys", "Hotkeys from any program: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets"),
     (S.data.hotkeysTaken || []).length && s.hotkeys

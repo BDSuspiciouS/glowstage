@@ -248,15 +248,28 @@ function openSupport() {
 const dismissedUpdate = () => { try { return localStorage.getItem("glowstage.update.dismissed") || ""; } catch { return ""; } };
 
 /* Notes at the top of Home: a new version is out; once in a while, the support card. */
+const AUTO_NOTES = {
+  game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
+  video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
+  music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
+};
+
 function renderHomeNotes() {
   const host = $("#home-notes");
   const up = S.data.update;
   const showUpdate = up && up.version && dismissedUpdate() !== up.version;
   const showSupport = S.data.askSupport && !S.supportClosed;
-  const sig = JSON.stringify([showUpdate && up, showSupport]);
+  const auto = AUTO_NOTES[S.data.auto];
+  const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
+    auto ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon(auto.icon)),
+      h("div", { class: "note-text" }, h("strong", { text: auto.title }), h("span", { class: "muted", text: auto.text })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Put my lights back", onclick: async () => {
+          await call("stop_automation"); refresh(true); } }))) : null,
     showUpdate ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("spark")),
       h("div", { class: "note-text" }, h("strong", { text: `Glowstage ${up.version} is out` }),
@@ -1033,7 +1046,7 @@ function renderShow() {
   btn.classList.toggle("is-running", !!running.length);
   const audio = S.data.audio || {};
   const out = visible().filter(d => d.online && !inShow(d)).length;
-  $("#show-sub").textContent = (running.length && S.data.autoShow
+  $("#show-sub").textContent = (running.length && S.data.auto === "music"
       ? `Started by itself for the music · back to your lights after 30 s of quiet`
       : running.length ? `Running on ${running.length} of ${all.length} lights`
       : out ? `Uses ${all.length} lights, ${out} sit${out === 1 ? "s" : ""} it out` : `Uses all ${all.length} lights`)

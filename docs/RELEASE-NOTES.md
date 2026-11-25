@@ -1,13 +1,16 @@
-Glowstage 0.9.1: the light show starts by itself when music plays, and Screen sync follows the picture.
+Glowstage 0.9.2: your lights change by themselves for games, videos and music.
 
-**Install:** download `Glowstage-0.9.1-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay.
+**Install:** download `Glowstage-0.9.2-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay.
 
 **New**
-- The light show can start by itself when music plays: switch on *Start by itself* on the Light show page. It waits for music with a beat, so talk in a video, a game or a notification sound doesn't set it off, and 30 seconds after the music stops your lights go back to how they were. Take over at any moment (stop the show, pick a preset) and it leaves you alone until the music has stopped. Waiting costs next to nothing: it watches Windows' own sound meter and only listens closely once something plays.
-- Screen sync follows the picture: every light takes the part of the screen where it sits on the stage. A strip above your monitor runs along with the picture from left to right, the PC's lights take the right side, a bulb takes the screen's color as a whole. Drag lights on the stage to change what they follow. It also takes half the processor time it used to.
+- Automatic looks (Setup → Automatic): when a game goes full screen, your lights can follow the screen or switch to a preset such as *Gaming*; a full-screen video in a browser or video player gets its own choice (*Movie*, or following the screen). When you leave the game or close the video, your lights go back to how they were. Remote Desktop, slide shows and other programs that go full screen without being a game don't count.
+- A full-screen game or video goes before music, and the light show picks up again when you come back to the music.
+- Change anything yourself and Glowstage leaves your lights alone until it's over; Home shows what changed your lights and a button to put them back.
 
-**Fixed**
-- When a song started after a pause, listening could stop for two seconds, so the light show missed the first beats.
+**New in 0.9.1**
+- The light show can start by itself when music plays (*Start by itself* on the Light show page) and puts your lights back 30 seconds after the music stops. It waits for music with a beat, so talk, games and notification sounds don't set it off.
+- Screen sync follows the picture: every light takes the part of the screen where it sits on the stage. It takes half the processor time it used to.
+- Fixed: when a song started after a pause, listening could stop for two seconds, so the light show missed the first beats.
 
 **Everything in Glowstage**
 - A festival-style light show to whatever your PC plays: beat-locked, hears build-ups and drops, learns the song while it plays, checked against an hour of real songs.

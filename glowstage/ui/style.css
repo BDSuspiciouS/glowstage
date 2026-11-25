@@ -240,6 +240,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .sched-row.is-paused { opacity: .55; }
 .sched-time { width: 112px; height: 34px; }
 .sched-action { flex: 1 1 160px; }
+.auto-look { flex: 0 0 220px; }
 .sched-days { display: flex; gap: 4px; }
 .day {
   width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent;

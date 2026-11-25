@@ -215,10 +215,20 @@ class Api:
             return
         if key not in self._app.config["settings"]:
             raise ValueError(f"Unknown setting {key}")
+        if key in ("auto_game", "auto_video"):   # "", "screen" or "preset:<name>"
+            value = str(value or "")
+            if value not in ("", "screen") and not (value.startswith("preset:")
+                                                    and value[7:] in self._app.manager.preset_names()):
+                raise ValueError("Choose a look from the list")
         self._app.config["settings"][key] = value
         self._app.config.save_soon()
         if key == "hotkeys":
             self._app.hotkeys.set_enabled(bool(value))
+
+    @_safe
+    def stop_automation(self):
+        """"Put my lights back": undo the automatic look (game, video, music) now."""
+        self._app.manager.automations.release()
 
     @_safe
     def hide_window(self):

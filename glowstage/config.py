@@ -93,7 +93,9 @@ DEFAULTS = {
                  "active_preset": "",    # the preset the lights show now ("" once changed by hand)
                  "hotkeys": False,       # Ctrl+Alt+Shift+L/S/1-9 from any program (see hotkeys.py)
                  "check_updates": True,  # ask GitHub once a day for a new version and the support links
-                 "auto_show": False,     # start the light show by itself when music plays (autoshow.py)
+                 "auto_show": False,     # start the light show by itself when music plays (automations.py)
+                 "auto_game": "",        # a game in full screen: "", "screen" or "preset:<name>"
+                 "auto_video": "",       # a video in full screen: the same
                  "first_run": "",        # the day Glowstage first ran (YYYY-MM-DD)
                  "support_asked": "",    # "", "later:YYYY-MM-DD", "never" or "done" (the support card)
                  "presets_version": PRESETS_VERSION},
