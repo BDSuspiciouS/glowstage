@@ -103,6 +103,8 @@ class AudioAnalyzer:
     def __init__(self):
         self.device = ""
         self.device_kind = "local"
+        self._last_failure = ""      # the last reason listening failed (logged once)
+        self._retry = 2.0
         self._snap = quiet()
         self._wanted_until = 0.0
         self._thread: threading.Thread | None = None
@@ -214,9 +216,19 @@ class AudioAnalyzer:
                             if sc.default_speaker().id != speaker.id:
                                 break
             except Exception as e:
-                log.warning("Listening to the PC's audio failed: %s", e)
+                # (No sound output at all, e.g. a Remote Desktop session that was closed: say so
+                # once, then retry ever more calmly. A line every 2 s filled the log in a day and
+                # pushed out everything else in it.)
+                failed = str(e)
+                if failed != self._last_failure:
+                    log.warning("Listening to the PC's audio failed: %s", failed)
+                    self._last_failure, self._retry = failed, 2.0
+                else:
+                    self._retry = min(30.0, self._retry * 1.5)
                 self.device = ""
-                time.sleep(2.0)
+                time.sleep(self._retry)
+                continue
+            self._last_failure = ""
 
     def _analyze(self, data: np.ndarray) -> None:
         mono = data.mean(axis=1).astype(np.float32) if data.ndim == 2 else data.astype(np.float32)

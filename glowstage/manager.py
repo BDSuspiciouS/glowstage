@@ -301,15 +301,25 @@ class DeviceManager:
         return [i for i in self.devices if i not in hidden]
 
     def update(self, ids: list[str] | None, patch: dict) -> None:
+        """Change lights by hand (the window, the tray): no preset is showing any more."""
+        targets = ids if ids is not None else self.visible_ids()
+        # (switching lights off and on again doesn't change the look: the preset stays)
+        keep = set(patch) <= {"on"}
+        self._apply({dev_id: patch for dev_id in targets},
+                    preset=self.config["settings"].get("active_preset", "") if keep else "")
+
+    def _apply(self, patches: dict[str, dict], preset: str) -> None:
+        """Patch many lights at once: one save and one change for all of them."""
         with self.lock:
-            for dev_id in (ids if ids is not None else self.visible_ids()):
-                if dev_id not in self.devices:
+            for dev_id, patch in patches.items():
+                if dev_id not in self.devices or not patch:
                     continue
                 st = self.states[dev_id].patched(patch)
                 self.states[dev_id] = st
                 self.config["states"][dev_id] = st.to_dict()
                 self._applied.add(dev_id)
                 self.workers[dev_id].submit(st)
+            self.config["settings"]["active_preset"] = preset
         self.config.save_soon()
         self._changed()
 
@@ -453,7 +463,7 @@ class DeviceManager:
         """Name plus the colors/effect to draw each preset's swatch in the UI."""
         out = []
         for p in self.config["presets"]:
-            states = [p["all"]] if p.get("all") else list(p.get("states", {}).values())
+            states = [p[k] for k in ("all", "room", "pc") if p.get(k)] or list(p.get("states", {}).values())
             lit = [s for s in states if s.get("on", True)]
             effects = {s.get("effect") for s in lit if s.get("mode") == "effect"}
             colors = []
@@ -463,7 +473,8 @@ class DeviceManager:
                     if c and c not in colors:
                         colors.append(c)
             out.append({"name": p["name"], "effects": sorted(e for e in effects if e), "colors": colors[:4],
-                        "off": not lit})
+                        "off": not lit, "builtIn": "states" not in p,
+                        "split": bool(p.get("pc") or p.get("room"))})
         return out
 
     def apply_preset(self, name: str) -> None:
@@ -471,10 +482,11 @@ class DeviceManager:
         if not preset:
             return
         per_device = preset.get("states", {})
-        for dev_id in self.visible_ids():
-            data = per_device.get(dev_id) or preset.get("all")
-            if data:
-                self.update([dev_id], data)
+        with self.lock:
+            groups = {dev_id: self.devices[dev_id].group for dev_id in self.visible_ids()}
+        patches = {dev_id: per_device.get(dev_id) or preset.get(group) or preset.get("all")
+                   for dev_id, group in groups.items()}
+        self._apply({i: p for i, p in patches.items() if p}, preset=name)
 
     def save_preset(self, name: str) -> None:
         name = name.strip()
@@ -485,6 +497,7 @@ class DeviceManager:
             presets = [p for p in self.config["presets"] if p["name"] != name]
             presets.append({"name": name, "states": states})
             self.config.data["presets"] = presets
+            self.config["settings"]["active_preset"] = name
         self.config.save_soon()
         self._changed()
 
@@ -508,16 +521,27 @@ class DeviceManager:
         return {
             "revision": self.revision,
             "devices": devices,
-            "openrgb": self.openrgb.describe(),
-            "genreAi": {**genre_install.describe(), "active": self.engine.show.genre.model_name},
             "presets": self.preset_previews(),
+            "activePreset": self.config["settings"].get("active_preset", ""),
+            "showExcluded": list(self.config.data.get("show_excluded") or []),
             "effects": [e.describe() for e in EFFECTS.values()],
-            "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,
-                      "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
-            "show": self.engine.show.info() if self.engine.show_active else None,
             "hubs": [h.describe() for h in list(self.hubs.values())],
             "drivers": [d.describe() for d in drivers().values()],
             "stage": self.stage(),
+            **self.live_status(),
+        }
+
+    def live_status(self) -> dict:
+        """The parts of the snapshot that change without a new revision: what the show hears and
+        does, the sound output, and the downloads in progress. The window gets these every second,
+        the rest only when the revision changed."""
+        return {
+            "revision": self.revision,
+            "openrgb": self.openrgb.describe(),
+            "genreAi": {**genre_install.describe(), "active": self.engine.show.genre.model_name},
+            "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,
+                      "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
+            "show": self.engine.show.info() if self.engine.show_active else None,
         }
 
     # ---- stage layout (where each light sits for the light show) ------------------------------
@@ -541,6 +565,12 @@ class DeviceManager:
             if abs(a - b) < 0.02:
                 raise ValueError("A light needs some width on the stage")
             layout[dev_id] = [a, b, layer]
+        self.config.save_soon()
+        self._changed()
+
+    def set_show_excluded(self, ids) -> None:
+        """The lights that sit the light show out (keep their own look when it starts)."""
+        self.config.data["show_excluded"] = sorted({str(i) for i in (ids or [])})
         self.config.save_soon()
         self._changed()
 

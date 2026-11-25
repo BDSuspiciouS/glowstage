@@ -7,7 +7,7 @@ import logging
 import threading
 import webbrowser
 
-from . import genre_install, winutil
+from . import genre_install, webfix, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -19,7 +19,8 @@ def _safe(fn):
     @functools.wraps(fn)
     def wrapper(self, *args):
         try:
-            result = fn(self, *args)
+            with webfix.track(fn.__name__):
+                result = fn(self, *args)
             return {"ok": True, "result": result}
         except Exception as e:
             log.warning("api %s failed: %s", fn.__name__, e)
@@ -36,12 +37,16 @@ class Api:
         return self._app.manager
 
     @_safe
-    def get_state(self):
-        snap = self._m.snapshot()
-        snap["settings"] = {**self._app.config["settings"], "autostart": winutil.autostart_enabled()}
-        snap["about"] = {"name": APP_NAME, "version": VERSION, "repo": f"https://github.com/{REPO}",
-                         "donate": [{"name": k, "url": v} for k, v in DONATE.items() if v]}
-        return snap
+    def get_state(self, since=None):
+        """Everything the window shows. With `since` (the revision the window has), and nothing
+        changed since, only the parts that change all the time: a small answer every second
+        instead of every light, preset and effect."""
+        extra = {"settings": {**self._app.config["settings"], "autostart": winutil.autostart_enabled()},
+                 "about": {"name": APP_NAME, "version": VERSION, "repo": f"https://github.com/{REPO}",
+                           "donate": [{"name": k, "url": v} for k, v in DONATE.items() if v]}}
+        if since is not None and since == self._m.revision:
+            return {**self._m.live_status(), **extra, "same": True}
+        return {**self._m.snapshot(), **extra}
 
     @_safe
     def get_live(self):
@@ -55,6 +60,10 @@ class Api:
     @_safe
     def reset_stage(self):
         self._m.reset_stage()
+
+    @_safe
+    def set_show_excluded(self, ids):
+        self._m.set_show_excluded(ids)
 
     @_safe
     def set_show_sync(self, ms):

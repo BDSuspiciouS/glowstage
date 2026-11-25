@@ -21,6 +21,8 @@
       resizable: true, detected: i <= 3 ? 8 : null }))];
   const data = {
     revision: 1,
+    showExcluded: [],
+    activePreset: "",
     devices: [
       { id: "openrgb:Corsair Commander Core", kind: "openrgb", group: "pc", name: "Commander Core", online: true, error: null,
         pixels: 131, hasNative: false, label: "Cooler · 131 LEDs", zones, state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
@@ -74,7 +76,11 @@
       license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       aboutUrl: "https://essentia.upf.edu/models.html", mb: 18, installed: false, active: "YAMNet" },
     presets: [{ name: "Rainbow", effects: ["rainbow"], colors: [] }, { name: "Warm white", effects: [], colors: ["#ffb46b"] },
-      { name: "Focus", effects: [], colors: ["#eaf1ff"] }, { name: "Chill", effects: ["wave"], colors: ["#5b2bff", "#00b8ff"] },
+      { name: "Focus", effects: [], colors: ["#eaf1ff"], split: true },
+      { name: "Reading", effects: [], colors: ["#ffdcb0", "#ffb46b"], split: true },
+      { name: "Cozy", effects: ["breathing"], colors: ["#ff8f3f", "#ff6a1a"], split: true },
+      { name: "Gaming", effects: ["rainbow", "wave"], colors: ["#3a00ff", "#00d0ff"], split: true },
+      { name: "Chill", effects: ["wave"], colors: ["#5b2bff", "#00b8ff"] },
       { name: "Cyberpunk", effects: ["wave"], colors: ["#ff0090", "#00f0ff"] }, { name: "Movie", effects: ["screen"], colors: [] },
       { name: "Late night", effects: ["wave"], colors: ["#2a3cff", "#8a2cff"] },
       { name: "Festival", effects: ["music_show"], colors: [] },
@@ -134,7 +140,7 @@
       return ok();
     },
     native_options: () => ok({ effects: wledFx, palettes: [{ id: 0, name: "Default" }, { id: 6, name: "Party" }, { id: 11, name: "Rainbow" }] }),
-    apply_preset: () => ok(), save_preset: () => ok(), delete_preset: () => ok(),
+    apply_preset: name => { data.activePreset = name; data.revision++; return ok(); }, save_preset: () => ok(), delete_preset: () => ok(),
     pair_nanoleaf: () => Promise.resolve({ ok: false, error: "The panels aren't in pairing mode." }),
     add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), resize_zone: () => ok(),
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(), set_setting: () => ok(),
@@ -145,6 +151,7 @@
       else delete data.stage[id].custom;
       return ok();
     },
+    set_show_excluded: ids => { data.showExcluded = ids; data.revision++; return ok(); },
     set_show_sync: ms => { data.audio.sync = ms === null ? { ms: 200, auto: true } : { ms, auto: false }; return ok(); },
     reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),
     pair: () => Promise.resolve({ ok: false, error: "The bridge's link button wasn't pressed." }),

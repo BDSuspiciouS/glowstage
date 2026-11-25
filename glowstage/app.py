@@ -12,7 +12,7 @@ from logging.handlers import RotatingFileHandler
 
 import webview
 
-from . import winutil
+from . import webfix, winutil
 from .api import Api
 from .config import Config
 from .icon import icon_file
@@ -33,6 +33,7 @@ class App:
         self.start_minimized = start_minimized or bool(self.config["settings"].get("start_minimized"))
         self._quitting = False
         self._preset_names: list[str] = []
+        self._watch_stop = threading.Event()
         self.manager.listeners.append(self._on_change)
 
     def run(self) -> None:
@@ -46,8 +47,10 @@ class App:
             hidden=self.start_minimized,
         )
         self.window.events.closing += self._on_closing
+        threading.Thread(target=webfix.watch, args=(self.window, self._watch_stop), name="watchdog", daemon=True).start()
         webview.start(gui="edgechromium", icon=str(icon_file(APP_DIR)), private_mode=False,
                       storage_path=str(APP_DIR / "webview"))
+        self._watch_stop.set()
         self.tray.stop()
         self.manager.stop()
 
@@ -121,6 +124,7 @@ def main() -> None:
     threading.excepthook = lambda a: log.critical("Uncaught error in thread %s", a.thread and a.thread.name,
                                                   exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
     log.info("%s %s starting (%s)", APP_NAME, VERSION, " ".join(sys.argv[1:]) or "no options")
+    webfix.enable_crash_log()
     if "--after" in sys.argv:  # restarting: let the old copy finish closing first
         winutil.wait_for_exit(int(sys.argv[sys.argv.index("--after") + 1]), timeout=20)
 
@@ -129,6 +133,7 @@ def main() -> None:
         log.info("Already running; asked the running copy to show its window")
         return
     winutil.migrate_legacy()
+    webfix.install()
     threading.Thread(target=winutil.ensure_shortcut, name="shortcut", daemon=True).start()
     app = holder["app"] = App(start_minimized="--minimized" in sys.argv, autostart="--autostart" in sys.argv)
     try:

@@ -79,11 +79,25 @@ function throttle(fn, ms) {
 
 /* ============================== backend ============================== */
 
+/* Every call gets an answer within CALL_TIMEOUT: a call that never comes back (the app busy, the
+   window reloading) must not leave the page waiting forever. Pairing and adding lights wait on
+   the light itself, so they get longer. */
+const CALL_TIMEOUT = 15000;
+const SLOW_CALLS = { pair: 60000, pair_nanoleaf: 60000, add_device: 45000, search: 45000 };
 async function callRaw(method, ...args) {
+  let timer;
   try {
-    return await window.pywebview.api[method](...args);
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !api[method]) return { ok: false, error: "Glowstage is still starting" };
+    const late = new Promise(res => {
+      timer = setTimeout(() => res({ ok: false, timeout: true, error: "Glowstage took too long to answer" }),
+        SLOW_CALLS[method] || CALL_TIMEOUT);
+    });
+    return await Promise.race([api[method](...args), late]);
   } catch (e) {
     return { ok: false, error: String(e && e.message || e) };
+  } finally {
+    clearTimeout(timer);
   }
 }
 async function call(method, ...args) {
@@ -127,16 +141,39 @@ function send(ids, patch, key) {
 }
 const sendTargets = (patch, key) => send(S.selected ? targetIds() : null, patch, key);
 
+/* One state request at a time: the next waits for the last (a forced one right after it). The app
+   sends everything only when something changed since the revision we have, otherwise just the
+   parts that keep changing (the show, downloads). */
+let refreshing = null, refreshAgain = false;
 async function refresh(force = false) {
-  const d = await call("get_state");
-  if (!d) return;
-  if (!force && (S.dragging || Date.now() < S.quietUntil)) return;
-  S.data = d;
-  if (S.selected) {
-    S.selected = S.selected.filter(id => d.devices.some(x => x.id === id && !x.hidden));
-    if (!S.selected.length) S.selected = null;
+  if (refreshing) { refreshAgain = refreshAgain || force; return refreshing; }
+  refreshing = (async () => {
+    const since = !force && S.data ? S.data.revision : null;
+    const r = await callRaw("get_state", since);
+    if (!r || r.ok === false) return;           // keep showing the last state; the next poll tries again
+    const d = r.result;
+    if (!force && (S.dragging || Date.now() < S.quietUntil)) return;
+    if (d.same && S.data) {
+      delete d.same;
+      Object.assign(S.data, d);
+    } else {
+      delete d.same;
+      S.data = d;
+    }
+    if (S.selected) {
+      S.selected = S.selected.filter(id => S.data.devices.some(x => x.id === id && !x.hidden));
+      if (!S.selected.length) S.selected = null;
+    }
+    render();
+  })();
+  try { await refreshing; } finally {
+    refreshing = null;
+    if (refreshAgain) { refreshAgain = false; refresh(true); }
   }
-  render();
+}
+
+async function pollState() {
+  try { await refresh(); } finally { setTimeout(pollState, document.hidden ? 4000 : 1000); }
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -457,11 +494,14 @@ function presetArt(p) {
 }
 
 function presetCard(p) {
+  const active = S.data && S.data.activePreset === p.name;
   return h("button", {
-    class: "preset", type: "button", title: `Apply ${p.name}`,
+    class: "preset" + (active ? " is-active" : ""), type: "button", "aria-pressed": active ? "true" : "false",
+    title: `Apply ${p.name}` + (p.split ? " (one look for your PC, another for your room)" : ""),
     onclick: async () => { await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); toast(`${p.name} is on`); },
   },
     h("span", { class: "preset-art", style: `background:${presetArt(p)}` }),
+    active ? h("span", { class: "preset-on", text: "On" }) : null,
     h("span", { class: "preset-name", text: p.name }),
     isMusicPreset(p) ? h("span", { class: "preset-kind", title: "Moves to the music" }, icon("music")) : null,
     h("span", {
@@ -473,7 +513,7 @@ function presetCard(p) {
 
 function renderQuickPresets() {
   const host = $("#quick-presets");
-  const sig = JSON.stringify(S.data.presets);
+  const sig = JSON.stringify([S.data.presets, S.data.activePreset]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host, S.data.presets.map(presetCard));
@@ -482,7 +522,7 @@ function renderQuickPresets() {
 
 function renderPresetPage() {
   const host = $("#preset-list");
-  const sig = JSON.stringify(S.data.presets);
+  const sig = JSON.stringify([S.data.presets, S.data.activePreset]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   const lighting = S.data.presets.filter(p => !isMusicPreset(p));
@@ -885,9 +925,39 @@ function showNote(show, audio) {
 
 /* ---- light show page ---- */
 
-const showLights = () => visible().filter(d => d.online);
+const inShow = d => !(S.data.showExcluded || []).includes(d.id);
+const showLights = () => visible().filter(d => d.online && inShow(d));
 const runningShow = () => visible().filter(d => d.state.on && d.state.mode === "effect" && d.state.effect === "music_show");
 const showRunning = () => runningShow().length > 0;
+
+/* Which lights join the show: the rest keep their own look while it runs. */
+function openShowLights() {
+  const lights = visible().filter(d => d.online || inShow(d));
+  const boxes = new Map();
+  const row = d => {
+    const box = h("input", { type: "checkbox", class: "switch", checked: inShow(d) });
+    boxes.set(d.id, box);
+    return h("label", { class: "check-row" },
+      h("span", { class: "check-text" }, h("span", { class: "check-name", text: d.name }),
+        h("span", { class: "muted", text: d.group === "pc" ? "In your PC" : "In your room" })), box);
+  };
+  openModal({
+    title: "Lights in the show",
+    body: [h("p", { class: "hint", text: "Lights you switch off here keep their own look while the show runs, like a desk lamp that stays white." }),
+      h("div", { class: "check-list" }, lights.map(row))],
+    ok: "Save",
+    onOk: async () => {
+      const excluded = [...boxes].filter(([, b]) => !b.checked).map(([id]) => id);
+      const r = await callRaw("set_show_excluded", excluded);
+      if (!r || r.ok === false) return (r && r.error) || "Couldn't save";
+      // A light taken out while the show runs goes back to its color right away.
+      const leaving = runningShow().filter(d => excluded.includes(d.id)).map(d => d.id);
+      if (leaving.length) send(leaving, { mode: "color" }, "fx:show-out");
+      refresh(true);
+      return true;
+    },
+  });
+}
 
 function renderShow() {
   const running = runningShow(), all = showLights();
@@ -896,7 +966,9 @@ function renderShow() {
   btn.classList.toggle("btn-primary", !running.length);
   btn.classList.toggle("is-running", !!running.length);
   const audio = S.data.audio || {};
-  $("#show-sub").textContent = (running.length ? `Running on ${running.length} of ${all.length} lights` : `Uses all ${all.length} lights`)
+  const out = visible().filter(d => d.online && !inShow(d)).length;
+  $("#show-sub").textContent = (running.length ? `Running on ${running.length} of ${all.length} lights`
+    : out ? `Uses ${all.length} lights, ${out} sit${out === 1 ? "s" : ""} it out` : `Uses all ${all.length} lights`)
     + ` · listening to ${audio.device || "your PC's sound output"}`;
   const p = running[0] || all[0];
   if (S.dragging !== "__intensity") {
@@ -1091,8 +1163,9 @@ function bindStatic() {
   $("#show-start").addEventListener("click", () => {
     const running = runningShow();
     if (running.length) send(running.map(d => d.id), { mode: "color" }, "fx:show");
-    else send(null, { mode: "effect", on: true, effect: "music_show" }, "fx:show");
+    else send(showLights().map(d => d.id), { mode: "effect", on: true, effect: "music_show" }, "fx:show");
   });
+  $("#show-lights").addEventListener("click", openShowLights);
   bindSlider($("#show-intensity"), "__intensity", v => {
     $("#show-int-val").textContent = `${v}%`;
     const running = runningShow();
@@ -1141,7 +1214,7 @@ async function start() {
   requestAnimationFrame(animatePreviews);
   requestAnimationFrame(liveTiles);
   await refresh(true);
-  setInterval(refresh, 1000);
+  setTimeout(pollState, 1000);
   go("home");
   if (S.data && S.data.settings.setup_done === false) openWizard();
 }

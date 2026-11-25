@@ -15,15 +15,27 @@ log = logging.getLogger(__name__)
 
 CONFIG_PATH = APP_DIR / "config.json"
 
+# A preset sets every light the same ("all"), the PC's lights and the room's lights each their own
+# way ("pc", "room", falling back to "all"), or each light as it was saved ("states": id -> state).
 DEFAULT_PRESETS = [
     {"name": "Rainbow", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "rainbow", "speed": 40}},
     {"name": "Warm white", "all": {"on": True, "brightness": 70, "mode": "color", "color": "#ffb46b"}},
-    {"name": "Focus", "all": {"on": True, "brightness": 90, "mode": "color", "color": "#eaf1ff"}},
+    {"name": "Focus", "room": {"on": True, "brightness": 95, "mode": "color", "color": "#eaf1ff"},
+                      "pc": {"on": True, "brightness": 30, "mode": "color", "color": "#eaf1ff"}},
+    {"name": "Reading", "room": {"on": True, "brightness": 90, "mode": "color", "color": "#ffdcb0"},
+                        "pc": {"on": True, "brightness": 12, "mode": "color", "color": "#ffb46b"}},
+    {"name": "Cozy", "room": {"on": True, "brightness": 45, "mode": "color", "color": "#ff8f3f"},
+                     "pc": {"on": True, "brightness": 35, "mode": "effect", "effect": "breathing",
+                            "color": "#ff6a1a", "speed": 12}},
+    {"name": "Gaming", "pc": {"on": True, "brightness": 100, "mode": "effect", "effect": "rainbow", "speed": 55},
+                       "room": {"on": True, "brightness": 55, "mode": "effect", "effect": "wave",
+                                "color": "#3a00ff", "color2": "#00d0ff", "speed": 30}},
     {"name": "Chill", "all": {"on": True, "brightness": 60, "mode": "effect", "effect": "wave",
                               "color": "#5b2bff", "color2": "#00b8ff", "speed": 22}},
     {"name": "Cyberpunk", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "wave",
                                   "color": "#ff0090", "color2": "#00f0ff", "speed": 45}},
-    {"name": "Movie", "all": {"on": True, "brightness": 70, "mode": "effect", "effect": "screen"}},
+    {"name": "Movie", "pc": {"on": True, "brightness": 70, "mode": "effect", "effect": "screen"},
+                      "room": {"on": True, "brightness": 35, "mode": "effect", "effect": "screen"}},
     {"name": "Late night", "all": {"on": True, "brightness": 45, "mode": "effect", "effect": "wave",
                                    "color": "#2a3cff", "color2": "#8a2cff", "speed": 15}},
     {"name": "Festival", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "music_show",
@@ -36,6 +48,30 @@ DEFAULT_PRESETS = [
                                  "color": "#0a1aff", "color2": "#b0002e", "speed": 35}},
 ]
 
+# Built-in presets as earlier versions had them: a preset still exactly like this is replaced by
+# its new version on upgrade (one the user changed or saved over is left alone).
+OLD_PRESETS = {
+    "Focus": {"name": "Focus", "all": {"on": True, "brightness": 90, "mode": "color", "color": "#eaf1ff"}},
+    "Movie": {"name": "Movie", "all": {"on": True, "brightness": 70, "mode": "effect", "effect": "screen"}},
+}
+PRESETS_VERSION = 2
+
+
+def upgrade_presets(presets: list[dict]) -> list[dict]:
+    """Bring the built-in presets of an older install up to date: untouched old ones become their
+    new version, new ones are added after the built-in one before them; the user's own stay."""
+    out = [copy.deepcopy(next((d for d in DEFAULT_PRESETS if d["name"] == p.get("name")), p))
+           if OLD_PRESETS.get(p.get("name")) == p else p for p in presets]
+    names = {p.get("name") for p in out}
+    for i, d in enumerate(DEFAULT_PRESETS):
+        if d["name"] in names:
+            continue
+        before = next((j for j, p in enumerate(out) if i and p.get("name") == DEFAULT_PRESETS[i - 1]["name"]), None)
+        out.insert(0 if i == 0 else len(out) if before is None else before + 1, copy.deepcopy(d))
+        names.add(d["name"])
+    return out
+
+
 DEFAULTS = {
     "version": 1,
     "devices": {},      # network lights: id -> {kind, host, port, token}
@@ -45,11 +81,14 @@ DEFAULTS = {
     "presets": DEFAULT_PRESETS,
     "openrgb": {"auto_launch": True, "elevated": False, "path": "", "port": 6742, "zone_sizes": {}},
     "show_layout": {},  # id -> [start, end, "front"|"back"]: where a light sits on the stage
-    "show_sync": {},    # sound output name -> ms the music lights wait for the sound ("" = any output)
+    "show_sync": {},
+    "show_excluded": [],  # ids of lights that keep their own look while the light show runs    # sound output name -> ms the music lights wait for the sound ("" = any output)
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
                  "room_lights_off_at_shutdown": True, "show_strobe": True,
-                 "setup_done": False},   # the welcome tour ran (or was skipped)
+                 "setup_done": False,    # the welcome tour ran (or was skipped)
+                 "active_preset": "",    # the preset the lights show now ("" once changed by hand)
+                 "presets_version": PRESETS_VERSION},
 }
 
 
@@ -78,7 +117,12 @@ class Config:
         if data and "setup_done" not in data.get("settings", {}):
             # Someone who already used the app (or the older RGB Control) doesn't need the welcome tour.
             data.setdefault("settings", {})["setup_done"] = True
+        old_presets = bool(data) and data.get("settings", {}).get("presets_version", 1) < PRESETS_VERSION
         self.data = _merge(DEFAULTS, data)
+        if old_presets:
+            self.data["presets"] = upgrade_presets(self.data["presets"])
+            self.data["settings"]["presets_version"] = PRESETS_VERSION
+            self.save_soon()
 
     def __getitem__(self, key):
         return self.data[key]

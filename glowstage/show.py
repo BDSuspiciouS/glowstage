@@ -222,6 +222,7 @@ class ShowDirector:
         self._sound_since = 0.0
         self.style_id = "edm"
         self._pending_style: str | None = None
+        self._guessed_for: float | None = None   # the song (its start) the style was guessed from the tempo for
         self._pair_i = 0
         self._prev_pair = STYLES["edm"].pair(0)
         self._pair_changed = -99.0
@@ -531,10 +532,15 @@ class ShowDirector:
 
     def _follow_style(self, a: dict) -> None:
         style = self._ai.get("style")
-        if not style:  # no AI verdict (yet): guess from the tempo
-            bpm = a.get("bpm", 0.0)
-            if not bpm:
+        if not style:
+            # No AI verdict (yet): guess from the tempo, once per song, after the tempo settled.
+            # (Guessing on every reading flipped the style hundreds of times an evening: a tempo
+            # estimate wavers between 105 and 130 and the guess between hip-hop and EDM.)
+            if (self._guessed_for == self._sound_since or a.get("bpm_conf", 0.0) < 0.3
+                    or self._t is None or self._t - self._sound_since < 6.0):
                 return
+            self._guessed_for = self._sound_since
+            bpm = self.bpm
             style = "bass" if bpm >= 160 else "edm" if 118 <= bpm <= 135 else "hiphop" if 80 <= bpm < 110 else "pop"
         if style != self.style_id:
             self._pending_style = style   # switched at the next phrase, like an operator would
