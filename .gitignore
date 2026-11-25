@@ -6,3 +6,5 @@ __pycache__/
 /.diag/
 # OpenRGB is downloaded by the app (or put here by hand for a source checkout), not kept in git.
 /tools/OpenRGB/
+# Songs recorded for the light show benchmark: not ours to share.
+/testdata/recordings/

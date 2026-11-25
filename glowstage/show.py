@@ -227,7 +227,13 @@ class ShowDirector:
         self._pair_changed = -99.0
         self._ai: dict = {}
         self._l_fast = self._l_slow = self._l_mid = self._l_mid_peak = 1e-6
-        self._bass_env = self._bass_peak = 1e-6
+        self._bass_env = self._bass_peak = self._bass_max = 1e-6
+        self._bass_seen: collections.deque[float] = collections.deque(maxlen=180)   # every 0.25 s, 45 s
+        self._hush_since: float | None = None
+        self._quiet_frac = 0.0
+        self._gone_since: float | None = None   # since when the bass has been away
+        self._was_gone, self._back_at = 0.0, -99.0   # how many beats it was away, and when it came back
+        self._blinder_beat = -99.0     # the last white blinder
         self._h_fast = self._h_slow = 1e-6
         self._level = 0.0
         # Every 0.25 s for the last 8 s: (loudness, highs, centre of weight, bass share).
@@ -236,7 +242,12 @@ class ShowDirector:
         self._cent = 0.0
         self._bass_fast = self._bass_avg = 1e-6
         self._score = 0.0              # how much it sounds like a build-up right now, 0..1
-        self._sweep_c = self._thin_c = 0.0   # two of its parts: a riser sweeping up, the bass thinned
+        self._sweep_c = self._thin_c = 0.0   # two of its parts: the sound swept up, the bass thinned
+        self._rise_c = 0.0             # ... and the riser part: swept up and still rising
+        self._roll_c = 0.0             # ... and the snare roll part
+        self._rolls: collections.deque[float] = collections.deque(maxlen=16)   # it, every 0.25 s for 4 s
+        self._roll_t = 0.0
+        self._rolling = False          # the roll is tightening (or at full speed)
         self._climb_c = 0.0            # ... and the sound still climbing right now (0 for a step up)
         self._climb_since: float | None = None   # since when it has kept climbing clearly
         self._tension = 0.0            # how much the lights already lean into a possible build-up
@@ -262,6 +273,8 @@ class ShowDirector:
         self._build_origin = 0.0
         self._drop_at = 0.0
         self._unconfirmed_until: float | None = None
+        self._impact: tuple[float, str] | None = None   # a drop on a bass hit, checked until beat ..., from section ...
+        self._impact_n = self._impact_bass = 0
         self._fizzle_since: float | None = None
         self._build_cent = 0.0         # where the sound's weight sat when the build-up began
         # The "one" of the bar: votes per beat position (0-3) and the even/odd split from snares.
@@ -599,6 +612,9 @@ class ShowDirector:
         rms, bass, high = a.get("rms", 0.0), a.get("bass_raw", 0.0), a.get("high_raw", 0.0)
         # The slow averages follow the whole song so far at its start, then the last ~8 s.
         slow = max(0.5, min(8.0, now - self._sound_since))
+        # How much of the last few seconds was (nearly) silent: in sparse, staccato music the
+        # silences between the notes are part of the sound, not the breath before a drop.
+        self._quiet_frac = _ema(self._quiet_frac, 1.0 if rms < 0.15 * self._l_fast else 0.0, dt, 4.0)
         self._l_fast = _ema(self._l_fast, rms, dt, 0.25)
         self._l_mid = _ema(self._l_mid, rms, dt, 1.5)        # evens out the single kicks
         self._l_mid_peak = max(self._l_mid, self._l_mid_peak * math.exp(-dt / 45))
@@ -606,15 +622,29 @@ class ShowDirector:
         # Bass: jumps up on every kick and only slowly lets go, so the gap between two kicks
         # isn't mistaken for the bass dropping out.
         self._bass_env = max(bass, self._bass_env * math.exp(-dt / 0.8))
-        self._bass_peak = max(self._bass_env, self._bass_peak * math.exp(-dt / 30))
+        self._bass_avg = _ema(self._bass_avg, bass, dt, 2.0)    # the bass of the last couple of seconds
+        # (the slowly falling maximum of that average: one huge bass hit in a break mustn't make
+        # the drop after it sound like no bass at all)
+        self._bass_max = max(self._bass_avg, self._bass_max * math.exp(-dt / 30))
         self._h_fast = _ema(self._h_fast, high, dt, 0.4)
         self._h_slow = _ema(self._h_slow, high, dt, slow)
         self._cent = _ema(self._cent, a.get("centroid", 0.0), dt, 0.4)
         self._bass_fast = _ema(self._bass_fast, bass, dt, 0.06)
-        self._bass_avg = _ema(self._bass_avg, bass, dt, 2.0)    # the bass of the last couple of seconds
         self._level = _ema(self._level, a.get("level", 0.0), dt, 1.0)
         if now - self._hist_t >= 0.25:
             self._hist_t = now
+            # The song's full bass: what it reaches in its top fifth over the last 45 s, not its
+            # single loudest moment (the tail of the previous song, or one big hit, would make a
+            # whole groove sound like a break). The slowly falling maximum of the bass's average
+            # keeps a long break a break. After a second of (near) silence it starts over: that is where one
+            # song ends and the next begins (or a drop comes in, which then sets it right away).
+            hushed = rms < 0.08 * self._l_slow
+            self._hush_since = (self._hush_since or now) if hushed else None
+            if self._hush_since is not None and now - self._hush_since >= 1.0 and self._bass_seen:
+                self._bass_seen.clear()
+                self._bass_max = 1e-6
+            self._bass_seen.append(self._bass_env)
+            self._bass_peak = max(float(np.percentile(self._bass_seen, 80)), 1.2 * self._bass_max, 1e-6)
             self._hist.append((self._l_fast, self._h_fast, self._cent,
                                self._bass_env / max(self._bass_peak, 1e-6)))
         self._score = _ema(self._score, self._build_score(now), dt, 0.4)
@@ -639,6 +669,11 @@ class ShowDirector:
         avg = lambda rows, k: sum(r[k] for r in rows) / len(rows)   # noqa: E731
         riser = (avg(late, 2) - avg(early, 2)) / 0.6                # +0.6 octave = a full riser
         bright = math.log2((avg(late, 1) + 1e-6) / (avg(early, 1) + 1e-6)) / 1.5
+        self._sweep_c = max(0.0, min(1.0, riser))
+        # ... but only while it is still rising: the bass leaving for a break (or a chorus coming
+        # in) moves the sound up in one step, and a step is no riser once it is over.
+        riser = min(riser, (avg(late, 2) - avg(mid, 2)) / 0.15)
+        bright = min(bright, math.log2((avg(late, 1) + 1e-6) / (avg(mid, 1) + 1e-6)) / 0.375)
         louder = (avg(late, 0) - avg(early, 0)) / max(avg(early, 0), 1e-6) / 0.5
         thin = (0.75 - avg(late, 3)) / 0.5
         per_beat = sum(1 for t in self._hits if now - t < 1.5) / (1.5 * self.bpm / 60)
@@ -650,7 +685,12 @@ class ShowDirector:
         secs = [h[-20:-16], h[-16:-12], h[-12:-8], mid, late]
         climb = _climbing([avg(s, 2) for s in secs], 0.5, 0.08)
         brighter = _climbing([math.log2(avg(s, 1) + 1e-6) for s in secs], 1.2, 0.2)
-        self._sweep_c, self._thin_c = clip(riser), clip(thin)
+        self._rise_c, self._thin_c, self._roll_c = clip(max(riser, bright)), clip(thin), clip(roll)
+        if now - self._roll_t >= 0.25:
+            self._roll_t = now
+            self._rolls.append(self._roll_c)
+        early_roll = list(self._rolls)[:4]
+        self._rolling = self._roll_c >= 0.9 or (len(self._rolls) >= 12 and self._roll_c - min(early_roll) >= 0.15)
         self._climb_c = clip(max(climb, brighter))
         if self._climb_c >= 0.6:
             self._climb_since = self._climb_since if self._climb_since is not None else now
@@ -666,6 +706,17 @@ class ShowDirector:
         loud_ratio = self._l_mid / max(self._l_mid_peak, 1e-6)
         rise, hi_rise = self._rise(), self._h_fast / max(self._h_slow, 1e-6)
         quiet = loud_ratio < (0.32 if sec == "calm" else 0.2)
+        # How long the bass has been away (in beats), and how long it was away before it came back.
+        # A break needs it away for a bar (and then two beats more), a drop needs it to have been away for two
+        # bars: a bass line that plays every other bar is no string of breaks and drops.
+        if bass_ratio < 0.3:
+            if self._gone_since is None:
+                self._gone_since = now
+        elif bass_ratio > 0.55 and self._gone_since is not None:
+            self._was_gone, self._back_at = (now - self._gone_since) * self.bpm / 60, now
+            self._gone_since = None
+        gone = 0.0 if self._gone_since is None else (now - self._gone_since) * self.bpm / 60
+        long_gone = gone >= 8 or (now - self._back_at < 0.5 and self._was_gone >= 8)
         if a.get("silent", True):
             return "silent"
         drops = STYLES[self.style_id].drops   # only dance music builds up to drops
@@ -676,18 +727,27 @@ class ShowDirector:
         # After a break the bass may also come back over a moment (a filter opening): softer test.
         back = played and self._bass_fast > 0.5 * self._bass_peak and self._bass_fast > 1.6 * self._bass_avg
         thin_before = self._bass_avg < 0.35 * self._bass_peak
+        if sec == "drop" and self._impact is not None:   # a drop fired on a bass hit: does the bass stay?
+            until, before = self._impact
+            self._impact_n += 1
+            self._impact_bass += self._bass_fast > 0.25 * self._bass_peak
+            if self._beat > until:
+                self._impact = None
+                if self._impact_bass < 0.35 * self._impact_n:
+                    # One big hit in a break (an "impact") with the bass gone again: no drop.
+                    return "rebuild" if before == "build" else "unbreak"
         if sec == "drop" and self._unconfirmed_until is not None:   # a drop fired on the count ...
             if self._bass_fast > 0.4 * self._bass_peak:
                 self._unconfirmed_until = None                      # ... the bass came: it was right
             elif self._beat > self._unconfirmed_until:
                 self._unconfirmed_until = None
-                return "build"                                      # ... it didn't: back to the build-up
+                return "rebuild"                                    # ... it didn't: back to the build-up
             return "drop"
         if sec == "gap":              # (only the bass coming back counts: not the fading tail of what was)
             return "drop" if slam or back else "break" if in_state > 2.5 else "gap"
         # The breath before a drop: the music suddenly goes (nearly) silent, from anywhere. Even a
         # cut of a tenth of a second followed by the bass slamming in is a new drop ("redrop").
-        if drops and sec in ("groove", "drop", "build") and played:
+        if drops and sec in ("groove", "drop", "build") and played and self._quiet_frac < 0.1:
             sudden_quiet = a.get("rms", 0.0) < 0.15 * self._l_fast
             self._gap_since = (self._gap_since or now) if sudden_quiet else None
             if self._gap_since is not None and now - self._gap_since > 0.06:
@@ -698,38 +758,48 @@ class ShowDirector:
                 self._dip_at = -99.0
                 return "redrop"
         if sec == "build":
-            if slam:                  # (a kick running through the build-up is no drop: only a slam)
+            # (A kick running through the build-up is no drop: only a slam, after the bass has been
+            # away for a couple of bars or the build-up has run that long. A bass line that plays
+            # every other bar is no build-up and drop; a bass filtered back in before the drop is.)
+            if slam and (long_gone or self._beat - self._entered_beat >= 8):
                 return "drop"
             # It fizzled out when it stopped sounding like a build-up and the riser fell back down
             # (after a riser has swept all the way up, the score drops while the build goes on).
+            # (Or when nothing in it has risen for a while: no riser, no climb, no snare roll. The
+            # bass gone alone keeps the score up, but a break is no build-up.)
             overdue = self._beat + self._lead * self.bpm / 60 - self._drop_at
-            fizzled = self._score < BUILD_OFF and (self._cent - self._build_cent < 0.5 or overdue > 16)
+            # (The snare roll part counts only while it tightens: a busy beat full of hi-hats and
+            # snares reads as a steady "roll" too.)
+            stale = self._rise_c < 0.2 and self._climb_c < 0.2 and not self._rolling
+            fizzled = (self._score < BUILD_OFF or stale) and (self._cent - self._build_cent < 0.5 or overdue > 16)
             self._fizzle_since = (self._fizzle_since or now) if fizzled else None
-            if in_state > 40 or (self._fizzle_since is not None and now - self._fizzle_since > 3):
+            wait = 3 if self._score < BUILD_OFF else 6
+            if in_state > 40 or (self._fizzle_since is not None and now - self._fizzle_since > wait):
                 return "groove" if bass_ratio > 0.5 else "break"    # it didn't build to anything
             return "build"
         # A build-up: from a break, sounding like one is enough; out of a groove or a drop it also
-        # needs a riser still climbing or the bass being filtered away (a busy drop full of
-        # snares and bright synths scores high too, but it came in as a step up, not a climb).
+        # needs a riser still climbing, or the bass being filtered away while something rises (the
+        # bass just leaving is a break; a busy drop full of snares and bright synths scores high
+        # too, but it came in as a step up, not a climb).
         # A riser that keeps climbing for a second or two is a build-up by itself, before the
         # snare roll and the missing bass make it sound like one all round.
         # (Out of a groove or drop only once it has run 5 s: the score looks 4 s back, and right
         # after a drop that is still the quieter, darker stretch before it.)
         settled = sec in ("break", "calm") or in_state > 5.0
-        climbing = self._climb_since is not None and now - self._climb_since >= (1.0 if sec in ("break", "calm") else 1.5)
-        # (A clearly built-up score with the sound swept up overall also counts, as it always did.)
+        climbing = self._climb_since is not None and now - self._climb_since >= (1.0 if sec in ("break", "calm") else 2.5)
+        # (A clearly built-up score with the sound still rising counts too.)
         if drops and sec in ("groove", "break", "calm", "drop") and settled and (
                 climbing or (self._score > BUILD_ON and (sec in ("break", "calm") or self._climb_c >= 0.6
-                                                         or self._thin_c >= 0.5
-                                                         or (self._sweep_c >= 0.6 and self._score > 0.65)))):
+                                                         or (self._thin_c >= 0.5 and self._rise_c >= 0.5)
+                                                         or (self._rise_c >= 0.6 and self._score > 0.65)))):
             return "build"
         if drops and sec in ("groove", "break", "calm") and (slam or (back and sec != "groove")) and \
-                (thin_before or sec != "groove"):
+                (thin_before or sec != "groove") and long_gone:
             return "drop"             # the bass slams back in after a stretch without much of it
-        if bass_ratio < 0.3:          # the bass is gone
+        if bass_ratio < 0.3 and (gone >= 4 or sec in ("break", "calm")):   # the bass is gone
             return "calm" if quiet else "break"
         if sec in ("break", "calm") and bass_ratio > 0.55 and in_state > 2.0:
-            return "drop" if drops else "groove"   # the bass is back after a break
+            return "drop" if drops and long_gone else "groove"   # the bass is back after a break
         if sec == "drop":
             beats = self._beat - self._entered_beat
             return "drop" if beats < 32 or (loud_ratio > 0.8 and beats < 128) else "groove"
@@ -744,6 +814,12 @@ class ShowDirector:
         if cand == "redrop":           # a new drop right out of the last one: hit it again
             self._enter("drop", now)
             return
+        if cand == "rebuild":          # a drop fired on the count that didn't come: back at once
+            self._enter("build", now)
+            return
+        if cand == "unbreak":          # a drop fired on a single bass hit in a break: back at once
+            self._enter("break", now)
+            return
         if cand == sec:
             self._cand = None
             return
@@ -751,9 +827,10 @@ class ShowDirector:
             self._cand_since = now     # the music has moved away from this section since now
         self._cand = cand              # (flipping between break and calm doesn't restart the wait)
         # How long the music must stay this way before the show follows, in beats.
-        immediate = (cand in ("silent", "gap") or (cand == "drop" and sec in ("build", "gap", "break", "calm", "groove"))
-                     or (cand == "build" and sec == "drop"))      # a drop fired on the count that didn't come
-        wait = 0.0 if immediate else {"drop": 1, "build": 1, "groove": 2, "break": 2, "calm": 4}.get(cand, 2)
+        immediate = cand in ("silent", "gap") or (cand == "drop" and sec in ("build", "gap", "break", "calm", "groove"))
+        # (between calm and groove more patiently: an outro that dips every other bar flickered)
+        wait = 0.0 if immediate else {"drop": 1, "build": 1, "groove": 4 if sec == "calm" else 2, "break": 2,
+                                      "calm": 8}.get(cand, 2)
         if cand == "break" and not STYLES[self.style_id].drops:
             wait = 4                  # an 808 or bass line pausing for a bar isn't a break yet
         if not immediate and cand != "build" and now - self._since < 2.0:
@@ -769,6 +846,8 @@ class ShowDirector:
             self._sound_since = now
             self._snare_gaps.clear()   # probably a new song: start learning it from scratch
             self._cues.clear()
+            self._bass_seen.clear()
+            self._bass_max = 1e-6
         if sec in ("break", "build", "gap", "calm") and cand in ("groove", "drop"):
             self._grid_trust_at = now + 5.0
         self.section, self._since, self._entered_beat, self._cand = cand, now, self._beat, None
@@ -785,16 +864,23 @@ class ShowDirector:
         if resumed:
             self._drop_at += 16       # the count was early: four more bars
         if cand == "drop":
-            # The one white blinder is for dance drops; a chorus in other music hits in color.
+            # The one white blinder is for dance drops, and not every few bars (a drop on the
+            # count always gets it); a chorus in other music, or a drop soon after the last one,
+            # hits in color.
             style = STYLES[self.style_id]
-            self.frame.flash = 1.0 if style.drops else 0.7
-            self.frame.flash_color = WHITE if style.drops else style.pair(self._pair_i + 1)[0]
+            blinder = style.drops and (on_count or self._beat - self._blinder_beat >= 16)
+            self.frame.flash = 1.0 if blinder else 0.7 if not style.drops else 0.6
+            self.frame.flash_color = WHITE if blinder else style.pair(self._pair_i + 1)[0]
+            if blinder:
+                self._blinder_beat = self._beat
             if on_count:
                 self._phrase_start = round(self._drop_at)
                 self._unconfirmed_until = self._beat + 1.5
             else:
                 self._phrase_start = round(self._beat + lead - 0.15)   # the drop is a "one"
                 self._vote_bar(int(self._phrase_start), 2.0)
+                if sec in ("build", "break", "calm"):     # the bass must stay for a bar (see _candidate)
+                    self._impact, self._impact_n, self._impact_bass = (self._beat + 4.0, sec), 0, 0
         cut = cand in ("drop", "gap", "build", "silent") or sec in ("gap", "build", "silent")
         self._next_scene(entry=True, cut=cut)
         self._phrase_idx = self._phrase_now()

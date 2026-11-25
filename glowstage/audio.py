@@ -22,7 +22,8 @@ BLOCK_RATE = RATE / BLOCK
 FFT_SIZE = 2048              # longer window for usable bass resolution (~23 Hz per bin)
 BANDS = 16
 BAND_EDGES = np.geomspace(40, 16000, BANDS + 1)
-SILENCE_RMS = 2e-4
+SILENCE_RMS = 2e-5           # (-94 dBFS: what the PC plays is digital silence between songs; music
+                             # played very softly, e.g. with the player turned far down, still counts)
 KEEP_SECONDS = 3.0           # raw sound kept for the genre detector
 TEMPO_SECONDS = 8.0          # onset history the tempo is estimated from
 
@@ -113,8 +114,9 @@ class AudioAnalyzer:
         self._window = np.hanning(FFT_SIZE).astype(np.float32)
         freqs = np.fft.rfftfreq(FFT_SIZE, 1 / RATE)
         self._band_bins = [np.where((freqs >= lo) & (freqs < hi))[0] for lo, hi in zip(BAND_EDGES[:-1], BAND_EDGES[1:])]
-        self._centroid_bins = np.where((freqs >= 100) & (freqs <= 16000))[0]
-        self._centroid_oct = np.log2(freqs[self._centroid_bins] / 100.0)
+        # (above the bass and the kick: their coming and going must not move it)
+        self._centroid_bins = np.where((freqs >= 400) & (freqs <= 16000))[0]
+        self._centroid_oct = np.log2(freqs[self._centroid_bins] / 400.0)
         self._band_max = np.full(BANDS, 1e-3)
         self._bands = np.zeros(BANDS)
         self._level_max = 1e-3
@@ -310,8 +312,8 @@ class AudioAnalyzer:
                 "chord": None if silent else self._chord,
                 "key": self._key[0],
                 "key_conf": self._key[1],
-                # Where the sound's weight sits, in octaves above 100 Hz: a riser sweeping up
-                # (and a high-pass filter opening) moves it up by an octave or more.
+                # Where the weight of the sound above the bass sits, in octaves above 400 Hz: a
+                # riser sweeping up (and a filter opening) moves it up by an octave or more.
                 "centroid": 0.0 if silent else self._centroid(spectrum),
             }
 

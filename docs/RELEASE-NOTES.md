@@ -7,6 +7,8 @@ First public preview of Glowstage: light shows for your PC and room lights.
 - Offline AI genre detection with its own choreography per genre; colors that follow the chords.
 - Sync for your speakers: Bluetooth headphones and speakers are detected and the lights wait for their sound; a Sync slider fine-tunes it per sound output.
 - The lights lean into a build-up while the riser climbs, instead of waking up when it's nearly over.
+- Checked against an hour of real songs (house, afro, amapiano, rap, pop): a bass line that plays every other bar, a single impact hit, sparse staccato music or the tail of the previous song no longer set off drops and blinders. A third as many white blinders and build-ups, the real drops still on time.
+- The genre AI also works when the music player is turned far down.
 - Slow lights (Hue, Govee, Home Assistant, Elgato) get calm versions of the fast looks, no strobe, and hold short flashes long enough to show them.
 - A new interface around a live stage view: every light drawn where it is in your room, glowing in its real colors; drag lights into place for the show.
 - A welcome tour that finds your lights and can fetch OpenRGB (from its makers) for the RGB inside your PC.

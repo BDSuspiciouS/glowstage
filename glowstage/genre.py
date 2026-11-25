@@ -154,52 +154,63 @@ class GenreDetector:
 
     def _run(self) -> None:
         try:
-            session, names, index, style_weights, genre_ids = self._load()
+            self._model = self._load()
         except Exception as e:
             log.warning("AI genre detection unavailable: %s", e)
             self.error = "AI genre detection unavailable"
             return
-        log.info("AI genre detection ready (YAMNet, %d sound classes)", len(names))
-        music_id, mood_ids = index["Music"], [index[m] for m in MOODS]
+        log.info("AI genre detection ready (YAMNet, %d sound classes)", len(self._model[1]))
         while True:
             time.sleep(INTERVAL)
             if time.monotonic() > self._wanted_until:
                 continue
-            wave = self.audio.recent(WINDOW)
-            if wave is None or float(np.sqrt(np.mean(wave ** 2))) < 3e-4:
-                # A pause of a couple of seconds usually means the next song: start over.
-                self._quiet_since = self._quiet_since or time.monotonic()
-                if time.monotonic() - self._quiet_since > 2.0:
-                    self._looks = 0
-                continue
-            self._quiet_since = None
-            try:
-                t0 = time.perf_counter()
-                scores = session.run(None, {"patches": log_mel_patches(to_16k(wave))})[0].mean(axis=0)
-                took = time.perf_counter() - t0
-            except Exception as e:
-                log.warning("AI genre detection failed: %s", e)
-                continue
-            if scores[music_id] < 0.15:
-                continue  # speech, a game, a video: no music to judge
-            # A running average over roughly the last 15 s; right after a pause it starts fresh.
-            alpha = max(0.15, 1.0 / (self._looks + 1))
-            self._ema = scores if self._ema is None or self._looks == 0 else self._ema + alpha * (scores - self._ema)
-            self._looks += 1
-            # A style scores as its strongest genre (summing would favor styles with many genres).
-            styles = (style_weights * self._ema).max(axis=1)
-            best = int(np.argmax(styles))
-            total = float(styles.sum())
-            self._settle(best, styles)
-            top = sorted(genre_ids, key=lambda i: -self._ema[i])[:3]
-            mood = max(mood_ids, key=lambda i: self._ema[i])
-            style = self._style if self._style is not None else best
-            with self._lock:
-                self._snap = {
-                    "style": list(STYLE_GENRES)[style] if total > 0.01 else None,
-                    "confidence": float(styles[style] / total) if total > 0 else 0.0,
-                    "top": [(names[i], round(float(self._ema[i]), 3)) for i in top],
-                    "mood": names[mood].replace(" music", "") if self._ema[mood] > 0.05 else None,
-                    "music": float(self._ema[music_id]),
-                    "ms": round(took * 1000, 1),
-                }
+            self.look(self.audio.recent(WINDOW))
+
+    def look(self, wave: np.ndarray | None) -> None:
+        """One look at the last couple of seconds of sound (48 kHz mono); updates what request()
+        returns. Needs the model loaded (self._model = self._load()); tools/show_bench.py calls
+        this directly to replay songs."""
+        session, names, index, style_weights, genre_ids = self._model
+        music_id, mood_ids = index["Music"], [index[m] for m in MOODS]
+        if wave is None or float(np.sqrt(np.mean(wave ** 2))) < 3e-5:
+            # A pause of a couple of seconds usually means the next song: start over.
+            self._quiet_since = self._quiet_since or time.monotonic()
+            if time.monotonic() - self._quiet_since > 2.0:
+                self._looks = 0
+            return
+        self._quiet_since = None
+        # YAMNet learned from sound at everyday levels: music played with the player turned far
+        # down (the PC hears it before the Windows volume) looks like near-silence to it. Bring
+        # it up to a normal level first (at most 40 dB).
+        level = float(np.sqrt(np.mean(wave ** 2)))
+        wave = wave * min(100.0, 0.1 / max(level, 1e-9))
+        try:
+            t0 = time.perf_counter()
+            scores = session.run(None, {"patches": log_mel_patches(to_16k(wave))})[0].mean(axis=0)
+            took = time.perf_counter() - t0
+        except Exception as e:
+            log.warning("AI genre detection failed: %s", e)
+            return
+        if scores[music_id] < 0.15:
+            return  # speech, a game, a video: no music to judge
+        # A running average over roughly the last 15 s; right after a pause it starts fresh.
+        alpha = max(0.15, 1.0 / (self._looks + 1))
+        self._ema = scores if self._ema is None or self._looks == 0 else self._ema + alpha * (scores - self._ema)
+        self._looks += 1
+        # A style scores as its strongest genre (summing would favor styles with many genres).
+        styles = (style_weights * self._ema).max(axis=1)
+        best = int(np.argmax(styles))
+        total = float(styles.sum())
+        self._settle(best, styles)
+        top = sorted(genre_ids, key=lambda i: -self._ema[i])[:3]
+        mood = max(mood_ids, key=lambda i: self._ema[i])
+        style = self._style if self._style is not None else best
+        with self._lock:
+            self._snap = {
+                "style": list(STYLE_GENRES)[style] if total > 0.01 else None,
+                "confidence": float(styles[style] / total) if total > 0 else 0.0,
+                "top": [(names[i], round(float(self._ema[i]), 3)) for i in top],
+                "mood": names[mood].replace(" music", "") if self._ema[mood] > 0.05 else None,
+                "music": float(self._ema[music_id]),
+                "ms": round(took * 1000, 1),
+            }
