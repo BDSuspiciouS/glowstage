@@ -1033,8 +1033,10 @@ function renderShow() {
   btn.classList.toggle("is-running", !!running.length);
   const audio = S.data.audio || {};
   const out = visible().filter(d => d.online && !inShow(d)).length;
-  $("#show-sub").textContent = (running.length ? `Running on ${running.length} of ${all.length} lights`
-    : out ? `Uses ${all.length} lights, ${out} sit${out === 1 ? "s" : ""} it out` : `Uses all ${all.length} lights`)
+  $("#show-sub").textContent = (running.length && S.data.autoShow
+      ? `Started by itself for the music · back to your lights after 30 s of quiet`
+      : running.length ? `Running on ${running.length} of ${all.length} lights`
+      : out ? `Uses ${all.length} lights, ${out} sit${out === 1 ? "s" : ""} it out` : `Uses all ${all.length} lights`)
     + ` · listening to ${audio.device || "your PC's sound output"}`;
   const p = running[0] || all[0];
   if (S.dragging !== "__intensity") {
@@ -1043,6 +1045,7 @@ function renderShow() {
     $("#show-int-val").textContent = `${v}%`;
   }
   $("#show-strobe").checked = S.data.settings.show_strobe !== false;
+  $("#show-auto").checked = !!S.data.settings.auto_show;
   const g = S.data.genreAi;
   $("#show-how").textContent = g && g.installed
     ? "Listens to what your PC plays (no microphone), hears which of 400 music styles it is with the enhanced genre AI on this PC, and follows the beat, build-ups and drops."
@@ -1239,6 +1242,11 @@ function bindStatic() {
     send(running.length ? running.map(d => d.id) : null, { speed: v }, "speed:show");
   }, 1);
   $("#show-strobe").addEventListener("change", async e => { await call("set_setting", "show_strobe", e.target.checked); refresh(true); });
+  $("#show-auto").addEventListener("change", async e => {
+    await call("set_setting", "auto_show", e.target.checked);
+    if (e.target.checked) toast("The show starts by itself when music plays");
+    refresh(true);
+  });
   let syncTimer = 0;
   bindSlider($("#show-sync"), "__sync", v => {
     const ms = sliderToSync(v);

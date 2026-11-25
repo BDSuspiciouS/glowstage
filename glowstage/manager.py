@@ -12,6 +12,7 @@ from typing import Callable
 from . import genre_install
 from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
+from .autoshow import AutoShow
 from .devices.base import Device
 from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
@@ -89,6 +90,7 @@ class DeviceManager:
         self.openrgb = OpenRGBProvider(config["openrgb"], self._on_openrgb_change)
         self.discovery = Discovery(self._on_discovered)
         self.engine = EffectEngine(self)
+        self.autoshow = AutoShow(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -98,6 +100,7 @@ class DeviceManager:
         self.openrgb.start()
         self.discovery.start()
         self.engine.start()
+        self.autoshow.start()
         threading.Thread(target=self._monitor, name="monitor", daemon=True).start()
         threading.Thread(target=self._scheduler, name="schedule", daemon=True).start()
         threading.Thread(target=self._discover_direct, name="direct-discovery", daemon=True).start()
@@ -116,6 +119,7 @@ class DeviceManager:
 
     def stop(self) -> None:
         self._stop.set()
+        self.autoshow.stop()
         self.engine.stop()
         self.discovery.stop()
         self.openrgb.stop()
@@ -358,6 +362,20 @@ class DeviceManager:
 
     def toggle_show(self) -> None:
         self.stop_show() if self.show_running() else self.start_show()
+
+    def looks(self) -> dict[str, dict]:
+        """How every light looks now, to put back later with restore_looks."""
+        with self.lock:
+            return {i: st.to_dict() for i, st in self.states.items() if i in self.devices}
+
+    def restore_looks(self, looks: dict[str, dict], preset: str) -> None:
+        """Put the looks from looks() back on the lights that run the light show now (the rest
+        has been changed since and stays). On or off stays as it is."""
+        with self.lock:
+            running = [i for i, st in self.states.items()
+                       if i in self.devices and st.mode == "effect" and st.effect == "music_show"]
+        self._apply({i: {k: v for k, v in looks[i].items() if k != "on"} if i in looks else {"mode": "color"}
+                     for i in running}, preset=preset)
 
     # ---- schedules: presets, on, off or the show at set times ---------------------------------
 
@@ -629,6 +647,7 @@ class DeviceManager:
             "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,
                       "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
             "show": self.engine.show.info() if self.engine.show_active else None,
+            "autoShow": self.autoshow.running,
         }
 
     # ---- stage layout (where each light sits for the light show) ------------------------------

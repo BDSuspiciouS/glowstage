@@ -146,10 +146,16 @@
           <div class="range-ends"><span>Earlier</span><span>Later</span></div>
           <div class="control-hint"><span id="show-sync-hint"></span> <button id="show-sync-auto" class="link-btn" type="button" hidden>Auto</button></div>
         </div>
-        <label class="card control control-switch">
-          <span class="control-text"><span class="control-title">Strobe</span><span class="muted">Flashes on the big moments</span></span>
-          <input type="checkbox" id="show-strobe" class="switch">
-        </label>
+        <div class="card control control-switches">
+          <label class="switch-row">
+            <span class="control-text"><span class="control-title">Strobe</span><span class="muted">On the big moments</span></span>
+            <input type="checkbox" id="show-strobe" class="switch">
+          </label>
+          <label class="switch-row" title="Starts the show when music with a beat plays, and puts your lights back after 30 seconds of quiet">
+            <span class="control-text"><span class="control-title">Start by itself</span><span class="muted">When music plays</span></span>
+            <input type="checkbox" id="show-auto" class="switch">
+          </label>
+        </div>
         <div class="card control control-note">
           <span class="control-title">How it works</span>
           <span id="show-how" class="muted">Listens to what your PC plays (no microphone), hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.</span>

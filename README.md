@@ -28,9 +28,10 @@
 
 ## What it does
 
-- **A real light show, not a VU meter.** A virtual lighting operator locks onto the beat, counts bars and phrases, hears build-ups coming, holds its breath before the drop and hits it on the one. It learns the song while it plays, so the second chorus looks like the first. Tuned on an hour of real house, afro, amapiano, rap and pop.
+- **A real light show, not a VU meter.** A virtual lighting operator locks onto the beat, counts bars and phrases, hears build-ups coming, holds its breath before the drop and hits it on the one. It learns the song while it plays, so the second chorus looks like the first. Tuned on an hour of real house, afro, amapiano, rap and pop. Switch on *Start by itself* and it begins when music plays and hands your lights back when it stops.
 - **It knows what it's listening to.** An offline AI recognises the genre (built in, or with one click an enhanced AI that knows 400 music styles) and every genre gets its own choreography: step chases for techno, a disco floor for house, everything glowing with the 808 for hip-hop, slow washes for chill. Colors follow the chords.
 - **One stage for the whole room.** Chases run from the strip above your monitor over the keyboard to the fans in your case. Drag lights into place on the stage, and choose which ones join the show.
+- **Lights that follow your screen.** With Screen sync every light takes the part of the picture where it sits: the strip above your monitor runs along with a film or a game from left to right, a bulb takes the screen's color as a whole.
 - **Presets for every moment.** Focus, Reading, Cozy, Gaming, Movie and more, each lighting your PC and your room its own way. Save your own with one click, run them from the tray or a hotkey, or on a schedule: *Late night* at 23:00, everything off at 1:00.
 - **In sync with what you hear.** Bluetooth headphones play the sound later than your PC sends it; Glowstage notices and waits for them. Slow lights (Hue, Govee, Home Assistant) get calmer looks that still catch every hit.
 - **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for the RGB inside your PC if you want it, and gets you to your first light show in a minute. It lives quietly in the tray.

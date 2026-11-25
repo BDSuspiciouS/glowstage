@@ -298,6 +298,7 @@ function appSection() {
     row("pc_lights_off_at_shutdown", "Switch the PC's lights off when Windows shuts down"),
     row("room_lights_off_at_shutdown", "Switch the room lights off when Windows shuts down"),
     row("show_strobe", "Strobe flashes in the light show"),
+    row("auto_show", "Start the light show by itself when music plays, and put my lights back when it stops"),
     row("check_updates", "Check once a day for a new version (asks GitHub; sends nothing about you)"),
     row("hotkeys", "Hotkeys from any program: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets"),
     (S.data.hotkeysTaken || []).length && s.hotkeys

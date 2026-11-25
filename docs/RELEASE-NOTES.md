@@ -1,27 +1,22 @@
-First public preview of Glowstage: light shows for your PC and room lights.
+Glowstage 0.9.1: the light show starts by itself when music plays, and Screen sync follows the picture.
 
-**Install:** download `Glowstage-0.9.0-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*.
+**Install:** download `Glowstage-0.9.1-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay.
 
-**Highlights**
-- A festival-style light show to whatever your PC plays: beat-locked, hears build-ups and drops, learns the song while it plays.
-- Offline AI genre detection with its own choreography per genre; colors that follow the chords.
-- Sync for your speakers: Bluetooth headphones and speakers are detected and the lights wait for their sound; a Sync slider fine-tunes it per sound output.
-- The lights lean into a build-up while the riser climbs, instead of waking up when it's nearly over.
-- Checked against an hour of real songs (house, afro, amapiano, rap, pop): a bass line that plays every other bar, a single impact hit, sparse staccato music or the tail of the previous song no longer set off drops and blinders. A third as many white blinders and build-ups, the real drops still on time.
-- The genre AI also works when the music player is turned far down.
-- No more freezes of the window: a call that never got its answer used to leave a thread waiting forever, and the window's once-a-second update kept stacking them. Calls now time out, updates wait for each other and send only what changed, and a crashed page reloads by itself. Should it still hang, Glowstage writes where (hang.log, crash.log next to its settings).
-- Presets know your PC from your room: Focus, Reading, Cozy, Gaming and Movie light them each their own way. The preset that's on is marked, and a preset applies to all lights at once.
-- Glowstage tells you when a new version is out (it asks GitHub once a day; nothing about you is sent, and you can switch it off).
-- Schedule: a preset, lights on or off, or the light show at set times on the days you pick (Setup → Schedule).
-- Hotkeys from any program, if you switch them on: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets.
-- The tray menu starts and stops the light show and ticks the preset that's on.
-- Choose which lights join the light show; the others keep their own look. Without the AI's verdict the show picks one style per song instead of switching on every tempo reading.
-- An enhanced genre AI, one click away in Settings: it knows 400 music styles (deep house, tech house, trap, reggaeton...), so afro, melodic and tech house finally get the dance-floor show with its drops. On 26 test songs it picked the right style for 24 (the built-in AI: 17).
-- Slow lights (Hue, Govee, Home Assistant, Elgato) get calm versions of the fast looks, no strobe, and hold short flashes long enough to show them.
-- A new interface around a live stage view: every light drawn where it is in your room, glowing in its real colors; drag lights into place for the show.
-- A welcome tour that finds your lights and can fetch OpenRGB (from its makers) for the RGB inside your PC.
-- PC RGB through OpenRGB, WLED, Nanoleaf, ASRock Radeon cards and SignalRGB-protocol QMK keyboards.
-- New, in beta: Philips Hue, LIFX, Govee, Yeelight, Elgato, Twinkly, Magic Home, Home Assistant and DMX (Art-Net / sACN).
-- Lights on at boot, off at shutdown; lives in the tray.
+**New**
+- The light show can start by itself when music plays: switch on *Start by itself* on the Light show page. It waits for music with a beat, so talk in a video, a game or a notification sound doesn't set it off, and 30 seconds after the music stops your lights go back to how they were. Take over at any moment (stop the show, pick a preset) and it leaves you alone until the music has stopped. Waiting costs next to nothing: it watches Windows' own sound meter and only listens closely once something plays.
+- Screen sync follows the picture: every light takes the part of the screen where it sits on the stage. A strip above your monitor runs along with the picture from left to right, the PC's lights take the right side, a bulb takes the screen's color as a whole. Drag lights on the stage to change what they follow. It also takes half the processor time it used to.
+
+**Fixed**
+- When a song started after a pause, listening could stop for two seconds, so the light show missed the first beats.
+
+**Everything in Glowstage**
+- A festival-style light show to whatever your PC plays: beat-locked, hears build-ups and drops, learns the song while it plays, checked against an hour of real songs.
+- Offline AI genre detection with its own choreography per genre, colors that follow the chords; one click away, an enhanced genre AI that knows 400 music styles.
+- Sync for your speakers: Bluetooth headphones and speakers are detected and the lights wait for their sound.
+- Presets that know your PC from your room (Focus, Reading, Cozy, Gaming, Movie and more), from the tray, a hotkey or a schedule.
+- A live stage view of every light in your room; choose which lights join the show.
+- Slow lights (Hue, Govee, Home Assistant, Elgato) get calm versions of the fast looks.
+- PC RGB through OpenRGB, WLED, Nanoleaf, ASRock Radeon cards and SignalRGB-protocol QMK keyboards; in beta: Philips Hue, LIFX, Govee, Yeelight, Elgato, Twinkly, Magic Home, Home Assistant and DMX (Art-Net / sACN).
+- Lives in the tray, lights on at boot and off at shutdown, tells you when a new version is out.
 
 **Needs:** Windows 10/11 64-bit. For PC RGB, OpenRGB: the welcome tour (or Setup → PC lighting) gets it for you.

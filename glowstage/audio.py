@@ -49,6 +49,8 @@ def estimate_tempo(onsets: np.ndarray) -> tuple[float, float, float, float]:
     if len(env) < BLOCK_RATE * 4 or not env.any():
         return 0.0, 0.0, 0.0, 0.0
     ac = np.correlate(env, env, "full")[len(env) - 1:]
+    if not ac[0] > 0:
+        return 0.0, 0.0, 0.0, 0.0
     ac /= ac[0]
     lo, hi = int(BLOCK_RATE * 60 / 190), int(BLOCK_RATE * 60 / 70) + 1
     lags = np.arange(lo, hi)
@@ -56,8 +58,12 @@ def estimate_tempo(onsets: np.ndarray) -> tuple[float, float, float, float]:
     weight = np.exp(-0.5 * (np.log2(bpms / 120) / 0.9) ** 2)
     k = int(np.argmax(ac[lo:hi] * weight)) + lo
     a, b, c = ac[k - 1], ac[k], ac[k + 1] if k + 1 < len(ac) else ac[k]
-    shift = 0.5 * (a - c) / (a - 2 * b + c) if (a - 2 * b + c) < 0 else 0.0
-    period = k + shift
+    if not b > 0:   # nothing repeats (e.g. the first onsets after silence): no tempo yet
+        return 0.0, 0.0, 0.0, 0.0
+    # (the peak's top between blocks; within half a block, or a flat top threw it anywhere, even
+    # below zero, and the grid search below crashed: that stopped listening at every song start)
+    shift = float(np.clip(0.5 * (a - c) / (a - 2 * b + c), -0.5, 0.5)) if (a - 2 * b + c) < 0 else 0.0
+    period = min(max(k + shift, lo), hi - 1)   # (and inside 70..190 BPM)
     offsets = np.arange(0.0, period, 0.5)
     teeth = np.arange(int((len(onsets) - 1) // period))
     where = len(onsets) - 1 - offsets[:, None] - period * teeth[None, :]

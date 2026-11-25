@@ -306,6 +306,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .control-title { font-weight: 600; display: block; }
 .control-text { display: flex; flex-direction: column; }
 .control.control-switch { flex-direction: row; align-items: center; justify-content: space-between; cursor: pointer; }
+.control.control-switches { justify-content: center; gap: 14px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+.switch-row .muted { font-size: 12.5px; }
 .control-note .muted { font-size: 12.5px; }
 .control-note .link-btn { align-self: flex-start; font-size: 12.5px; margin-top: -4px; }
 .range-ends { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; }

@@ -26,7 +26,7 @@
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
     update: /[?&]update\b/.test(location.search)
-      ? { version: "0.9.1", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.1" } : null,
+      ? { version: "0.9.2", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.2" } : null,
     askSupport: /[?&]support\b/.test(location.search),
     activePreset: "",
     devices: [
@@ -74,7 +74,7 @@
       "openrgb:QCK": { start: 0.91, end: 1, layer: "front", custom: false },
       "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
     },
-    about: { name: "Glowstage", version: "0.9.0", repo: "https://github.com/example/glowstage",
+    about: { name: "Glowstage", version: "0.9.1", repo: "https://github.com/example/glowstage",
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
@@ -111,7 +111,8 @@
     audio: { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", sync: { ms: 200, auto: true } },
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
-    settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true,
+    autoShow: /[?&]auto\b/.test(location.search),
+    settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, auto_show: /[?&]auto\b/.test(location.search),
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true,
       setup_done: !/[?&]tour\b/.test(location.search) },
   };
@@ -149,7 +150,8 @@
     apply_preset: name => { data.activePreset = name; data.revision++; return ok(); }, save_preset: () => ok(), delete_preset: () => ok(),
     pair_nanoleaf: () => Promise.resolve({ ok: false, error: "The panels aren't in pairing mode." }),
     add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), resize_zone: () => ok(),
-    openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(), set_setting: () => ok(),
+    openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
+    set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     hide_window: () => ok(),
     get_live: () => ok(live()),
     set_stage: (id, span) => {

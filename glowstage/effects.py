@@ -6,6 +6,8 @@ from __future__ import annotations
 import math
 import random
 
+import numpy as np
+
 from . import show
 from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
@@ -148,11 +150,22 @@ class Screen(Effect):
     uses = ()
 
     def render(self, t, n, st, mem, ctx):
-        target = ctx.get("screen") or (0, 0, 0)
-        cur = mem.get("color", target)
-        cur = lerp(cur, target, 0.35)  # smooth out flicker between frames
-        mem["color"] = cur
-        return [cur] * n
+        """Every light takes the part of the screen where it sits on the stage: a strip above
+        the monitor follows the picture from left to right, a bulb takes the whole screen."""
+        shot = ctx.get("screen")
+        if shot is None:
+            target = np.zeros((n, 3))
+        else:
+            start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+            target = shot.colors(start, end, n)
+        cur = mem.get("colors")
+        if cur is None or len(cur) != n:
+            cur = target
+        else:   # glide (~0.08 s) so the lights don't flicker with every cut and scroll
+            k = 1 - math.exp(-max(0.0, t - mem.get("t", t)) / 0.08)
+            cur = cur + (target - cur) * k
+        mem["colors"], mem["t"] = cur, t
+        return [(int(r), int(g), int(b)) for r, g, b in cur]
 
 
 # ---- music: these react to whatever the PC is playing (see audio.py) -----------------------

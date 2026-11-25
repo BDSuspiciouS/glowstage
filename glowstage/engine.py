@@ -95,7 +95,8 @@ class EffectEngine:
         t = now - self._epoch
         ctx = {}
         spans = {}
-        if any(st.effect == "screen" for _, st in targets):
+        screen = any(st.effect == "screen" for _, st in targets)
+        if screen:
             ctx["screen"] = self.screen.request()
         if any(st.effect in MUSIC_EFFECTS for _, st in targets):
             heard = self.audio.request()  # one snapshot per frame keeps every light on the same beat
@@ -105,7 +106,8 @@ class EffectEngine:
                 settings = self.manager.config["settings"]
                 intensity = sum(st.speed for st in show) / len(show) / 100
                 ctx["show"] = self.show.update(heard, now, intensity, settings.get("show_strobe", True), sync)
-                spans = stage_spans(list(self.manager.devices.values()), self.manager.config.data.get("show_layout"))
+        if show or screen:   # where each light sits on the stage
+            spans = stage_spans(list(self.manager.devices.values()), self.manager.config.data.get("show_layout"))
         for dev, st in targets:
             due = now - self._last.get(dev.id, 0.0) >= 1 / dev.max_fps - 0.004
             # Slow lights in the show are drawn every frame (only sent when due), so that their
