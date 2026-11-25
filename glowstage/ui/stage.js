@@ -348,7 +348,7 @@ function renderStage() {
   $("#plot-empty").hidden = !empty;
   const hud = $("#plot-hud");
   const show = S.data.show;
-  const sig = show ? JSON.stringify([show.style, show.section, show.bpm, show.half, show.chord, show.ai]) : "";
+  const sig = show ? JSON.stringify([show.style, show.section, show.bpm, show.half, show.chord, show.ai, show.genres, show.mood]) : "";
   hud.hidden = !show || !!S.arrange;
   if (sig !== ST.hudSig) {
     ST.hudSig = sig;

@@ -7,7 +7,7 @@ import logging
 import threading
 import webbrowser
 
-from . import winutil
+from . import genre_install, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -62,8 +62,10 @@ class Api:
 
     @_safe
     def open_link(self, url):
-        """Open the project page or a donation page in the browser (only those, nothing else)."""
-        allowed = {f"https://github.com/{REPO}", f"https://github.com/{REPO}/releases", *DONATE.values()}
+        """Open the project page, a donation page or the enhanced genre AI's model and license
+        pages in the browser (only those, nothing else)."""
+        allowed = {f"https://github.com/{REPO}", f"https://github.com/{REPO}/releases", *DONATE.values(),
+                   genre_install.INFO["aboutUrl"], genre_install.INFO["licenseUrl"]}
         if url in allowed and url:
             webbrowser.open(url)
 
@@ -135,6 +137,17 @@ class Api:
         provider = self._m.openrgb
         elevated = bool(self._app.config["openrgb"].get("elevated"))
         installer.start(on_done=lambda: provider.restart(elevated))
+
+    @_safe
+    def genre_ai_install(self):
+        """Download the enhanced genre AI from its makers (the user pressed the button); the light
+        show switches to it at its next look."""
+        genre_install.start(on_done=self._m.engine.show.genre.reload)
+
+    @_safe
+    def genre_ai_remove(self):
+        """Back to the built-in genre AI."""
+        genre_install.remove(on_done=self._m.engine.show.genre.reload)
 
     @_safe
     def openrgb_stop(self):

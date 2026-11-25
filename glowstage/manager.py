@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Callable
 
+from . import genre_install
 from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .devices.base import Device
@@ -508,6 +509,7 @@ class DeviceManager:
             "revision": self.revision,
             "devices": devices,
             "openrgb": self.openrgb.describe(),
+            "genreAi": {**genre_install.describe(), "active": self.engine.show.genre.model_name},
             "presets": self.preset_previews(),
             "effects": [e.describe() for e in EFFECTS.values()],
             "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,

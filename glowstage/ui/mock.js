@@ -70,6 +70,9 @@
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
+    genreAi: { state: "idle", progress: 0, message: "", name: "Discogs-EffNet", maker: "Music Technology Group, Universitat Pompeu Fabra",
+      license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      aboutUrl: "https://essentia.upf.edu/models.html", mb: 18, installed: false, active: "YAMNet" },
     presets: [{ name: "Rainbow", effects: ["rainbow"], colors: [] }, { name: "Warm white", effects: [], colors: ["#ffb46b"] },
       { name: "Focus", effects: [], colors: ["#eaf1ff"] }, { name: "Chill", effects: ["wave"], colors: ["#5b2bff", "#00b8ff"] },
       { name: "Cyberpunk", effects: ["wave"], colors: ["#ff0090", "#00f0ff"] }, { name: "Movie", effects: ["screen"], colors: [] },
@@ -146,6 +149,25 @@
     reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),
     pair: () => Promise.resolve({ ok: false, error: "The bridge's link button wasn't pressed." }),
     set_dmx_fixtures: (id, fixtures) => { data.hubs[1].fixtures = fixtures; return ok(); },
+    genre_ai_install: () => {
+      const g = data.genreAi;
+      Object.assign(g, { state: "downloading", progress: 0, message: "Downloading the enhanced genre AI…" });
+      const tick = setInterval(() => {
+        g.progress = Math.min(1, g.progress + 0.125);
+        g.message = `Downloading the enhanced genre AI… ${Math.round(g.progress * 18)} of 18 MB`;
+        if (g.progress >= 1) {
+          clearInterval(tick);
+          Object.assign(g, { state: "done", installed: true, active: "Discogs-EffNet", message: "The enhanced genre AI is installed" });
+          Object.assign(data.show, { style: "House / Disco", genres: ["Deep House", "Tech House"], aiModel: "Discogs-EffNet" });
+        }
+      }, 350);
+      return ok();
+    },
+    genre_ai_remove: () => {
+      Object.assign(data.genreAi, { state: "idle", progress: 0, message: "", installed: false, active: "YAMNet" });
+      Object.assign(data.show, { style: "Techno", genres: ["Techno", "Electronic music"], aiModel: "YAMNet" });
+      return ok();
+    },
     openrgb_install: () => {
       const inst = data.openrgb.install;
       Object.assign(inst, { state: "downloading", progress: 0, message: "Downloading OpenRGB…" });

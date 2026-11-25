@@ -294,6 +294,7 @@ class ShowDirector:
             "style": STYLES[self.style_id].name,
             "ai": bool(ai.get("style")),
             "aiError": self.genre.error,
+            "aiModel": getattr(self.genre, "model_name", ""),
             "confidence": round(ai.get("confidence", 0.0), 2),
             "genres": [name for name, _ in ai.get("top", [])],
             "mood": ai.get("mood"),

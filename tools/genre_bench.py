@@ -1,18 +1,20 @@
 """Genre AI benchmark on real songs (recorded with tools/record_songs.py). Not part of the app.
 
-Each recording is fed to the genre detector the way the app does it (2 s of sound every 2 s,
-with a fake clock), and the style it settles on is compared with the hand label in
-testdata/recordings/genres.json:
+Each recording is fed to a genre detector the way the app does it (a look every 2 s at the
+last 2-4 s of sound, with a fake clock), and the style it settles on is compared with the hand
+label in testdata/recordings/genres.json:
 
     {"songs": {"Artist - Title": {"genre": "afro house", "style": "house", "also": ["edm"]}}}
 
 A song counts as right when the style it spent most of its time in (after the first 10 s) is the
 label's style or one of its "also" styles. "drops right" is looser: a right style, or at least
 one that has drops when the song's style does (and none when it doesn't), which is what decides
-the blinders and the soft looks.
+the blinders and the soft looks. "a right style ... of the time" counts every look from the
+first verdict on, the song's intro included.
 
-    python tools/genre_bench.py                      # every recording, the app's detector
-    python tools/genre_bench.py --model discogs      # Discogs-EffNet (when it's in genre.DISCOGS_DIR)
+    python tools/genre_bench.py                      # every recording, YAMNet
+    python tools/genre_bench.py --model discogs      # the app's detector: Discogs-EffNet when it's
+                                                     # in genre.DISCOGS_DIR, else YAMNet
     python tools/genre_bench.py --model ced-mini --model-dir DIR   # CED, tried and not taken
     python tools/genre_bench.py --csv out.csv        # also write one row per look
 """
@@ -136,6 +138,7 @@ def main() -> None:
     ap.add_argument("--labels", type=Path, default=RECORDINGS / "genres.json")
     ap.add_argument("--csv", type=Path, help="write every look to this file")
     ap.add_argument("--model-dir", type=Path, help="look for the model files here instead")
+    ap.add_argument("--pool", type=int, help="a style scores as its N strongest labels together")
     ap.add_argument("--window", type=float, help="seconds of sound per look (default: the detector's)")
     ap.add_argument("--top", action="store_true", help="print the model's top labels per song")
     args = ap.parse_args()
@@ -162,12 +165,14 @@ def main() -> None:
             model = det._load()
             if args.window:
                 model.window = args.window
+            if args.pool:
+                model.pool = args.pool
             print(f"{args.model}: {model.name} loaded in {real_time.perf_counter() - t0:.1f} s, "
-                  f"{model.window:g} s of sound per look")
+                  f"{model.window:g} s of sound per look, styles from their {model.pool} strongest labels")
         det._model = model
         return det
 
-    rows, right, drops_ok, n, ms = [], 0, 0, 0, []
+    rows, right, drops_ok, n, ms, time_ok = [], 0, 0, 0, [], []
     for path in songs:
         title = path.stem[16:]
         label = labels.get(title)
@@ -182,6 +187,8 @@ def main() -> None:
             dok = ok or (best is not None and show.STYLES[best].drops == show.STYLES[label["style"]].drops)
             right += ok
             drops_ok += dok
+            styled = [lk["style"] for lk in run["looks"] if lk["style"]]   # from the first verdict on
+            time_ok.append(sum(s in ok_styles for s in styled) / max(1, len(styled)))
             n += 1
             mark = "ok " if ok else "-- " if dok else "XX "
             want = "/".join(ok_styles)
@@ -199,7 +206,7 @@ def main() -> None:
         for lk in run["looks"]:
             rows.append((title, lk["t"], lk["style"], round(lk["conf"], 3), round(lk["ms"], 1)))
     print(f"\n{args.model}: style right {right}/{n}, drops right {drops_ok}/{n}, "
-          f"{np.median(ms):.0f} ms per look (median, 1 thread), p95 {np.percentile(ms, 95):.0f} ms")
+          f"a right style {np.mean(time_ok):.0%} of the time, {np.median(ms):.0f} ms per look (median, 1 thread), p95 {np.percentile(ms, 95):.0f} ms")
     if args.csv:
         import csv
         with open(args.csv, "w", newline="", encoding="utf-8") as f:

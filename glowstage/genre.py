@@ -9,8 +9,9 @@ patches, computed here exactly like YAMNet's own frontend: 16 kHz mono, 25 ms Ha
 every 10 ms, a 512-point FFT magnitude, 64 HTK mel bands from 125 to 7500 Hz, ln(mel + 0.001),
 and patches of 96 frames every 48 frames.
 
-When the Discogs-EffNet model is on the PC (it is not shipped, see DISCOGS_DIR below), it picks
-the style instead: it knows dance music far better. YAMNet then still tells music from speech.
+When the enhanced genre AI (Discogs-EffNet) is on the PC (fetched on request, see DISCOGS_DIR
+below), it picks the style instead: it knows dance music far better. YAMNet then still tells
+music from speech and gives the mood.
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ def labels(names: list[str], style_genres: dict[str, dict[str, float]], music: s
     return types.SimpleNamespace(
         names=names, shown=list(names), style_weights=weights,
         genre_ids=sorted({index[n] for g in style_genres.values() for n in g}),
-        music_id=index[music] if music else None, mood_ids=[index[m] for m in moods])
+        music_id=index[music] if music else None, mood_ids=[index[m] for m in moods], pool=1)
 
 
 def load_yamnet() -> types.SimpleNamespace:
@@ -155,6 +156,17 @@ class GenreDetector:
         self._quiet_since: float | None = None
         self._style: int | None = None
         self._challenger: tuple[int, int] = (-1, 0)   # (style, looks in a row it has been clearly ahead)
+        self._model: types.SimpleNamespace | None = None
+        self._reload = False
+
+    @property
+    def model_name(self) -> str:
+        """The model listening right now ("" before it has loaded)."""
+        return self._model.name if self._model is not None else ""
+
+    def reload(self) -> None:
+        """Load the model again at the next look (the enhanced one was just installed or removed)."""
+        self._reload = True
 
     def request(self) -> dict:
         self._wanted_until = time.monotonic() + 3.0
@@ -182,6 +194,7 @@ class GenreDetector:
         return load_yamnet()
 
     def _run(self) -> None:
+        self._reload = False        # loading now anyway
         try:
             self._model = self._load()
         except Exception as e:
@@ -191,9 +204,23 @@ class GenreDetector:
         log.info("AI genre detection ready (%s, %d labels)", self._model.name, len(self._model.names))
         while True:
             time.sleep(INTERVAL)
+            if self._reload:
+                self._swap()
             if time.monotonic() > self._wanted_until:
                 continue
             self.look(self.audio.recent(self._model.window))
+
+    def _swap(self) -> None:
+        """Another model: its labels differ, so what was heard so far starts over."""
+        self._reload = False
+        try:
+            model = self._load()
+        except Exception as e:
+            log.warning("AI genre model didn't load again, keeping %s: %s", self.model_name, e)
+            return
+        self._model, self._ema, self._looks = model, None, 0
+        self._style, self._challenger = None, (-1, 0)
+        log.info("AI genre detection now uses %s", model.name)
 
     def look(self, wave: np.ndarray | None) -> None:
         """One look at the last few seconds of sound (48 kHz mono); updates what request()
@@ -225,8 +252,11 @@ class GenreDetector:
         alpha = max(0.15, 1.0 / (self._looks + 1))
         self._ema = scores if self._ema is None or self._looks == 0 else self._ema + alpha * (scores - self._ema)
         self._looks += 1
-        # A style scores as its strongest genre (summing would favor styles with many genres).
-        styles = (m.style_weights * self._ema).max(axis=1)
+        # A style scores as its strongest genre, or its few strongest together when the model
+        # knows many close ones (Deep, Tech and Tropical House agreeing say more than one alone;
+        # summing them all would favor the styles with the most labels).
+        points = m.style_weights * self._ema
+        styles = points.max(axis=1) if m.pool == 1 else np.sort(points, axis=1)[:, -m.pool:].sum(axis=1)
         best = int(np.argmax(styles))
         total = float(styles.sum())
         self._settle(best, styles)
@@ -248,12 +278,14 @@ class GenreDetector:
 # YAMNet knows AudioSet's ~50 broad genres, and modern afro, melodic and tech house sound like
 # none of them to it (jazz, folk, "Christmas music"). Discogs-EffNet (Alonso-Jimenez, Serra and
 # Bogdanov 2022, essentia.upf.edu/models) learned the 400 styles record shops file music under:
-# Deep House, Tech House, Tropical House, Trap, Cloud Rap, Reggaeton... On 26 recorded songs it
-# got the style right for 17 against YAMNet's 13 (tools/genre_bench.py).
+# Deep House, Tech House, Tropical House, Trap, Cloud Rap, Reggaeton... On 26 recorded songs
+# (tools/genre_bench.py) it picked a right style for 24 against YAMNet's 17, and a right style
+# 87% of the time against 54%; drops on or off rightly for all 26 against 21.
 #
-# Its licence is CC BY-NC-SA 4.0 (non-commercial), which doesn't sit with Glowstage's GPL, so it
-# is not shipped: the app uses it only when the files are in DISCOGS_DIR, and keeps YAMNet for
-# telling music from speech and for the mood. Without it, YAMNet does everything as before.
+# Its licence is CC BY-NC-SA 4.0 (non-commercial), which doesn't sit with shipping it inside a
+# GPL program, so the user gets it from its makers on request (genre_install.py, Settings → Genre
+# AI) into DISCOGS_DIR. YAMNet keeps telling music from speech and gives the mood; without the
+# model, YAMNet does everything as before.
 #
 # Its frontend is Essentia's TensorflowInputMusiCNN: 16 kHz, a 512-point symmetric Hann window
 # every 256 samples (the first frame centred on sample 0), power spectrum, 96 Slaney mel bands
@@ -371,6 +403,7 @@ def load_discogs() -> types.SimpleNamespace:
     m = labels(classes + yamnet.names, discogs_style_genres(classes), "Music", MOODS)
     m.shown = [c.partition("---")[2] for c in classes] + yamnet.names
     m.name, m.window = "Discogs-EffNet", 4.0      # a patch is 2.05 s; 4 s gives two
+    m.pool = 2      # a style scores as its two strongest Discogs styles together (24/26 against 22/26 for one)
 
     def scores(wave: np.ndarray) -> np.ndarray:
         styles = session.run(["activations"], {"melspectrogram": discogs_patches(wave)})[0].mean(axis=0)

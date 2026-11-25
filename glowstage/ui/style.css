@@ -262,6 +262,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .control-text { display: flex; flex-direction: column; }
 .control.control-switch { flex-direction: row; align-items: center; justify-content: space-between; cursor: pointer; }
 .control-note .muted { font-size: 12.5px; }
+.control-note .link-btn { align-self: flex-start; font-size: 12.5px; margin-top: -4px; }
 .range-ends { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; }
 #show-intensity, #show-sync { flex: none; }
 /* a slider with a "0" in the middle (sync): a notch marks it */
@@ -415,6 +416,7 @@ input[type="range"] { flex: 1; margin: 0; accent-color: var(--text); min-width: 
 .pairing { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--card-2); font-size: 12.5px; color: var(--muted); }
 .progress { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; margin: 10px 0 6px; }
 .progress > span { display: block; height: 100%; background: var(--text); transition: width .3s; }
+.set-section.is-flash { border-color: var(--primary); transition: border-color .4s; }
 .path { word-break: break-all; color: var(--faint); font-size: 11.5px; font-family: "Cascadia Mono", Consolas, monospace; margin: 10px 0 0; }
 
 /* DMX fixtures */

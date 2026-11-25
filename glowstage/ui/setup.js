@@ -26,7 +26,7 @@ S.addForm = { kind: "wled", values: {} };
 function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label]),
-    d.hubs, d.openrgb, d.settings, (d.drivers || []).length, d.stage]);
+    d.hubs, d.openrgb, d.genreAi, d.settings, (d.drivers || []).length, d.stage]);
 }
 
 function renderSettings(force = false) {
@@ -36,7 +36,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), appSection());
   body.scrollTop = scroll;
 }
 
@@ -204,6 +204,37 @@ function installBlock(o) {
     busy ? null : h("div", { class: "form-actions", style: "margin:0 0 10px" },
       h("button", { class: "btn btn-primary", type: "button", text: inst.state === "failed" ? "Try again" : `Get OpenRGB ${inst.version || ""}`.trim(),
         onclick: async () => { await call("openrgb_install"); refresh(true); } })));
+}
+
+/* The enhanced genre AI: MTG's Discogs-EffNet, fetched from its makers when the user asks. It isn't
+   shipped (non-commercial license), and the built-in YAMNet takes over again after Remove. */
+function genreSection() {
+  const g = S.data.genreAi;
+  if (!g) return null;
+  const busy = g.state === "downloading";
+  const on = g.installed;
+  if (S.genreWas === "downloading" && g.state === "done") toast("Enhanced genre AI is on: the show now knows 400 music styles");
+  S.genreWas = g.state;
+  const quiet = (text, onclick) => h("button", { class: "btn btn-quiet", type: "button", text, onclick });
+  return h("section", { class: "set-section", id: "set-genre" },
+    h("h3", { text: "Genre AI" }),
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (on ? " is-on" : "") }),
+      on ? "Enhanced · knows 400 music styles" : "Built in · knows about 50 broad genres"),
+    h("p", { class: "hint", style: "margin-bottom:10px", text: on
+      ? "The light show picks its style from 400 music styles, like deep house, tech house, tribal house, trap and reggaeton. It runs on this PC, offline."
+      : "The built-in AI often hears afro, melodic and tech house as jazz or folk, so those songs get a soft show without drops. The enhanced AI knows the 400 styles record shops file music under, like deep house, tech house, trap and reggaeton, and gets the style right far more often." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px",
+      text: `${g.name} by the ${g.maker}, free for non-commercial use (${g.license}).`
+        + (on ? "" : ` Glowstage gets it from its makers (essentia.upf.edu, ${g.mb} MB) and checks it before using it.`) }),
+    busy ? h("div", { class: "progress" }, h("span", { style: `width:${Math.round((g.progress || 0) * 100)}%` })) : null,
+    g.message && g.state !== "idle" && !(on && g.state === "done") ? h("p", { class: "hint", style: "font-size:12px", text: g.message }) : null,
+    h("div", { class: "form-actions", style: "margin:0" },
+      !on && !busy ? h("button", { class: "btn btn-primary", type: "button",
+        text: g.state === "failed" ? "Try again" : `Get the enhanced genre AI · ${g.mb} MB`,
+        onclick: async () => { await call("genre_ai_install"); refresh(true); } }) : null,
+      on ? quiet("Remove", async () => { await call("genre_ai_remove"); toast("Back to the built-in genre AI"); refresh(true); }) : null,
+      quiet("License", () => call("open_link", g.licenseUrl)),
+      quiet("About the model", () => call("open_link", g.aboutUrl))));
 }
 
 function appSection() {

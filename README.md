@@ -3,7 +3,7 @@
 **Turn your room into a stage.** Glowstage drives your PC's RGB, your LED strips and your smart lights together from one app, and puts on a festival-style light show to whatever your PC is playing: Spotify, YouTube, games. No microphone, no cloud, no account.
 
 - **A real light show, not a VU meter.** A virtual lighting operator locks onto the beat, counts bars and phrases, hears build-ups coming, holds its breath before the drop and hits it on the one. It learns the song while it plays, so the second chorus looks like the first.
-- **It knows what it's listening to.** An offline AI model (Google's YAMNet) recognises the genre, and every genre gets its own choreography: hard step chases for techno, a disco floor for house, everything glowing with the 808 for hip-hop, slow washes for chill. Colors follow the song's chords.
+- **It knows what it's listening to.** An offline AI model (Google's YAMNet, or with one click the enhanced genre AI that knows 400 music styles, from deep house to trap) recognises the genre, and every genre gets its own choreography: hard step chases for techno, a disco floor for house, everything glowing with the 808 for hip-hop, slow washes for chill. Colors follow the song's chords.
 - **Everything moves together.** One clock, one stage: chases run across the whole room, from the monitor strip over the keyboard to the fans in your case, which spin with the beat.
 - **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for your PC's RGB if you want it, and shows you where everything stands on the stage.
 - **See the show on screen.** The stage view draws every light where it is in your room, glowing live in the colors it shows; drag lights into place so chases run the right way.
@@ -59,4 +59,4 @@ Glowstage is free and open source. If it lights up your room, you can support it
 
 ## License
 
-Glowstage is licensed under the [GNU General Public License v3.0](LICENSE). It uses OpenRGB (GPL-2.0) as a separate program, and the YAMNet model (Apache-2.0) with AudioSet labels (CC BY 4.0) by Google.
+Glowstage is licensed under the [GNU General Public License v3.0](LICENSE). It uses OpenRGB (GPL-2.0) as a separate program, and the YAMNet model (Apache-2.0) with AudioSet labels (CC BY 4.0) by Google. The enhanced genre AI, Discogs-EffNet by the Music Technology Group (Universitat Pompeu Fabra), is not part of Glowstage: when you ask for it, Glowstage downloads it from its makers, under its own license (CC BY-NC-SA 4.0, non-commercial use).

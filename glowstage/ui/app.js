@@ -905,6 +905,11 @@ function renderShow() {
     $("#show-int-val").textContent = `${v}%`;
   }
   $("#show-strobe").checked = S.data.settings.show_strobe !== false;
+  const g = S.data.genreAi;
+  $("#show-how").textContent = g && g.installed
+    ? "Listens to what your PC plays (no microphone), hears which of 400 music styles it is with the enhanced genre AI on this PC, and follows the beat, build-ups and drops."
+    : "Listens to what your PC plays (no microphone), hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.";
+  $("#show-ai-get").hidden = !g || g.installed;
   renderSync(audio);
 }
 
@@ -1103,6 +1108,11 @@ function bindStatic() {
     syncTimer = setTimeout(() => call("set_show_sync", ms), 80);
   });
   $("#show-sync-auto").addEventListener("click", async () => { await call("set_show_sync", null); refresh(true); });
+  $("#show-ai-get").addEventListener("click", () => {
+    go("setup");
+    const sec = $("#set-genre");
+    if (sec) { sec.scrollIntoView({ behavior: "smooth", block: "center" }); sec.classList.add("is-flash"); setTimeout(() => sec.classList.remove("is-flash"), 1600); }
+  });
   bindSetup();
   $("#modal-cancel").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
