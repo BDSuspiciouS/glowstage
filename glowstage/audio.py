@@ -24,7 +24,7 @@ BANDS = 16
 BAND_EDGES = np.geomspace(40, 16000, BANDS + 1)
 SILENCE_RMS = 2e-5           # (-94 dBFS: what the PC plays is digital silence between songs; music
                              # played very softly, e.g. with the player turned far down, still counts)
-KEEP_SECONDS = 3.0           # raw sound kept for the genre detector
+KEEP_SECONDS = 4.5           # raw sound kept for the genre detector (it looks at up to 4 s)
 TEMPO_SECONDS = 8.0          # onset history the tempo is estimated from
 
 

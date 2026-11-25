@@ -10,7 +10,7 @@ import time
 from .audio import AudioAnalyzer
 from .colors import scale
 from .effects import EFFECTS, MUSIC_EFFECTS
-from .genre import GenreDetector
+from .genre import DiscogsDetector
 from .screen import ScreenSampler
 from .show import SLOW_FPS, ShowDirector, stage_spans
 
@@ -25,7 +25,7 @@ class EffectEngine:
         self.fps = fps
         self.screen = ScreenSampler()
         self.audio = AudioAnalyzer()
-        self.show = ShowDirector(GenreDetector(self.audio))
+        self.show = ShowDirector(DiscogsDetector(self.audio))
         self.show_active = False
         self._epoch = time.monotonic()
         self._mem: dict[tuple[str, str], dict] = {}

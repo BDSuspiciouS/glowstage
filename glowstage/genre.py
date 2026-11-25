@@ -8,6 +8,9 @@ The model (tools/yamnet/yamnet.fp16.onnx, from huggingface.co/audiojs/yamnet) ta
 patches, computed here exactly like YAMNet's own frontend: 16 kHz mono, 25 ms Hann frames
 every 10 ms, a 512-point FFT magnitude, 64 HTK mel bands from 125 to 7500 Hz, ln(mel + 0.001),
 and patches of 96 frames every 48 frames.
+
+When the Discogs-EffNet model is on the PC (it is not shipped, see DISCOGS_DIR below), it picks
+the style instead: it knows dance music far better. YAMNet then still tells music from speech.
 """
 
 from __future__ import annotations
@@ -16,11 +19,12 @@ import csv
 import logging
 import threading
 import time
+import types
 
 import numpy as np
 
 from .audio import RATE, AudioAnalyzer
-from .paths import MODEL_DIR
+from .paths import DATA_DIR, MODEL_DIR
 
 log = logging.getLogger(__name__)
 
@@ -97,12 +101,51 @@ def to_16k(wave48k: np.ndarray) -> np.ndarray:
     return np.convolve(wave48k, _ANTI_ALIAS, mode="valid")[::RATE // SR].astype(np.float32)
 
 
+def _session(path):
+    import onnxruntime as ort
+
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1     # a small model: one core is plenty and leaves the rest free
+    opts.inter_op_num_threads = 1
+    return ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
+
+
+def labels(names: list[str], style_genres: dict[str, dict[str, float]], music: str | None = None,
+           moods: tuple[str, ...] = ()) -> types.SimpleNamespace:
+    """A model's labels, and how much each one points to each style."""
+    index = {name: i for i, name in enumerate(names)}
+    weights = np.zeros((len(STYLE_GENRES), len(names)), dtype=np.float32)
+    for s, style in enumerate(STYLE_GENRES):
+        for name, w in style_genres.get(style, {}).items():
+            weights[s, index[name]] = w
+    return types.SimpleNamespace(
+        names=names, shown=list(names), style_weights=weights,
+        genre_ids=sorted({index[n] for g in style_genres.values() for n in g}),
+        music_id=index[music] if music else None, mood_ids=[index[m] for m in moods])
+
+
+def load_yamnet() -> types.SimpleNamespace:
+    """YAMNet, ready to listen: its labels, and scores(16 kHz wave) -> how much the sound sounds
+    like each of them (0..1)."""
+    with open(CLASS_MAP, newline="", encoding="utf-8") as f:
+        names = [row["display_name"] for row in csv.DictReader(f)]
+    m = labels(names, STYLE_GENRES, "Music", MOODS)
+    session = _session(MODEL)
+    m.name, m.window = "YAMNet", WINDOW
+    m.scores = lambda wave: session.run(None, {"patches": log_mel_patches(wave)})[0].mean(axis=0)
+    return m
+
+
 class GenreDetector:
-    """Runs on its own thread while the light show is on; request() returns what it heard."""
+    """Runs on its own thread while the light show is on; request() returns what it heard.
+
+    It listens with YAMNet. Other models only change _load(): what it gives back says which
+    labels the model knows, how they point to the styles, and how it scores a stretch of sound;
+    the averaging, the settling and what request() returns are shared."""
 
     def __init__(self, audio: AudioAnalyzer):
         self.audio = audio
-        self.error = "" if MODEL.is_file() else "AI model not found"
+        self.error = "" if MODEL.is_file() and CLASS_MAP.is_file() else "AI model not found"
         self._wanted_until = 0.0
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -135,22 +178,8 @@ class GenreDetector:
         if count >= 3:
             self._style, self._challenger = best, (-1, 0)
 
-    def _load(self):
-        import onnxruntime as ort
-
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1     # a small model: one core is plenty and leaves the rest free
-        opts.inter_op_num_threads = 1
-        session = ort.InferenceSession(str(MODEL), opts, providers=["CPUExecutionProvider"])
-        with open(CLASS_MAP, newline="", encoding="utf-8") as f:
-            names = [row["display_name"] for row in csv.DictReader(f)]
-        index = {name: i for i, name in enumerate(names)}
-        style_weights = np.zeros((len(STYLE_GENRES), len(names)), dtype=np.float32)
-        for s, genres in enumerate(STYLE_GENRES.values()):
-            for name, w in genres.items():
-                style_weights[s, index[name]] = w
-        genre_ids = sorted({index[n] for g in STYLE_GENRES.values() for n in g})
-        return session, names, index, style_weights, genre_ids
+    def _load(self) -> types.SimpleNamespace:
+        return load_yamnet()
 
     def _run(self) -> None:
         try:
@@ -159,19 +188,18 @@ class GenreDetector:
             log.warning("AI genre detection unavailable: %s", e)
             self.error = "AI genre detection unavailable"
             return
-        log.info("AI genre detection ready (YAMNet, %d sound classes)", len(self._model[1]))
+        log.info("AI genre detection ready (%s, %d labels)", self._model.name, len(self._model.names))
         while True:
             time.sleep(INTERVAL)
             if time.monotonic() > self._wanted_until:
                 continue
-            self.look(self.audio.recent(WINDOW))
+            self.look(self.audio.recent(self._model.window))
 
     def look(self, wave: np.ndarray | None) -> None:
-        """One look at the last couple of seconds of sound (48 kHz mono); updates what request()
+        """One look at the last few seconds of sound (48 kHz mono); updates what request()
         returns. Needs the model loaded (self._model = self._load()); tools/show_bench.py calls
         this directly to replay songs."""
-        session, names, index, style_weights, genre_ids = self._model
-        music_id, mood_ids = index["Music"], [index[m] for m in MOODS]
+        m = self._model
         if wave is None or float(np.sqrt(np.mean(wave ** 2))) < 3e-5:
             # A pause of a couple of seconds usually means the next song: start over.
             self._quiet_since = self._quiet_since or time.monotonic()
@@ -179,38 +207,191 @@ class GenreDetector:
                 self._looks = 0
             return
         self._quiet_since = None
-        # YAMNet learned from sound at everyday levels: music played with the player turned far
-        # down (the PC hears it before the Windows volume) looks like near-silence to it. Bring
-        # it up to a normal level first (at most 40 dB).
+        # The models learned from sound at everyday levels: music played with the player turned
+        # far down (the PC hears it before the Windows volume) looks like near-silence to them.
+        # Bring it up to a normal level first (at most 40 dB).
         level = float(np.sqrt(np.mean(wave ** 2)))
         wave = wave * min(100.0, 0.1 / max(level, 1e-9))
         try:
             t0 = time.perf_counter()
-            scores = session.run(None, {"patches": log_mel_patches(to_16k(wave))})[0].mean(axis=0)
+            scores = m.scores(to_16k(wave))
             took = time.perf_counter() - t0
         except Exception as e:
             log.warning("AI genre detection failed: %s", e)
             return
-        if scores[music_id] < 0.15:
+        if m.music_id is not None and scores[m.music_id] < 0.15:
             return  # speech, a game, a video: no music to judge
         # A running average over roughly the last 15 s; right after a pause it starts fresh.
         alpha = max(0.15, 1.0 / (self._looks + 1))
         self._ema = scores if self._ema is None or self._looks == 0 else self._ema + alpha * (scores - self._ema)
         self._looks += 1
         # A style scores as its strongest genre (summing would favor styles with many genres).
-        styles = (style_weights * self._ema).max(axis=1)
+        styles = (m.style_weights * self._ema).max(axis=1)
         best = int(np.argmax(styles))
         total = float(styles.sum())
         self._settle(best, styles)
-        top = sorted(genre_ids, key=lambda i: -self._ema[i])[:3]
-        mood = max(mood_ids, key=lambda i: self._ema[i])
+        top = sorted(m.genre_ids, key=lambda i: -self._ema[i])[:3]
+        mood = max(m.mood_ids, key=lambda i: self._ema[i]) if m.mood_ids else None
         style = self._style if self._style is not None else best
         with self._lock:
             self._snap = {
                 "style": list(STYLE_GENRES)[style] if total > 0.01 else None,
                 "confidence": float(styles[style] / total) if total > 0 else 0.0,
-                "top": [(names[i], round(float(self._ema[i]), 3)) for i in top],
-                "mood": names[mood].replace(" music", "") if self._ema[mood] > 0.05 else None,
-                "music": float(self._ema[music_id]),
+                "top": [(m.shown[i], round(float(self._ema[i]), 3)) for i in top],
+                "mood": m.names[mood].replace(" music", "") if mood is not None and self._ema[mood] > 0.05 else None,
+                "music": float(self._ema[m.music_id]) if m.music_id is not None else None,
                 "ms": round(took * 1000, 1),
             }
+
+
+# ---- Discogs-EffNet: 400 record-shop styles ------------------------------------------------------
+# YAMNet knows AudioSet's ~50 broad genres, and modern afro, melodic and tech house sound like
+# none of them to it (jazz, folk, "Christmas music"). Discogs-EffNet (Alonso-Jimenez, Serra and
+# Bogdanov 2022, essentia.upf.edu/models) learned the 400 styles record shops file music under:
+# Deep House, Tech House, Tropical House, Trap, Cloud Rap, Reggaeton... On 26 recorded songs it
+# got the style right for 17 against YAMNet's 13 (tools/genre_bench.py).
+#
+# Its licence is CC BY-NC-SA 4.0 (non-commercial), which doesn't sit with Glowstage's GPL, so it
+# is not shipped: the app uses it only when the files are in DISCOGS_DIR, and keeps YAMNet for
+# telling music from speech and for the mood. Without it, YAMNet does everything as before.
+#
+# Its frontend is Essentia's TensorflowInputMusiCNN: 16 kHz, a 512-point symmetric Hann window
+# every 256 samples (the first frame centred on sample 0), power spectrum, 96 Slaney mel bands
+# from 0 to 8 kHz with area-normalised triangles, log10(1 + 10000 x), in patches of 128 frames
+# (2.05 s) every 62 frames.
+
+DISCOGS_DIR = DATA_DIR / "models"
+DISCOGS_MODEL = DISCOGS_DIR / "discogs-effnet-bsdynamic-1.onnx"
+DISCOGS_LABELS = DISCOGS_DIR / "discogs-effnet-bsdynamic-1.json"
+
+
+def _slaney_mel(f):
+    f = np.asarray(f, dtype=np.float64)
+    return np.where(f >= 1000.0, 15.0 + np.log(np.maximum(f, 1e-9) / 1000.0) / (np.log(6.4) / 27.0), f / (200.0 / 3))
+
+
+def _slaney_hz(m):
+    m = np.asarray(m, dtype=np.float64)
+    return np.where(m >= 15.0, 1000.0 * np.exp((m - 15.0) * np.log(6.4) / 27.0), m * 200.0 / 3)
+
+
+def _discogs_mel_matrix() -> np.ndarray:
+    """(257, 96), as Essentia's MelBands(slaneyMel, linear weighting, unit_tri) at 16 kHz."""
+    f = _slaney_hz(np.linspace(_slaney_mel(0.0), _slaney_mel(8000.0), 96 + 2))
+    scale = 8000.0 / 256
+    w = np.zeros((257, 96))
+    for i in range(96):
+        for j in range(int(np.ceil(f[i] / scale)), int(np.floor(f[i + 2] / scale)) + 1):
+            hz = j * scale
+            w[j, i] = (hz - f[i]) / (f[i + 1] - f[i]) if hz < f[i + 1] else (f[i + 2] - hz) / (f[i + 2] - f[i + 1])
+        w[:, i] /= (f[i + 2] - f[i]) / 2
+    return w.astype(np.float32)
+
+
+_DISCOGS_MEL = _discogs_mel_matrix()
+_HANN512_SYM = (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(512) / 511)).astype(np.float32)
+
+
+def discogs_patches(wave: np.ndarray) -> np.ndarray:
+    """16 kHz mono float waveform -> (n, 128, 96) float32 mel patches for Discogs-EffNet."""
+    x = np.pad(wave, (256, 0))
+    n = 1 + (len(x) - 512) // 256
+    if n < 128:
+        x = np.pad(x, (0, (128 - n) * 256))
+        n = 128
+    frames = x[np.arange(512)[None, :] + 256 * np.arange(n)[:, None]] * _HANN512_SYM
+    mel = (np.abs(np.fft.rfft(frames, 512)) ** 2).astype(np.float32) @ _DISCOGS_MEL
+    feat = np.log10(1.0 + 10000.0 * mel)
+    count = 1 + (n - 128) // 62
+    return np.stack([feat[i * 62:i * 62 + 128] for i in range(count)]).astype(np.float32)
+
+
+# Each Discogs genre's styles go to one light-show style, apart from the styles named below.
+_DISCOGS_GENRES = {"Hip Hop": ("hiphop", 1.0), "Rock": ("rock", 1.0), "Pop": ("pop", 1.0), "Latin": ("latin", 1.0),
+                   "Reggae": ("latin", 1.0), "Jazz": ("chill", 1.0), "Classical": ("chill", 1.0),
+                   "Blues": ("chill", 1.0), "Folk, World, & Country": ("chill", 0.8), "Stage & Screen": ("chill", 0.8),
+                   "Children's": ("pop", 0.6)}
+_DISCOGS_NAMED = {   # style name: how much it counts (1 when not given)
+    "techno": "Techno|Minimal Techno|Hard Techno|Deep Techno|Schranz|Dub Techno:0.8|Acid:0.8|Minimal:0.7|EBM:0.6|"
+              "Industrial:0.6",
+    "house": "House|Deep House|Tech House|Tribal House|Garage House|Acid House|Ghetto House|Italo House|Nu-Disco|"
+             "Disco|Speed Garage|UK Garage|Tribal:0.8|Hip-House:0.8|Hard House:0.8|Latin:0.8|Beatdown:0.8|"
+             "Tropical House:0.8|Jazzdance:0.6|Boogie:0.6|Funk:0.5|P.Funk:0.5|Free Funk:0.5",
+    "edm": "Electro House|Progressive House|Trance|Progressive Trance|Psy-Trance|Goa Trance|Tech Trance|Hard Trance|"
+           "Hardstyle|Hands Up|Eurodance|Euro House|Jumpstyle|Happy Hardcore|Gabber|Makina|Italodance|Donk|"
+           "Speedcore|Big Beat:0.8|Electro:0.6|New Beat:0.6",
+    "bass": "Dubstep|Drum n Bass|Jungle|Bassline|Halftime|Breakbeat:0.8|Breaks:0.8|Progressive Breaks:0.8|"
+            "Breakcore:0.8|Juke:0.8",
+    "hiphop": "Hip Hop|Grime|Contemporary R&B:0.8|New Jack Swing:0.6|Swingbeat:0.6|UK Street Soul:0.6",
+    "pop": "Dance-pop|Synth-pop|Disco Polo|Eurobeat:0.8|Hi NRG:0.8|Euro-Disco:0.8|Italo-Disco:0.8|Laïkó:0.8|"
+           "Synthwave:0.6|Freestyle:0.6|Éntekhno:0.6|Pop Rock|Soft Rock:0.6|New Wave:0.6",
+    "latin": "Afrobeat|African|Highlife|Soukous|Zouk|Séga|Raï|Flamenco|Romani:0.8|Pacific:0.6|Afro-Cuban Jazz:0.8|"
+             "Latin Jazz:0.6|Bollywood:0.8",
+    "chill": "Ambient|Downtempo|Chillwave|Trip Hop|New Age|Modern Classical|Dark Ambient|Drone|Berlin-School:0.8|"
+             "Future Jazz:0.6|Acid Jazz:0.6|Vaporwave:0.6|IDM:0.6|Abstract:0.6|Illbient:0.6|Leftfield:0.5|"
+             "Soul|Neo Soul|Gospel|Rhythm & Blues|Psychedelic:0.6|Light Music:0.8|Ballad:0.6|Acoustic:0.8|"
+             "Lounge:0.8|Dream Pop:0.8|Ethereal:0.8|Post Rock:0.8",
+}
+# Style names found under two genres that go to different light-show styles.
+_DISCOGS_ONLY = {"Electronic---Hardcore": "edm", "Rock---Hardcore": "rock", "Electronic---Industrial": "techno",
+                 "Rock---Industrial": "rock", "Hip Hop---Electro": "hiphop", "Electronic---Electro": "edm",
+                 "Electronic---Latin": "house", "Electronic---New Wave": "pop", "Rock---New Wave": "rock"}
+
+
+def discogs_style_genres(classes: list[str]) -> dict[str, dict[str, float]]:
+    """Light-show style -> the Discogs classes ("Electronic---Deep House") that point to it."""
+    named: dict[str, list[tuple[str, float]]] = {}
+    for style, spec in _DISCOGS_NAMED.items():
+        for item in spec.split("|"):
+            name, _, w = item.partition(":")
+            named.setdefault(name, []).append((style, float(w or 1.0)))
+    out: dict[str, dict[str, float]] = {s: {} for s in STYLE_GENRES}
+    for c in classes:
+        genre_, _, sub = c.partition("---")
+        if c in _DISCOGS_ONLY:
+            style = _DISCOGS_ONLY[c]
+            out[style][c] = next((w for s, w in named.get(sub, []) if s == style), 1.0)
+        elif sub in named:
+            for style, w in named[sub]:
+                out[style][c] = w
+        elif genre_ in _DISCOGS_GENRES:
+            style, w = _DISCOGS_GENRES[genre_]
+            out[style][c] = w
+    return out
+
+
+def load_discogs() -> types.SimpleNamespace:
+    """Discogs-EffNet for the style, YAMNet (on the same sound) for music-or-not and the mood:
+    the scores are Discogs' 400 styles followed by YAMNet's 521 sounds."""
+    import json
+
+    classes = json.loads(DISCOGS_LABELS.read_text(encoding="utf-8"))["classes"]
+    session = _session(DISCOGS_MODEL)
+    yamnet = load_yamnet()
+    m = labels(classes + yamnet.names, discogs_style_genres(classes), "Music", MOODS)
+    m.shown = [c.partition("---")[2] for c in classes] + yamnet.names
+    m.name, m.window = "Discogs-EffNet", 4.0      # a patch is 2.05 s; 4 s gives two
+
+    def scores(wave: np.ndarray) -> np.ndarray:
+        styles = session.run(["activations"], {"melspectrogram": discogs_patches(wave)})[0].mean(axis=0)
+        return np.concatenate([styles, yamnet.scores(wave[-int(WINDOW * SR):])])
+
+    m.scores = scores
+    return m
+
+
+class DiscogsDetector(GenreDetector):
+    """Styles from Discogs-EffNet when its model is in DISCOGS_DIR; YAMNet alone otherwise, or
+    when it doesn't load."""
+
+    def _load(self) -> types.SimpleNamespace:
+        if DISCOGS_MODEL.is_file() and DISCOGS_LABELS.is_file():
+            try:
+                return load_discogs()
+            except Exception as e:
+                log.warning("Discogs-EffNet didn't load, YAMNet listens instead: %s", e)
+        return load_yamnet()
+
+
+# Detectors by name, for tools/genre_bench.py.
+DETECTORS: dict[str, type[GenreDetector]] = {"yamnet": GenreDetector, "discogs": DiscogsDetector}

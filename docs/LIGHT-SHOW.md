@@ -30,6 +30,7 @@ White is used only for the build-up strobe and the drop's blinder; all other acc
 ## Genre, mood and chords
 
 - **AI genre**: Google's YAMNet sound classifier (AudioSet, 521 sound classes, ~50 of them genres, 6 moods) runs offline every 2 s via onnxruntime (~5 ms). A new style comes in at the next phrase once it stays clearly ahead for ~6 s. Sad or tender music softens the show, angry or exciting music makes it harder.
+- **Better dance-music genres (optional)**: AudioSet has no afro, melodic or tech house, so YAMNet often hears those as jazz, folk or techno. MTG's Discogs-EffNet knows the 400 styles record shops use (Deep House, Tech House, Trap, Reggaeton, ...) and picks the style instead when it is on the PC; YAMNet still tells music from speech and gives the mood (~10 ms every 2 s together). On 26 recorded songs it got the style right for 17, YAMNet for 13 (`tools/genre_bench.py`). Its licence is CC BY-NC-SA 4.0 (non-commercial), so Glowstage doesn't ship it: put `discogs-effnet-bsdynamic-1.onnx` and `discogs-effnet-bsdynamic-1.json` from [essentia.upf.edu/models](https://essentia.upf.edu/models.html) (feature-extractors/discogs-effnet) in `%LOCALAPPDATA%\Glowstage\models` to use it.
 - **Each style has its own choreography**:
   - *Techno*: short mono pulses on every kick, 16th-note step chases, color flashes jumping around.
   - *House / Disco*: a light-up dance floor stepping on each beat, lights on the offbeat, mirror-ball glitter.

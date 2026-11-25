@@ -16,6 +16,7 @@ together), what the show did, and the marks.
     python tools/show_bench.py                 # every song in testdata/recordings
     python tools/show_bench.py SONG.wav --plot # one song, and draw its picture
     python tools/show_bench.py --no-ai         # style from the tempo, as before the AI decides
+    python tools/show_bench.py --yamnet        # the genre AI without Discogs-EffNet
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ def load(path: Path) -> np.ndarray:
 
 # ---- the live show, replayed ------------------------------------------------------------------
 
-def replay(data: np.ndarray, ai: bool = True, style: str | None = None) -> dict:
+def replay(data: np.ndarray, ai: bool = True, style: str | None = None, yamnet: bool = False) -> dict:
     """Plays the song through the analyzer, the genre AI and the director. Returns what the show
     did: section changes, a row every 0.25 s, and the styles it chose."""
     clock = types.SimpleNamespace(t=0.0)
@@ -64,7 +65,7 @@ def replay(data: np.ndarray, ai: bool = True, style: str | None = None) -> dict:
         ear = types.SimpleNamespace(request=lambda: {"style": style, "top": []}, error="")
         g = None
     elif ai:
-        g = genre.GenreDetector(an)
+        g = (genre.GenreDetector if yamnet else genre.DiscogsDetector)(an)   # the app's, or YAMNet alone
         g._model = g._load()
         ear = types.SimpleNamespace(request=lambda: dict(g._snap), error="")
     else:
@@ -77,7 +78,7 @@ def replay(data: np.ndarray, ai: bool = True, style: str | None = None) -> dict:
         an._analyze(data[i:i + audio.BLOCK, None])
         if g is not None and clock.t >= next_look:
             next_look += genre.INTERVAL
-            g.look(an.recent(genre.WINDOW))
+            g.look(an.recent(g._model.window))
         while clock.t >= next_frame:
             next_frame += 1 / FPS
             flash_before = d.frame.flash
@@ -283,7 +284,12 @@ def main() -> None:
     ap.add_argument("--zoom", help="with --plot: only this stretch, e.g. 60-100 (seconds)")
     ap.add_argument("--no-ai", action="store_true", help="style from the tempo instead of the genre AI")
     ap.add_argument("--style", help="force a style (edm, techno, house, bass, pop, ...)")
+    ap.add_argument("--yamnet", action="store_true", help="the genre AI without Discogs-EffNet, even when it's there")
+    ap.add_argument("--model-dir", type=Path, help="where Discogs-EffNet is, if not in genre.DISCOGS_DIR")
     args = ap.parse_args()
+    if args.model_dir:
+        genre.DISCOGS_MODEL = args.model_dir / genre.DISCOGS_MODEL.name
+        genre.DISCOGS_LABELS = args.model_dir / genre.DISCOGS_LABELS.name
     if args.songs:
         songs = args.songs
     else:   # every finished recording (the one being recorded isn't in the index yet)
@@ -294,7 +300,7 @@ def main() -> None:
     for path in songs:
         data = load(path)
         seconds = len(data) / R
-        run = replay(data, ai=not args.no_ai, style=args.style)
+        run = replay(data, ai=not args.no_ai, style=args.style, yamnet=args.yamnet)
         marks_path = path.with_suffix(".marks.json")
         feat = None
         if marks_path.is_file():
