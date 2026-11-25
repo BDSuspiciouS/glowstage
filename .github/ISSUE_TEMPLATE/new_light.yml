@@ -1,0 +1,21 @@
+name: Support for my lights
+description: Ask for a light, strip, controller or RGB device Glowstage doesn't support yet.
+labels: [new light]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Brand and model
+      placeholder: e.g. Govee H6199, Corsair iCUE Link, Shelly RGBW2
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where is it?
+      options: [Inside my PC, A keyboard / mouse / headset, In my room]
+  - type: textarea
+    id: how
+    attributes:
+      label: How do you control it now?
+      description: Its own app, a hub or bridge, Home Assistant, OpenRGB... Links to its documentation help a lot.

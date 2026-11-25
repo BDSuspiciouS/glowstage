@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- The README's banner: rendered to docs/images/banner.png by tools/readme/shots.ps1 -->
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; width: 1280px; height: 400px; overflow: hidden; background: #0d0e11; }
+  .stage { position: relative; width: 1280px; height: 400px; overflow: hidden;
+    font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; color: #f3f1ed; }
+  .glow { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .55; }
+  .g1 { width: 520px; height: 420px; left: -80px; top: -140px; background: #ff00c8; }
+  .g2 { width: 560px; height: 460px; right: -120px; top: -160px; background: #00e5ff; opacity: .45; }
+  .g3 { width: 620px; height: 360px; left: 360px; bottom: -260px; background: #ffb000; opacity: .35; }
+  .beams { position: absolute; inset: 0; background:
+    linear-gradient(105deg, transparent 38%, rgba(255,255,255,.05) 40%, transparent 46%),
+    linear-gradient(75deg, transparent 52%, rgba(255,255,255,.045) 55%, transparent 60%); }
+  .floor { position: absolute; left: 0; right: 0; bottom: 0; height: 120px;
+    background: linear-gradient(to top, rgba(13,14,17,.95), rgba(13,14,17,0)); }
+  .content { position: absolute; left: 96px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 36px; }
+  .content img { width: 148px; height: 148px; border-radius: 34px; box-shadow: 0 24px 60px rgba(0,0,0,.55); }
+  h1 { margin: 0; font-size: 92px; font-weight: 650; letter-spacing: -2.5px; line-height: 1; }
+  p { margin: 14px 0 0; font-size: 28px; font-weight: 400; color: rgba(243,241,237,.82); letter-spacing: -.2px; }
+  .strip { position: absolute; right: 96px; top: 50%; transform: translateY(-50%); display: grid; grid-template-columns: repeat(12, 14px); gap: 9px; }
+  .strip i { width: 14px; height: 14px; border-radius: 4px; box-shadow: 0 0 18px currentColor; background: currentColor; }
+</style></head><body><div class="stage">
+  <div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div><div class="beams"></div><div class="floor"></div>
+  <div class="content"><img src="icon.png" alt=""><div><h1>Glowstage</h1><p>Light shows for your PC and room lights</p></div></div>
+  <div class="strip" id="strip"></div>
+</div>
+<script>
+  const cols = ["#ff00c8", "#ff2f92", "#ff5a4a", "#ffb000", "#ffd25a", "#3bff8a", "#00e5ff", "#2a9bff", "#6e5bff", "#b040ff"];
+  const s = document.getElementById("strip");
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 12; c++) {
+    const i = document.createElement("i");
+    const k = (c + r * 2) % cols.length, fade = Math.max(.25, 1 - Math.abs(c - 5.5) / 7 - r * .07);
+    i.style.color = cols[k]; i.style.opacity = fade.toFixed(2); s.appendChild(i);
+  }
+</script></body></html>

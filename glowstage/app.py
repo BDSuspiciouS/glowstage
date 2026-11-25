@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import faulthandler
 import logging
 import os
@@ -16,6 +17,7 @@ from . import webfix, winutil
 from .api import Api
 from .config import Config
 from .hotkeys import Hotkeys
+from .online import Online
 from .icon import icon_file
 from .manager import DeviceManager
 from .paths import APP_DIR, APP_NAME, INSTALL_DIR, UI_DIR, VERSION, launch_command
@@ -31,6 +33,11 @@ class App:
         self.manager.force_on = autostart and bool(self.config["settings"].get("lights_on_at_startup", True))
         self.tray = Tray(self)
         self.hotkeys = Hotkeys(self.manager)
+        self.online = Online(self.config, self.manager._changed)
+        settings = self.config["settings"]
+        if not settings.get("first_run"):
+            settings["first_run"] = datetime.date.today().isoformat()
+            self.config.save_soon()
         self.window: webview.Window | None = None
         self.start_minimized = start_minimized or bool(self.config["settings"].get("start_minimized"))
         self._quitting = False
@@ -44,6 +51,7 @@ class App:
         self.manager.start()
         self.tray.start()
         self.hotkeys.set_enabled(bool(self.config["settings"].get("hotkeys")))
+        self.online.start()
         self.window = webview.create_window(
             APP_NAME, url=str(UI_DIR / "index.html"), js_api=Api(self),
             width=1240, height=820, min_size=(980, 680), background_color="#16171b",
@@ -55,6 +63,7 @@ class App:
                       storage_path=str(APP_DIR / "webview"))
         self._watch_stop.set()
         self.hotkeys.set_enabled(False)
+        self.online.stop()
         self.tray.stop()
         self.manager.stop()
 

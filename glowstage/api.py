@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import datetime
 import functools
 import logging
 import threading
 import webbrowser
 
-from . import genre_install, webfix, winutil
+from . import genre_install, online, webfix, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -44,7 +45,9 @@ class Api:
         extra = {"settings": {**self._app.config["settings"], "autostart": winutil.autostart_enabled()},
                  "hotkeysTaken": list(self._app.hotkeys.failed),
                  "about": {"name": APP_NAME, "version": VERSION, "repo": f"https://github.com/{REPO}",
-                           "donate": [{"name": k, "url": v} for k, v in DONATE.items() if v]}}
+                           "donate": self._app.online.donate_links()},
+                 "update": self._app.online.update(),
+                 "askSupport": self._ask_support()}
         if since is not None and since == self._m.revision:
             return {**self._m.live_status(), **extra, "same": True}
         return {**self._m.snapshot(), **extra}
@@ -74,14 +77,41 @@ class Api:
     def set_show_sync(self, ms):
         self._m.set_show_sync(ms)
 
+    def _ask_support(self) -> bool:
+        """Show the support card? Once, after five days of use (and again a month after "Later")."""
+        s = self._app.config["settings"]
+        asked, first = s.get("support_asked", ""), s.get("first_run", "")
+        today = datetime.date.today().isoformat()
+        if asked in ("never", "done") or not first or not self._app.online.donate_links():
+            return False
+        if asked.startswith("later:"):
+            return today >= asked[6:]
+        return (datetime.date.today() - datetime.date.fromisoformat(first)).days >= 5
+
+    @_safe
+    def support_answer(self, answer):
+        """The support card: "later" (ask again in a month), "never", or "done" (they gave)."""
+        s = self._app.config["settings"]
+        if answer == "later":
+            s["support_asked"] = "later:" + (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+        elif answer in ("never", "done"):
+            s["support_asked"] = answer
+        self._app.config.save_soon()
+
     @_safe
     def open_link(self, url):
-        """Open the project page, a donation page or the enhanced genre AI's model and license
-        pages in the browser (only those, nothing else)."""
-        allowed = {f"https://github.com/{REPO}", f"https://github.com/{REPO}/releases", *DONATE.values(),
-                   genre_install.INFO["aboutUrl"], genre_install.INFO["licenseUrl"]}
-        if url in allowed and url:
+        """Open the project page, its releases, a support page or the enhanced genre AI's model
+        and license pages in the browser (only those, nothing else)."""
+        url = str(url or "")
+        fixed = {f"https://github.com/{REPO}", f"https://github.com/{REPO}/releases",
+                 f"https://github.com/{REPO}/issues/new/choose", *DONATE.values(),
+                 genre_install.INFO["aboutUrl"], genre_install.INFO["licenseUrl"]}
+        update = self._app.online.update() or {}
+        if url and (url in fixed or url == update.get("url")
+                    or (online.allowed(url) and any(d["url"] == url for d in self._app.online.donate_links()))):
             webbrowser.open(url)
+            return
+        raise ValueError("That link isn't one Glowstage opens")
 
     @_safe
     def update(self, ids, patch):
@@ -173,6 +203,10 @@ class Api:
             raise ValueError(f"Unknown OpenRGB option {key}")
         self._app.config["openrgb"][key] = value
         self._app.config.save_soon()
+
+    @_safe
+    def check_online(self):
+        self._app.online.check_now()
 
     @_safe
     def set_setting(self, key, value):

@@ -25,6 +25,9 @@
     schedules: [{ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: "preset:Late night", enabled: true },
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
+    update: /[?&]update\b/.test(location.search)
+      ? { version: "0.9.1", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.1" } : null,
+    askSupport: /[?&]support\b/.test(location.search),
     activePreset: "",
     devices: [
       { id: "openrgb:Corsair Commander Core", kind: "openrgb", group: "pc", name: "Commander Core", online: true, error: null,
@@ -72,7 +75,7 @@
       "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
     },
     about: { name: "Glowstage", version: "0.9.0", repo: "https://github.com/example/glowstage",
-      donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }] },
+      donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
     genreAi: { state: "idle", progress: 0, message: "", name: "Discogs-EffNet", maker: "Music Technology Group, Universitat Pompeu Fabra",
@@ -154,6 +157,7 @@
       else delete data.stage[id].custom;
       return ok();
     },
+    support_answer: () => ok(), check_online: () => ok(),
     set_schedules: items => { data.schedules = items; data.revision++; return ok(); },
     set_show_excluded: ids => { data.showExcluded = ids; data.revision++; return ok(); },
     set_show_sync: ms => { data.audio.sync = ms === null ? { ms: 200, auto: true } : { ms, auto: false }; return ok(); },

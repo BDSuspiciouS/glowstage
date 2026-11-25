@@ -11,6 +11,7 @@ First public preview of Glowstage: light shows for your PC and room lights.
 - The genre AI also works when the music player is turned far down.
 - No more freezes of the window: a call that never got its answer used to leave a thread waiting forever, and the window's once-a-second update kept stacking them. Calls now time out, updates wait for each other and send only what changed, and a crashed page reloads by itself. Should it still hang, Glowstage writes where (hang.log, crash.log next to its settings).
 - Presets know your PC from your room: Focus, Reading, Cozy, Gaming and Movie light them each their own way. The preset that's on is marked, and a preset applies to all lights at once.
+- Glowstage tells you when a new version is out (it asks GitHub once a day; nothing about you is sent, and you can switch it off).
 - Schedule: a preset, lights on or off, or the light show at set times on the days you pick (Setup → Schedule).
 - Hotkeys from any program, if you switch them on: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets.
 - The tray menu starts and stops the light show and ticks the preset that's on.

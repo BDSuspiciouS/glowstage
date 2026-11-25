@@ -1,0 +1,11 @@
+name: An idea
+description: A feature, a new look for the light show, a better way to do something.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What would you like Glowstage to do, and when would you use it?
+    validations:
+      required: true

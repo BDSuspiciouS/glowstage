@@ -1,0 +1,30 @@
+name: Something doesn't work
+description: A light misbehaves, the light show is off, or Glowstage froze or closed.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Glowstage version
+      description: At the bottom left of the window, e.g. 0.9.0
+    validations:
+      required: true
+  - type: input
+    id: lights
+    attributes:
+      label: Which lights?
+      description: Brand and model, e.g. "WLED strip, 120 LEDs" or "Philips Hue Play bar"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Drag in `glowstage.log` from `%APPDATA%\Glowstage` (paste that in the Explorer address bar).
+        If Glowstage froze or closed, also `hang.log` and `crash.log` from the same folder.

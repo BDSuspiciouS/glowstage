@@ -214,13 +214,78 @@ function render() {
   if (S.wiz && S.wiz.open) renderWizard();
 }
 
+/* ============================== support and updates ============================== */
+
+function openSupport() {
+  const about = (S.data && S.data.about) || {};
+  const links = about.donate || [];
+  const give = l => h("button", { class: "btn btn-support support-link", type: "button",
+    onclick: () => { call("open_link", l.url); call("support_answer", "done"); S.supportClosed = true; renderHomeNotes(); } },
+    icon("heart"), l.name);
+  const share = async () => {
+    const url = about.repo + "/releases";
+    try { await navigator.clipboard.writeText(url); toast("Download link copied"); } catch { toast(url); }
+  };
+  openModal({
+    title: "Support Glowstage",
+    body: [
+      h("p", { class: "support-lead", text: "Glowstage is free, has no ads and collects nothing about you. It's made by one person, in spare time." }),
+      h("p", { class: "hint", text: "If it brings your room to life, a donation keeps it going: support for more lights, better light shows, fixes." }),
+      links.length ? h("div", { class: "support-links" }, links.map(give)) : null,
+      h("div", { class: "support-free" },
+        h("span", { class: "muted", text: "Free ways to help:" }),
+        about.repo ? h("button", { class: "link-btn", type: "button", text: "Star it on GitHub", onclick: () => call("open_link", about.repo) }) : null,
+        about.repo ? h("button", { class: "link-btn", type: "button", text: "Share the download link", onclick: share }) : null,
+        about.repo ? h("button", { class: "link-btn", type: "button", text: "Report a bug or idea",
+          onclick: () => call("open_link", about.repo + "/issues/new/choose") }) : null),
+    ],
+    ok: "Close",
+    onOk: async () => true,
+    cancel: false,
+  });
+}
+
+const dismissedUpdate = () => { try { return localStorage.getItem("glowstage.update.dismissed") || ""; } catch { return ""; } };
+
+/* Notes at the top of Home: a new version is out; once in a while, the support card. */
+function renderHomeNotes() {
+  const host = $("#home-notes");
+  const up = S.data.update;
+  const showUpdate = up && up.version && dismissedUpdate() !== up.version;
+  const showSupport = S.data.askSupport && !S.supportClosed;
+  const sig = JSON.stringify([showUpdate && up, showSupport]);
+  if (host.dataset.sig === sig) return;
+  host.dataset.sig = sig;
+  fill(host,
+    showUpdate ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("spark")),
+      h("div", { class: "note-text" }, h("strong", { text: `Glowstage ${up.version} is out` }),
+        h("span", { class: "muted", text: "Download it from GitHub: your lights, presets and settings stay as they are." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn btn-primary", type: "button", text: "Download", onclick: () => call("open_link", up.url) }),
+        h("button", { class: "btn btn-quiet", type: "button", text: "Not now", onclick: () => {
+          try { localStorage.setItem("glowstage.update.dismissed", up.version); } catch { /* fine */ }
+          host.dataset.sig = ""; renderHomeNotes();
+        } }))) : null,
+    showSupport ? h("div", { class: "note card note-support" },
+      h("span", { class: "note-icon" }, icon("heart")),
+      h("div", { class: "note-text" }, h("strong", { text: "Enjoying Glowstage?" }),
+        h("span", { class: "muted", text: "It's free and made by one person. A small donation keeps the lights on." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn btn-support", type: "button", text: "Support", onclick: openSupport }),
+        h("button", { class: "btn btn-quiet", type: "button", text: "Later", onclick: () => {
+          S.supportClosed = true; call("support_answer", "later"); renderHomeNotes(); } }),
+        h("button", { class: "link-btn", type: "button", text: "Don't ask again", onclick: () => {
+          S.supportClosed = true; call("support_answer", "never"); renderHomeNotes(); } }))) : null);
+}
+
 function renderChrome() {
   for (const b of document.querySelectorAll(".nav-item[data-page]")) {
     if (b.dataset.page === S.page) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   }
   const about = S.data.about || {};
-  $("#support").hidden = !(about.donate || []).length;
+  $("#support").hidden = !about.repo;
   $("#version").textContent = about.version ? `Version ${about.version}` : "";
   $("#nav-live").hidden = !S.data.show;
   $("#nav-badge").hidden = !(S.data.devices.some(d => d.paired === false && !d.hidden) || (S.data.hubs || []).some(x => x.paired === false));
@@ -336,6 +401,7 @@ function renderHome() {
   $("#home-sub").textContent = devs.length
     ? `${on.length} of ${devs.length} lights on${S.data.show ? " · light show running" : ""}` : "";
   $("#home-empty").hidden = devs.length > 0;
+  renderHomeNotes();
   $("#master").hidden = !devs.length;
   const power = $("#all-power");
   power.querySelector("span").textContent = anyOn ? "All off" : "All on";
@@ -1088,8 +1154,9 @@ async function renderNative() {
 /* ============================== modal and toasts ============================== */
 
 let modalOk = null;
-function openModal({ title, body, ok, onOk, wide = false }) {
+function openModal({ title, body, ok, onOk, wide = false, cancel = true }) {
   $("#modal-title").textContent = title;
+  $("#modal-cancel").hidden = !cancel;     // (a window with only information needs just its one button)
   $(".modal-card").classList.toggle("is-wide", wide);
   fill($("#modal-body"), body);
   $("#modal-ok").textContent = ok;
@@ -1118,7 +1185,7 @@ function switchTab(tab) {
 
 function bindStatic() {
   for (const b of document.querySelectorAll(".nav-item[data-page]")) b.addEventListener("click", () => go(b.dataset.page));
-  $("#support").addEventListener("click", () => { const d = ((S.data && S.data.about) || {}).donate || []; if (d[0]) call("open_link", d[0].url); });
+  $("#support").addEventListener("click", openSupport);
   $("#see-presets").addEventListener("click", () => go("presets"));
   $("#home-setup").addEventListener("click", () => go("setup"));
   $("#all-color").addEventListener("click", () => { S.selected = null; openSheet(); });
@@ -1215,7 +1282,8 @@ async function start() {
   requestAnimationFrame(liveTiles);
   await refresh(true);
   setTimeout(pollState, 1000);
-  go("home");
+  const page = new URLSearchParams(location.search).get("page");   // (the README's screenshots)
+  go(["home", "presets", "show", "setup"].includes(page) ? page : "home");
   if (S.data && S.data.settings.setup_done === false) openWizard();
 }
 

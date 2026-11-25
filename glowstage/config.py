@@ -83,6 +83,7 @@ DEFAULTS = {
     "show_layout": {},  # id -> [start, end, "front"|"back"]: where a light sits on the stage
     "show_sync": {},
     "show_excluded": [],  # ids of lights that keep their own look while the light show runs
+    "online": {},         # what online.py last heard from GitHub (latest version, support links)
     "schedules": [],      # [{"time": "23:00", "days": [0..6] (Monday = 0), "action": "off" | "on" | "show"
                           #   | "preset:<name>", "enabled": true}]    # sound output name -> ms the music lights wait for the sound ("" = any output)
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
@@ -91,6 +92,9 @@ DEFAULTS = {
                  "setup_done": False,    # the welcome tour ran (or was skipped)
                  "active_preset": "",    # the preset the lights show now ("" once changed by hand)
                  "hotkeys": False,       # Ctrl+Alt+Shift+L/S/1-9 from any program (see hotkeys.py)
+                 "check_updates": True,  # ask GitHub once a day for a new version and the support links
+                 "first_run": "",        # the day Glowstage first ran (YYYY-MM-DD)
+                 "support_asked": "",    # "", "later:YYYY-MM-DD", "never" or "done" (the support card)
                  "presets_version": PRESETS_VERSION},
 }
 

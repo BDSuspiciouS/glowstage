@@ -1,4 +1,7 @@
-# Shows the "Sponsor" button on the GitHub page. GitHub Sponsors needs to be set up once at
-# https://github.com/sponsors (free, no fees); add other platforms here when you have them.
+# The "Sponsor" button on the GitHub page, and the support links in the app (Glowstage reads
+# this file once a day, so a new link reaches everyone without a new version).
+# Only these sites are opened by the app: GitHub Sponsors, Ko-fi, PayPal, Stripe payment links,
+# Buy Me a Coffee, Patreon, Liberapay and Open Collective.
 github: [BDSuspiciouS]
 # ko_fi: your-ko-fi-name
+# custom: ["https://buy.stripe.com/your-link", "https://paypal.me/your-name"]
