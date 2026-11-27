@@ -6,7 +6,7 @@
   const effects = [["rainbow", "Rainbow wave", ["speed"]], ["spectrum", "Spectrum cycle", ["speed"]],
     ["breathing", "Breathing", ["speed", "color", "color2"]], ["wave", "Color wave", ["speed", "color", "color2"]],
     ["comet", "Comet", ["speed", "color", "color2"]], ["twinkle", "Starlight", ["speed", "color", "color2"]],
-    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []],
+    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
     ["music_show", "Light show", ["speed"], "music"],
     ["music_party", "Party", ["speed"], "music"], ["music_ripple", "Bass ripple", ["speed"], "music"],
     ["music_spectrum", "Spectrum", ["speed"], "music"], ["music_pulse", "Beat pulse", ["speed", "color", "color2"], "music"],

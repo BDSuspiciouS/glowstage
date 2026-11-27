@@ -9,7 +9,7 @@ import time
 
 from .audio import AudioAnalyzer
 from .colors import scale
-from .effects import EFFECTS, GAME_EFFECTS, MUSIC_EFFECTS
+from .effects import EFFECTS, GAME_EFFECTS, HEARING_EFFECTS, SCREEN_EFFECTS
 from .genre import DiscogsDetector
 from .keys import KeyWatcher
 from .screen import ScreenSampler
@@ -97,7 +97,7 @@ class EffectEngine:
         t = now - self._epoch
         ctx = {}
         spans = {}
-        screen = any(st.effect == "screen" for _, st in targets)
+        screen = any(st.effect in SCREEN_EFFECTS for _, st in targets)
         if screen:
             ctx["screen"] = self.screen.request()
         game = any(st.effect in GAME_EFFECTS for _, st in targets)
@@ -105,7 +105,7 @@ class EffectEngine:
             ctx["game"] = self.manager.games.cs2.snapshot(now)
         if any(st.effect == "typing" for _, st in targets):
             ctx["keys"] = self.keys.recent(now)
-        if any(st.effect in MUSIC_EFFECTS for _, st in targets):
+        if any(st.effect in HEARING_EFFECTS for _, st in targets):
             heard = self.audio.request()  # one snapshot per frame keeps every light on the same beat
             sync = self.manager.show_sync()["ms"] / 1000
             ctx["audio"] = self._delayed(now, heard, sync)

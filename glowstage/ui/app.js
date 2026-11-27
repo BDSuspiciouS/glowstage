@@ -371,6 +371,7 @@ const FX_LOOK = {
   fire: "linear-gradient(90deg, #7a1000, #ff5a00, #ffb000, #ffd25a)", music_fire: "linear-gradient(90deg, #7a1000, #ff5a00, #ffb000, #ffd25a)",
   aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)", music_aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)",
   screen: "linear-gradient(90deg, #3a6bff, #ff8a3a, #2bd3c4)",
+  screen_sound: "linear-gradient(90deg, #fff0dc, #3a6bff 30%, #2bd3c4 70%, #ff8a3a)",
   daylight: "linear-gradient(90deg, #ff9a45, #ffe0c7, #ffb06a)",
   typing: "linear-gradient(90deg, #1b1430, #00e5ff 28%, #1b1430 48%, #7c4dff 72%, #1b1430)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
@@ -887,6 +888,11 @@ const PREVIEW = {
     const k = (t * 1.0) % SUN_DAY.length, i = Math.floor(k);
     return Array(n).fill(lerp(SUN_DAY[i], SUN_DAY[(i + 1) % SUN_DAY.length], k - i));
   },
+  screen_sound: (t, n, st) => {   /* the screen, and a shot every ~1.3 s, left or right */
+    const base = PREVIEW.screen(t, n, st), shot = Math.floor(t / 1.3), age = t - shot * 1.3;
+    const x = hash01(shot, 31) < 0.5 ? 0.2 : 0.8, k = Math.exp(-age / 0.09);
+    return base.map((c, i) => lerp(c, [255, 236, 210], Math.min(1, k * (0.2 + 0.8 * Math.exp(-((((i + 0.5) / n - x) / 0.3) ** 2))))));
+  },
   screen: (t, n) => {
     const k = (t * 0.25) % SCREEN_DEMO.length, i = Math.floor(k);
     return Array(n).fill(lerp(SCREEN_DEMO[i], SCREEN_DEMO[(i + 1) % SCREEN_DEMO.length], k - i));
@@ -1065,6 +1071,7 @@ function renderEffects() {
   const audio = S.data.audio || {};
   $("#fx-note").textContent = !fx ? "Pick an effect to start it."
     : fx.id === "screen" ? "Follows the main colors on your primary display. Great for the monitor strip during games and films."
+    : fx.id === "screen_sound" ? `Follows your screen, and every shot or explosion in the game flashes the lights on the side it came from. Listening to ${audio.device || "your PC's sound output"}.`
     : fx.id === "daylight" ? sunNote(S.data.sun)
     : fx.id === "typing" ? "Every key you press lights up and sends a ripple across your keyboard; your other lights glow where the key sits, left to right. Speed sets how quickly it fades. Glowstage only looks at which key is down while this runs, keeps that for three seconds, and saves and sends nothing."
     : fx.id === "music_show" ? showNote(S.data.show, audio)

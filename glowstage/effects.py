@@ -213,6 +213,36 @@ class Screen(Effect):
         return [(int(r), int(g), int(b)) for r, g, b in cur]
 
 
+FLASH = np.array((255.0, 236.0, 210.0))   # a muzzle flash: warm white
+
+
+class ScreenSound(Screen):
+    """Screen sync, and every loud, sudden sound (a shot, an explosion: impacts.py) flashes the
+    lights on the side it came from: a shot on your left lights the left of the stage. Lights
+    behind you (the "back" of the stage) flash along a little, wherever it came from."""
+    id, name = "screen_sound", "Screen + sound"
+    uses = ()
+
+    def render(self, t, n, st, mem, ctx):
+        base = super().render(t, n, st, mem, ctx)
+        hits = [(age, s, p) for age, s, p in (ctx.get("audio") or {}).get("impacts") or () if age < 0.6]
+        if not hits or n == 0:
+            return base
+        start, end, layer = ctx.get("span", (0.0, 1.0, "front"))
+        u = start + (end - start) * (np.arange(n) + 0.5) / n          # where each LED sits, 0 = left
+        flash = np.zeros(n)
+        for age, strength, pan in hits:
+            k = strength * math.exp(-age / 0.09)
+            if layer == "back":
+                w = np.full(n, 0.55)
+            else:
+                w = 0.2 + 0.8 * np.exp(-((u - (0.5 + 0.5 * pan)) / 0.3) ** 2)
+            flash = np.maximum(flash, k * w)
+        rgb = np.array(base, float)
+        out = rgb + (FLASH - rgb) * np.clip(flash, 0, 1)[:, None]
+        return [(int(r), int(g), int(b)) for r, g, b in out]
+
+
 # ---- music: these react to whatever the PC is playing (see audio.py) -----------------------
 
 def _audio(ctx: dict) -> dict:
@@ -634,9 +664,11 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Typing(), Daylight(), Screen(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Typing(), Daylight(), Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),
 )}
 MUSIC_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "music"}
+HEARING_EFFECTS = MUSIC_EFFECTS | {"screen_sound"}        # ask the audio analysis for its picture
+SCREEN_EFFECTS = {"screen", "screen_sound"}               # ask for the screen
 GAME_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "game"}

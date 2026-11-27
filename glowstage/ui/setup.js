@@ -264,7 +264,7 @@ function gamesSection() {
 
 function automaticSection() {
   const s = S.data.settings;
-  const looks = [["", "Nothing"], ["screen", "Follow the screen"],
+  const looks = [["", "Nothing"], ["screen", "Follow the screen"], ["screen_sound", "Follow the screen, flash with the sound"],
     ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])];
   const save = async (key, value) => {
     const r = await callRaw("set_setting", key, value);
@@ -290,7 +290,8 @@ function automaticSection() {
 function appLooks() {
   const items = (S.data.appLooks || []).map(a => ({ ...a }));
   const presets = (S.data.presets || []).map(p => ["preset:" + p.name, p.name]);
-  const looks = [["screen", "Follow the screen"], ["show", "The light show"], ...presets];
+  const looks = [["screen", "Follow the screen"], ["screen_sound", "Follow the screen, flash with the sound"],
+    ["show", "The light show"], ...presets];
   const save = async () => {
     const r = await callRaw("set_app_looks", items);
     if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);

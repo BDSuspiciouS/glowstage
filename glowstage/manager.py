@@ -400,9 +400,10 @@ class DeviceManager:
         """The lights of the show play along with the game."""
         self._apply({i: {"mode": "effect", "effect": effect} for i in self.show_lights()}, preset="")
 
-    def screen_sync(self) -> None:
-        """The lights of the show follow the screen (each the part where it sits on the stage)."""
-        self._apply({i: {"mode": "effect", "effect": "screen"} for i in self.show_lights()}, preset="")
+    def screen_sync(self, effect: str = "screen") -> None:
+        """The lights of the show follow the screen (each the part where it sits on the stage);
+        "screen_sound": and flash with the game's shots and explosions."""
+        self._apply({i: {"mode": "effect", "effect": effect} for i in self.show_lights()}, preset="")
 
     # ---- away: lights off while you're away (away.py) -----------------------------------------
 

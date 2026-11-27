@@ -239,9 +239,9 @@ class Api:
             return
         if key not in self._app.config["settings"]:
             raise ValueError(f"Unknown setting {key}")
-        if key in ("auto_game", "auto_video"):   # "", "screen" or "preset:<name>"
+        if key in ("auto_game", "auto_video"):   # "", "screen", "screen_sound" or "preset:<name>"
             value = str(value or "")
-            if value not in ("", "screen") and not (value.startswith("preset:")
+            if value not in ("", "screen", "screen_sound") and not (value.startswith("preset:")
                                                     and value[7:] in self._app.manager.preset_names()):
                 raise ValueError("Choose a look from the list")
         if key == "away_lights" and value not in SCOPES:

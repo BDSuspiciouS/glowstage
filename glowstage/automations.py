@@ -244,7 +244,7 @@ def clean_app_looks(items, presets: list[str]) -> list[dict]:
         if not exe.endswith(".exe") or "\\" in exe or "/" in exe or exe in seen:
             continue
         action = str(item.get("action", ""))
-        if action not in ("screen", "show") and not (action.startswith("preset:") and action[7:] in presets):
+        if action not in ("screen", "screen_sound", "show") and not (action.startswith("preset:") and action[7:] in presets):
             raise ValueError("Choose a look for every app")
         seen.add(exe)
         out.append({"exe": exe, "name": str(item.get("name") or _nice(exe))[:80], "action": action})
@@ -345,7 +345,7 @@ class Automations:
         self._stop = threading.Event()
 
     def rules(self) -> dict[str, str]:
-        """What each rule does: "" (nothing), "screen", "show" or "preset:<name>"."""
+        """What each rule does: "" (nothing), "screen", "screen_sound", "show" or "preset:<name>"."""
         s = self.manager.config["settings"]
         apps = {f"app:{a['exe']}": a["action"] for a in self.manager.config.data.get("app_looks") or []}
         return {"cs2": "game:cs2" if self.manager.games.settings.get("cs2") else "", **apps,
@@ -502,8 +502,8 @@ class Automations:
             m.start_show()
         elif action == "game:cs2":
             m.game_lights("game_cs2")
-        elif action == "screen":
-            m.screen_sync()
+        elif action in ("screen", "screen_sound"):
+            m.screen_sync(action)
         elif action.startswith("preset:") and action[7:] in m.preset_names():
             m.apply_preset(action[7:])
         else:

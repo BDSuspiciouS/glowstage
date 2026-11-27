@@ -13,6 +13,7 @@ import warnings
 import numpy as np
 
 from . import harmony
+from .impacts import Impacts
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def quiet() -> dict:
             "since_beat": 99.0, "beats_ago": [], "beat_count": 0, "silent": True,
             "rms": 0.0, "bass_raw": 0.0, "high_raw": 0.0, "bpm": 0.0, "bpm_conf": 0.0,
             "grid_ago": None, "grid_conf": 0.0, "hit_ago": 99.0, "hat_ago": 99.0,
-            "chord": None, "chord_ago": 99.0, "key": None, "key_conf": 0.0, "centroid": 0.0}
+            "chord": None, "chord_ago": 99.0, "key": None, "key_conf": 0.0, "centroid": 0.0, "impacts": []}
 
 
 def estimate_tempo(onsets: np.ndarray) -> tuple[float, float, float, float]:
@@ -156,6 +157,7 @@ class AudioAnalyzer:
         self._chord_cand: tuple[tuple[int, bool] | None, int] = (None, 0)
         self._key: tuple[tuple[int, bool] | None, float] = (None, 0.0)
         self._blocks_since_chroma = 0
+        self._impacts = Impacts(BLOCK / RATE)   # shots and explosions, left or right (impacts.py)
 
     # ---- used by the effect engine ----------------------------------------------------------
 
@@ -176,6 +178,7 @@ class AudioAnalyzer:
         snap["grid_ago"] = now - grid[0] if grid and not snap["silent"] else None
         snap["grid_conf"] = grid[1] if grid else 0.0
         snap["chord_ago"] = now - self._chord_at if self._chord else 99.0
+        snap["impacts"] = self._impacts.recent(now)
         return snap
 
     def recent(self, seconds: float) -> np.ndarray | None:
@@ -244,6 +247,7 @@ class AudioAnalyzer:
         self._buf = np.roll(self._buf, -n)
         self._buf[-n:] = mono[-FFT_SIZE:]
         now = time.monotonic()
+        self._impacts.feed(data, now)       # (stereo: which side a shot is on)
 
         rms = float(np.sqrt(np.mean(mono ** 2)))
         if rms > SILENCE_RMS:
