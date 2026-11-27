@@ -252,6 +252,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .app-pick:hover { background: var(--hover); border-color: var(--line-2); }
 .app-pick:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .app-pick .muted { font-size: 12.5px; }
+.sleep-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .sched-days { display: flex; gap: 4px; }
 .day {
   width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent;

@@ -271,10 +271,19 @@ function renderHomeNotes() {
     && (S.data.appLooks || []).find(a => "app:" + a.exe === S.data.auto);
   const auto = app ? { icon: "spark", title: `${app.name} is open`, text: "Your lights changed for it by themselves and go back when you close it." }
     : AUTO_NOTES[S.data.auto];
-  const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message]);
+  const sleep = S.data.sleep;
+  const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
+    sleep && sleep.until]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
+    sleep ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("moon")),
+      h("div", { class: "note-text" }, h("strong", { text: `Lights off at ${clockTime(sleep.until)}` }),
+        h("span", { class: "muted", text: "They fade out slowly until then. A light you change yourself is left alone." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Cancel the timer", onclick: async () => {
+          await call("cancel_sleep_timer"); toast("Sleep timer cancelled: your lights are back"); refresh(true); } }))) : null,
     auto ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon(auto.icon)),
       h("div", { class: "note-text" }, h("strong", { text: auto.title }), h("span", { class: "muted", text: auto.text })),
@@ -311,6 +320,34 @@ function renderHomeNotes() {
           S.supportClosed = true; call("support_answer", "later"); renderHomeNotes(); } }),
         h("button", { class: "link-btn", type: "button", text: "Don't ask again", onclick: () => {
           S.supportClosed = true; call("support_answer", "never"); renderHomeNotes(); } }))) : null);
+}
+
+const clockTime = epoch => new Date(epoch * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/** Home → Sleep timer: the lights that are on fade out and switch off after a while. */
+function openSleepTimer() {
+  const pick = async minutes => {
+    const r = await callRaw("start_sleep_timer", minutes);
+    if (!r || r.ok === false) return (r && r.error) || "Couldn't start the timer";
+    closeModal();
+    refresh(true);
+    toast(`Your lights fade out and switch off in ${minutes < 60 ? minutes + " minutes" : minutes === 60 ? "an hour" : minutes / 60 + " hours"}`);
+    return true;
+  };
+  const running = S.data.sleep;
+  openModal({
+    title: "Sleep timer",
+    body: h("div", {},
+      h("p", { class: "hint", text: running
+        ? `Your lights switch off at ${clockTime(running.until)}. Pick a new time, or keep it.`
+        : "The lights that are on fade out slowly, like a sunset, and switch off at the end. Next time they come on as they were." }),
+      h("div", { class: "sleep-choices" }, [[15, "15 minutes"], [30, "30 minutes"], [60, "1 hour"], [90, "1½ hours"]].map(([m, t]) =>
+        h("button", { class: "app-pick", type: "button", onclick: async () => {
+          const res = await pick(m);
+          if (res !== true) { $("#modal-error").textContent = res; $("#modal-error").hidden = false; }
+        } }, h("span", { text: t }), h("span", { class: "muted", text: `off at ${clockTime(Date.now() / 1000 + m * 60)}` }))))),
+    ok: "Close", cancel: false, onOk: () => true,
+  });
 }
 
 function renderChrome() {
@@ -1260,6 +1297,7 @@ function bindStatic() {
   $("#home-setup").addEventListener("click", () => go("setup"));
   $("#all-color").addEventListener("click", () => { S.selected = null; openSheet(); });
   $("#all-power").addEventListener("click", () => toggleStrip("__all"));
+  $("#sleep-timer").addEventListener("click", openSleepTimer);
   bindSlider($("#master-slider"), "__all", v => send(null, { brightness: v }, "bri:all"));
   $("#sheet-close").addEventListener("click", closeSheet);
   $("#sheet-power").addEventListener("click", () => {

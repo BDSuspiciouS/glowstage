@@ -14,6 +14,7 @@ from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations, clean_app_looks
 from .away import Away
+from .timer import SleepTimer
 from .games import Games
 from .devices.base import Device
 from .devices.discovery import Discovery
@@ -104,6 +105,7 @@ class DeviceManager:
         self.games = Games(config, self._changed)
         self.automations = Automations(self)
         self.away = Away(self)
+        self.sleep = SleepTimer(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -134,6 +136,7 @@ class DeviceManager:
     def stop(self) -> None:
         self._stop.set()
         self.automations.stop()
+        self.sleep.stop()
         self.games.stop()
         self.engine.stop()
         self.discovery.stop()
@@ -403,6 +406,11 @@ class DeviceManager:
 
     # ---- away: lights off while you're away (away.py) -----------------------------------------
 
+    def touches(self, dev_id: str) -> int:
+        """How often a light was changed this session: to see whether anything else changed it."""
+        with self.lock:
+            return self._touches.get(dev_id, 0)
+
     def away_off(self, scope: str) -> dict[str, int]:
         """Switch off the lights in `scope` ("pc" or "all") that are on, without saving that.
         Returns them, each with its change count right after (to see later whether anything
@@ -412,7 +420,10 @@ class DeviceManager:
                    and (scope == "all" or self.devices[i].group == "pc")]
             preset = self.config["settings"].get("active_preset", "")
         if ids:
-            self._apply({i: {"on": False} for i in ids}, preset=preset, save=False)
+            # Lights the sleep timer was fading go off at their own brightness: back as they were.
+            own = self.sleep.release(ids)
+            self._apply({i: {"on": False, **({"brightness": own[i]} if i in own else {})} for i in ids},
+                        preset=preset, save=False)
         with self.lock:
             return {i: self._touches.get(i, 0) for i in ids}
 

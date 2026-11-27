@@ -52,6 +52,7 @@ class Api:
                  "updating": self._app.updater.describe(),
                  "updateResult": self._app.update_result,
                  "sun": SUN.describe(),
+                 "sleep": self._m.sleep.describe(),
                  "askSupport": self._ask_support()}
         if since is not None and since == self._m.revision:
             return {**self._m.live_status(), **extra, "same": True}
@@ -73,6 +74,15 @@ class Api:
     @_safe
     def set_schedules(self, items):
         self._m.set_schedules(items)
+
+    @_safe
+    def start_sleep_timer(self, minutes):
+        """The lights that are on fade out and switch off after `minutes`."""
+        self._m.sleep.start(minutes)
+
+    @_safe
+    def cancel_sleep_timer(self):
+        self._m.sleep.cancel()
 
     @_safe
     def set_app_looks(self, items):

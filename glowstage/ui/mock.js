@@ -115,6 +115,7 @@
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
     auto: (location.search.match(/[?&]auto=(cs2|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
+    sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
     updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
     games: { cs2: { found: true, connected: /[?&]cs2\b/.test(location.search), fileThere: true, receiving: /[?&]cs2\b/.test(location.search),
@@ -160,6 +161,8 @@
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
     set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
+    start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
+    cancel_sleep_timer: () => { data.sleep = null; return ok(); },
     install_update: () => {
       let p = 0;
       const tick = () => { p += 0.12; Object.assign(data.updating, p < 1

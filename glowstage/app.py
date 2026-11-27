@@ -56,8 +56,11 @@ class App:
         self.tray.start()
         self.hotkeys.set_enabled(bool(self.config["settings"].get("hotkeys")))
         self.online.start()
+        # Straight from the files (file://), not through pywebview's own web server: that one listens
+        # on a fixed port, and WebView2 kept its pages in a cache, so after an update the window
+        # could get an old index.html with the new scripts, and stay empty.
         self.window = webview.create_window(
-            APP_NAME, url=str(UI_DIR / "index.html"), js_api=Api(self),
+            APP_NAME, url=(UI_DIR / "index.html").as_uri(), js_api=Api(self),
             width=1240, height=820, min_size=(980, 680), background_color="#16171b",
             hidden=self.start_minimized,
         )
@@ -74,7 +77,7 @@ class App:
     def _on_change(self) -> None:
         # The tray menu shows the presets, the one that's on and whether the show runs.
         sig = (self.manager.preset_names(), self.config["settings"].get("active_preset", ""),
-               self.manager.show_running())
+               self.manager.show_running(), self.manager.sleep.until)
         if sig != self._preset_names:
             self._preset_names = sig
             self.tray.refresh()

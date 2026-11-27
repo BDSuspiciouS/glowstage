@@ -1,10 +1,12 @@
-Glowstage 0.9.7: your keyboard ripples as you type, and every app can have its own look.
+Glowstage 0.9.7: your keyboard ripples as you type, every app can have its own look, and a sleep timer.
 
 **Install:** download `Glowstage-0.9.7-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
 
 **New**
 - Typing ripples, a new look: every key you press lights up and sends a ripple across your keyboard (on keyboards whose LED layout Glowstage knows, like the MCHOSE GX87), and your other lights glow where the key sits, left to right. Speed sets how quickly it fades, the two colors the flash and the background. While it runs, Glowstage asks Windows 60 times a second which keys are down: it never sits between your keyboard and your programs, so typing and games feel the same. It keeps a key for three seconds as a spot on the board, and saves and sends nothing.
 - A look per app (Setup → Automatic → Apps): pick an app that's open, choose its look (a preset, Screen sync or the light show), and your lights change while it's open and go back when you close it. *Focus* while Photoshop is open, *Gaming* while OBS is. It counts once the app has been open for a few seconds, so switching around doesn't flick the lights; the first app in the list goes first, before full-screen games and videos. Checking costs a fifth of a millisecond a second.
+- Sleep timer (Home, or the tray): the lights that are on fade out slowly over 15 minutes to an hour and a half, like a sunset, and switch off at the end. Next time they come on as they were; a light you change meanwhile is left alone, and cancelling puts the brightness back.
+- Fixed: after an update the window could stay empty. It was loaded through a small web server on a fixed port, and WebView2 kept an old page in its cache next to the new scripts. It now opens straight from its files.
 - The log now names an error a light reports without a message (like OpenRGB dropping its connection).
 
 **New in 0.9.6**
