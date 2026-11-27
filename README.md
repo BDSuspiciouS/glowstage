@@ -36,11 +36,15 @@
 - **Your room plays along with Counter-Strike 2.** Your team's color, your health as a bar across the lights, white when you're flashed, the bomb blinking ever faster, a pop for every kill. It uses Valve's own game state integration, so nothing touches the game and it's safe for VAC (Setup → Games).
 - **Your keyboard ripples as you type.** With *Typing ripples* every key you press lights up and sends a ripple across the keyboard, and your other lights glow where the key sits. It only looks at which key is down while the look runs, and keeps and sends nothing.
 - **Light that follows the sun.** *Follow the sun* lights your room like the day outside: cool and bright at noon, golden as the sun sets, warm in the evening and a low amber glow at night. It knows when the sun rises and sets where you live from Windows' region setting, without location access or the internet.
-- **Presets for every moment.** Focus, Reading, Cozy, Gaming, Movie and more, each lighting your PC and your room its own way. Save your own with one click, run them from the tray or a hotkey, on a schedule (*Late night* at 23:00, everything off at 1:00), or automatically: *Gaming* when a game goes full screen, *Movie* for a full-screen video, *Focus* while Photoshop is open, and back to your own look afterwards. At bedtime the sleep timer fades your lights out like a sunset.
+- **Presets for every moment.** Focus, Reading, Cozy, Gaming, Movie and more, each lighting your PC and your room its own way. Save your own with one click, for every light or only some (a room preset leaves your PC alone). Run them from the tray or a hotkey, on a schedule (*Cozy* 30 minutes before sunset, *Late night* at 23:00, everything off at 1:00), or automatically: *Gaming* when a game goes full screen, *Movie* for a full-screen video, *Focus* while Photoshop is open or while you're on a call, and back to your own look afterwards.
+- **A sunset at night, a sunrise in the morning.** At bedtime the sleep timer fades your lights out slowly. In the morning *Wake up slowly* brings your room's lights up before your alarm, from a dim deep red through amber to bright warm white.
+- **Your PC and your room, apart or together.** Each group has its own brightness, switch and colors, so you can dim the room and keep the PC bright. Whites go from 2200 K candlelight to 6500 K daylight, and *Pick from screen* takes a color from anything on your screen.
+- **Everything a few keys away.** Press Ctrl+K and type a few letters to switch on a preset, open a light or jump to a setting. Keys 1 to 9 pick your presets, hotkeys work from any program, and *Undo* puts your lights back when you change your mind. The tray icon glows in your lights' color.
 - **Lights off when you step away.** Lock the PC, let its screen go off or put it to sleep, and the PC's lights (or all of them) switch off; they come back as they were when you return (Setup → Automatic).
 - **In sync with what you hear.** Bluetooth headphones play the sound later than your PC sends it; Glowstage notices and waits for them. Slow lights (Hue, Govee, Home Assistant) get calmer looks that still catch every hit.
-- **From your phone.** Scan a code in Setup and your phone controls the lights on the same Wi-Fi: on and off, brightness, presets, the light show and the sleep timer. Off until you switch it on; only the phone with the code's secret link gets in.
-- **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for the RGB inside your PC if you want it, and gets you to your first light show in a minute. It lives quietly in the tray.
+- **From your phone.** Scan a code in Setup and your phone controls the lights on the same Wi-Fi: every light or a whole group on and off, brightness, presets, the light show and the sleep timer. Off until you switch it on; only the phone with the code's secret link gets in.
+- **Your setup is safe.** Every day you use it, Glowstage keeps a copy of your presets, lights and settings for 14 days. Go back to one in two clicks, or save everything to a file and take it to another PC.
+- **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for the RGB inside your PC if you want it, and gets you to your first light show in a minute. It lives quietly in the tray, and when a light stops answering, Home tells you which one and what to try.
 
 <p align="center">
   <img src="docs/images/home.png" alt="The Home page: presets and every light with its own switch and brightness" width="49%">
@@ -116,6 +120,12 @@ It writes down where it was in `%APPDATA%\Glowstage\hang.log` (when it stops res
 <summary><b>Is the Counter-Strike 2 lighting safe for VAC?</b></summary>
 
 Yes. It uses Valve's own game state integration, the feature RGB makers and stream overlays use: CS2 itself sends what happens in the match to Glowstage on your PC. Nothing reads the game's memory or changes the game. Connecting puts one small text file (`gamestate_integration_glowstage.cfg`) in CS2's cfg folder; Disconnect removes it.
+</details>
+
+<details>
+<summary><b>Does Glowstage use my camera or microphone?</b></summary>
+
+No. The light show listens to the sound your PC plays, not to a microphone. *On a call* (off until you pick a look for it) only reads whether Windows says an app is using your camera or microphone, the same thing the privacy icon in your taskbar shows. It never sees or hears what they pick up.
 </details>
 
 <details>
