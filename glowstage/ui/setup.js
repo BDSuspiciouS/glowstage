@@ -429,7 +429,8 @@ function appSection() {
     h("div", { class: "form-actions", style: "margin-top:14px" },
       h("button", { class: "btn", type: "button", text: "Show the welcome tour", onclick: () => { closeSettings(); openWizard(); } }),
       h("button", { class: "btn", type: "button", text: "Restart Glowstage",
-        onclick: async () => { toast("Restarting Glowstage…"); await call("restart_app"); } })),
+        onclick: async () => { toast("Restarting Glowstage…"); await call("restart_app"); } }),
+      h("button", { class: "btn", type: "button", text: "Report a problem", onclick: openReport })),
     h("p", { class: "hint", style: "margin-top:16px", text: `${about.name || "Glowstage"} ${about.version || ""} · free and open source (GPL-3.0)` }),
     h("div", { class: "form-actions" },
       ...(about.donate || []).map(d => h("button", { class: "btn btn-support", type: "button",
@@ -437,6 +438,28 @@ function appSection() {
       about.repo ? h("button", { class: "btn", type: "button", text: "Project page", onclick: () => call("open_link", about.repo) }) : null,
       about.repo ? h("button", { class: "btn btn-quiet", type: "button", text: "Check for updates",
         onclick: () => call("open_link", about.repo + "/releases") }) : null));
+}
+
+/* Report a problem: what goes with it, to read first, then a GitHub issue with it filled in. */
+async function openReport() {
+  const text = await call("diagnostics");
+  if (text === undefined) return;
+  const box = h("textarea", { class: "text-input report-text", readonly: true, rows: "12", "aria-label": "What goes with the report" });
+  box.value = text;
+  openModal({
+    title: "Report a problem",
+    wide: true,
+    body: h("div", {},
+      h("p", { class: "hint", text: "This goes with your report: your Glowstage version, Windows, your lights and whether they answer, and the last warnings from the log. No keys or passwords. Read it first; on GitHub you add what happened before you send it." }),
+      box,
+      h("div", { class: "form-actions", style: "margin-top:10px" },
+        h("button", { class: "btn", type: "button", text: "Copy", onclick: async () => {
+          try { await navigator.clipboard.writeText(text); toast("Copied: paste it wherever you ask for help"); }
+          catch { box.select(); toast("Couldn't copy it: it's selected, press Ctrl+C", true); }
+        } }))),
+    ok: "Open a GitHub issue",
+    onOk: async () => { await call("report_problem"); toast("Your browser opens GitHub with the report filled in"); return true; },
+  });
 }
 
 function openSettings() { go("setup"); }

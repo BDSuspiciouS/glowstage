@@ -8,7 +8,7 @@ import logging
 import threading
 import webbrowser
 
-from . import automations, genre_install, online, webfix, whatsnew, winutil
+from . import automations, diagnostics, genre_install, online, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -127,6 +127,16 @@ class Api:
     def remote_qr(self):
         """The phone remote's link as a QR code (SVG)."""
         return self._app.remote.qr_svg()
+
+    @_safe
+    def diagnostics(self):
+        """Report a problem: the summary that goes with it, to read before sending."""
+        return diagnostics.report(self._app)
+
+    @_safe
+    def report_problem(self):
+        """A new GitHub issue with the summary filled in (the browser shows it before it's sent)."""
+        webbrowser.open(diagnostics.issue_url(diagnostics.report(self._app)))
 
     @_safe
     def whats_new_seen(self):

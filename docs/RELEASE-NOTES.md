@@ -10,6 +10,7 @@ Glowstage 0.9.7: a phone remote, games flash along, your keyboard ripples as you
 - Sleep timer (Home, or the tray): the lights that are on fade out slowly over 15 minutes to an hour and a half, like a sunset, and switch off at the end. Next time they come on as they were; a light you change meanwhile is left alone, and cancelling puts the brightness back.
 - Undo: picked a preset over the colors you'd just made, or switched everything off? *Undo* in the message that pops up puts your lights back as they were (also in the tray, and Ctrl+Alt+Shift+Z). Undo again to redo.
 - More hotkeys (Setup → App → Hotkeys): Ctrl+Alt+Shift+Up and Down for brighter and darker (hold to keep going), +N for the sleep timer, +Z to undo.
+- Report a problem (Setup → App): shows you a short summary first (your version, Windows, your lights and whether they answer, the last warnings from the log; never a key or a password), then opens a GitHub issue with it filled in, or copies it.
 - After an update, Home says what's new in a short card, with a *Show me* for each new thing that takes you right to it.
 - Fixed: after an update the window could stay empty. It was loaded through a small web server on a fixed port, and WebView2 kept an old page in its cache next to the new scripts. It now opens straight from its files.
 - The log now names an error a light reports without a message (like OpenRGB dropping its connection).
