@@ -131,7 +131,7 @@ python -m pip install -r requirements.txt
 python -m glowstage
 ```
 
-Python 3.12. `tools\build.ps1` builds `Glowstage.exe` and the release zip on your own PC. To work on the interface in a browser with sample lights, serve `glowstage/ui` (`python -m http.server --directory glowstage/ui`) and open it. `tools/show_bench.py` replays recorded songs through the light show and measures how it does, see [the light show in detail](docs/LIGHT-SHOW.md).
+Python 3.12. `tools\build.ps1` builds `Glowstage.exe` and the release zip on your own PC. To work on the interface in a browser with sample lights, serve `glowstage/ui` (`python -m http.server --directory glowstage/ui`) and open it. `tools/show_bench.py` replays recorded songs through the light show and measures how it does, see [the light show in detail](docs/LIGHT-SHOW.md). `tools/window_check.py` checks the real app window (start it with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`): JavaScript errors while it loads, and whether Home, the effects and Setup show up with your real data.
 
 ## License
 

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from .paths import APP_DIR
@@ -159,5 +160,13 @@ class Config:
                 self._timer = None
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+            for attempt in range(5):
+                try:    # (another thread may change a setting right now: then just try again)
+                    text = json.dumps(self.data, indent=2)
+                    break
+                except RuntimeError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.01)
+            tmp.write_text(text, encoding="utf-8")
             os.replace(tmp, self.path)
