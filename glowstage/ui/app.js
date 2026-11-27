@@ -272,8 +272,9 @@ function renderHomeNotes() {
   const auto = app ? { icon: "spark", title: `${app.name} is open`, text: "Your lights changed for it by themselves and go back when you close it." }
     : AUTO_NOTES[S.data.auto];
   const sleep = S.data.sleep;
+  const news = !S.newsClosed && S.data.whatsNew;
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
-    sleep && sleep.until]);
+    sleep && sleep.until, news && news.version]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
@@ -290,6 +291,15 @@ function renderHomeNotes() {
       h("div", { class: "note-actions" },
         h("button", { class: "btn", type: "button", text: "Put my lights back", onclick: async () => {
           await call("stop_automation"); refresh(true); } }))) : null,
+    news ? h("div", { class: "note card note-new", role: "status" },
+      h("span", { class: "note-icon" }, icon("spark")),
+      h("div", { class: "note-text" }, h("strong", { text: `New in Glowstage ${news.version}` }),
+        h("ul", { class: "new-list" }, news.items.map(it => h("li", {},
+          h("span", { class: "new-title", text: it.title }), h("span", { class: "muted", text: it.text }),
+          h("button", { class: "link-btn", type: "button", text: "Show me", onclick: () => showNew(it.go) }))))),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Got it", onclick: () => {
+          S.newsClosed = true; call("whats_new_seen"); renderHomeNotes(); } }))) : null,
     showUpdate && busy ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("spark")),
       h("div", { class: "note-text" }, h("strong", { text: `Updating to Glowstage ${up.version}` }),
@@ -320,6 +330,24 @@ function renderHomeNotes() {
           S.supportClosed = true; call("support_answer", "later"); renderHomeNotes(); } }),
         h("button", { class: "link-btn", type: "button", text: "Don't ask again", onclick: () => {
           S.supportClosed = true; call("support_answer", "never"); renderHomeNotes(); } }))) : null);
+}
+
+/** "Show me" on the what's-new card: open the new thing. */
+function showNew(where) {
+  if (where === "sleep") return openSleepTimer();
+  if (where.startsWith("setup:")) {
+    go("setup");
+    setTimeout(() => { const s = $("#set-" + where.slice(6)); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+    return;
+  }
+  if (where.startsWith("effect:")) {
+    $("#all-color").click();
+    switchTab("effects");
+    setTimeout(() => {
+      const card = document.querySelector(`#fx-grid [data-fx="${where.slice(7)}"]`);
+      if (card) { card.scrollIntoView({ block: "center", behavior: "smooth" }); card.focus({ preventScroll: true }); }
+    }, 120);
+  }
 }
 
 const clockTime = epoch => new Date(epoch * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

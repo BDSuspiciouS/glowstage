@@ -8,7 +8,7 @@ import logging
 import threading
 import webbrowser
 
-from . import automations, genre_install, online, webfix, winutil
+from . import automations, genre_install, online, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -53,7 +53,8 @@ class Api:
                  "updateResult": self._app.update_result,
                  "sun": SUN.describe(),
                  "sleep": self._m.sleep.describe(),
-                 "askSupport": self._ask_support()}
+                 "askSupport": self._ask_support(),
+                 "whatsNew": whatsnew.card(self._app.config["settings"])}
         if since is not None and since == self._m.revision:
             return {**self._m.live_status(), **extra, "same": True}
         return {**self._m.snapshot(), **extra}
@@ -111,6 +112,12 @@ class Api:
         if asked.startswith("later:"):
             return today >= asked[6:]
         return (datetime.date.today() - datetime.date.fromisoformat(first)).days >= 5
+
+    @_safe
+    def whats_new_seen(self):
+        """The "what's new" card was read: not again for this version."""
+        self._app.config["settings"]["seen_version"] = VERSION
+        self._app.config.save_soon()
 
     @_safe
     def support_answer(self, answer):

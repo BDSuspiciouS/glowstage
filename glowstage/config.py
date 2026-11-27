@@ -103,6 +103,7 @@ DEFAULTS = {
                  "away_lights": "",      # locked, screen off or asleep: "" nothing, "pc" or "all" off (away.py)
                  "first_run": "",        # the day Glowstage first ran (YYYY-MM-DD)
                  "support_asked": "",    # "", "later:YYYY-MM-DD", "never" or "done" (the support card)
+                 "seen_version": "",     # the version whose "what's new" card was seen (whatsnew.py)
                  "presets_version": PRESETS_VERSION},
 }
 

@@ -228,6 +228,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .note-support .note-icon { color: var(--love); background: rgba(255,122,168,.12); }
 .note-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .note-text .muted { font-size: 13px; }
+.note-new { align-items: flex-start; }
+.new-list { list-style: none; margin: 10px 0 2px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 22px; }
+.new-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.new-title { font-weight: 600; font-size: 13.5px; }
+.new-list .link-btn { margin-top: 2px; font-size: 13px; }
 .note-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 /* the support window */
 .support-lead { font-size: 15px; line-height: 1.5; margin: 0 0 6px; }

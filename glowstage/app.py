@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 
 import webview
 
-from . import webfix, winutil
+from . import webfix, whatsnew, winutil
 from .api import Api
 from .config import Config
 from .hotkeys import Hotkeys
@@ -41,6 +41,8 @@ class App:
         settings = self.config["settings"]
         if not settings.get("first_run"):
             settings["first_run"] = datetime.date.today().isoformat()
+            self.config.save_soon()
+        if whatsnew.first_run(settings):
             self.config.save_soon()
         self.window: webview.Window | None = None
         self.start_minimized = start_minimized or bool(self.config["settings"].get("start_minimized"))

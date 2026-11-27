@@ -115,6 +115,11 @@
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
     auto: (location.search.match(/[?&]auto=(cs2|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
+    whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.7", items: [
+      { title: "Screen + sound", go: "setup:automatic", text: "In any game your lights follow the screen and flash with every shot or explosion, on the side it came from." },
+      { title: "Typing ripples", go: "effect:typing", text: "Every key you press lights up and sends a ripple across your keyboard." },
+      { title: "A look per app", go: "setup:automatic", text: "Focus while Photoshop is open, the light show with your DJ app: back to your own look when you close it." },
+      { title: "Sleep timer", go: "sleep", text: "At bedtime your lights fade out like a sunset and switch off." }] } : null,
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
     updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
@@ -163,6 +168,7 @@
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
+    whats_new_seen: () => { data.whatsNew = null; return ok(); },
     install_update: () => {
       let p = 0;
       const tick = () => { p += 0.12; Object.assign(data.updating, p < 1

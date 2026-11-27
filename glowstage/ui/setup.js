@@ -275,7 +275,7 @@ function automaticSection() {
   const pick = (key, label, options, value) => h("label", { class: "toggle-row" }, h("span", { text: label }),
     h("select", { class: "auto-look", onchange: e => save(key, key === "auto_show" ? e.target.value === "show" : e.target.value) },
       options.map(([v, t]) => h("option", { value: v, text: t, selected: v === value }))));
-  return h("section", { class: "set-section" },
+  return h("section", { class: "set-section", id: "set-automatic" },
     h("h3", { text: "Automatic" }),
     h("p", { class: "hint", text: "Your lights change by themselves and go back to how they were afterwards. Change anything yourself and Glowstage leaves them alone until it's over." }),
     pick("auto_game", "When a game is full screen", looks, s.auto_game || ""),
