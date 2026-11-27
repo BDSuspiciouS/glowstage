@@ -34,70 +34,89 @@ def _noise(x: float, seed: int) -> float:
     return a + (b - a) * f
 
 
+def _places(n: int, ctx: dict) -> list[float]:
+    """Where each LED sits, 0..1: along the light itself, or with "Flow across all lights"
+    (ctx["flow"]) along the stage, so one animation runs from light to light."""
+    if ctx.get("flow"):
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        return [start + (end - start) * (i + 0.5) / n for i in range(n)]
+    return [i / max(n, 1) for i in range(n)]
+
+
 class Effect:
     id = ""
     name = ""
     group = "animation"   # "animation" or "music"
     uses: tuple[str, ...] = ("speed",)
+    flows = False         # can run from light to light along the stage (_places)
 
     def render(self, t: float, n: int, st: LightState, mem: dict, ctx: dict) -> list[RGB]:
         raise NotImplementedError
 
     def describe(self) -> dict:
-        return {"id": self.id, "name": self.name, "uses": list(self.uses), "group": self.group}
+        return {"id": self.id, "name": self.name, "uses": list(self.uses), "group": self.group, "flows": self.flows}
 
 
 class Rainbow(Effect):
     id, name = "rainbow", "Rainbow wave"
+    flows = True
 
     def render(self, t, n, st, mem, ctx):
         shift = t * rate(st.speed) * 0.5
-        return [hsv(i / max(n, 1) - shift) for i in range(n)]
+        return [hsv(u - shift) for u in _places(n, ctx)]
 
 
 class Spectrum(Effect):
     id, name = "spectrum", "Spectrum cycle"
+    flows = True
 
     def render(self, t, n, st, mem, ctx):
-        return [hsv(t * rate(st.speed) * 0.25)] * n
+        hue = t * rate(st.speed) * 0.25
+        if ctx.get("flow"):                 # each light a step behind the one on its left
+            return [hsv(hue - 0.5 * u) for u in _places(n, ctx)]
+        return [hsv(hue)] * n
 
 
 class Breathing(Effect):
     id, name = "breathing", "Breathing"
     uses = ("speed", "color", "color2")
+    flows = True
+
+    def _one(self, phase: float, st) -> RGB:
+        level = ((1 - math.cos(2 * math.pi * phase)) / 2) ** 1.5
+        base = hex_to_rgb(st.color if math.floor(phase) % 2 == 0 else st.color2)
+        return scale(base, 0.04 + 0.96 * level)
 
     def render(self, t, n, st, mem, ctx):
         phase = t * rate(st.speed) * 0.5
-        level = ((1 - math.cos(2 * math.pi * phase)) / 2) ** 1.5
-        base = hex_to_rgb(st.color if int(phase) % 2 == 0 else st.color2)
-        return [scale(base, 0.04 + 0.96 * level)] * n
+        if ctx.get("flow"):                 # a breath that rolls across the room
+            return [self._one(phase - 0.6 * u, st) for u in _places(n, ctx)]
+        return [self._one(phase, st)] * n
 
 
 class Wave(Effect):
     id, name = "wave", "Color wave"
     uses = ("speed", "color", "color2")
+    flows = True
 
     def render(self, t, n, st, mem, ctx):
         a, b = hex_to_rgb(st.color), hex_to_rgb(st.color2)
         shift = t * rate(st.speed) * 0.5
-        return [lerp(a, b, (math.sin(2 * math.pi * (i / max(n, 1) - shift)) + 1) / 2) for i in range(n)]
+        return [lerp(a, b, (math.sin(2 * math.pi * (u - shift)) + 1) / 2) for u in _places(n, ctx)]
 
 
 class Comet(Effect):
     id, name = "comet", "Comet"
     uses = ("speed", "color", "color2")
+    flows = True
 
     def render(self, t, n, st, mem, ctx):
         if n == 0:
             return []
-        head = (t * rate(st.speed) * 0.5 % 1.0) * n
-        tail = max(2.0, n * 0.3)
+        head = t * rate(st.speed) * 0.5 % 1.0
+        tail = 0.3 if ctx.get("flow") else max(2.0, n * 0.3) / n
         color, bg = hex_to_rgb(st.color), scale(hex_to_rgb(st.color2), 0.06)
-        out = []
-        for i in range(n):
-            d = (head - i) % n
-            out.append(lerp(bg, color, max(0.0, 1 - d / tail) ** 2))
-        return out
+        return [lerp(bg, color, max(0.0, 1 - ((head - u) % 1.0) / tail) ** 2) for u in _places(n, ctx)]
 
 
 class Twinkle(Effect):
@@ -133,12 +152,13 @@ class Fire(Effect):
 
 class Aurora(Effect):
     id, name = "aurora", "Aurora"
+    flows = True
 
     def render(self, t, n, st, mem, ctx):
         r = rate(st.speed)
         out = []
-        for i in range(n):
-            x = i / max(n, 1) * 3
+        for u in _places(n, ctx):
+            x = u * 3
             hue = 0.33 + 0.42 * _noise(x + t * r, 3)            # green .. violet
             val = 0.25 + 0.75 * _noise(x * 1.7 - t * r * 1.3, 4)
             out.append(hsv(hue, 0.85, val))

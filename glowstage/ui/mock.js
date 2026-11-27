@@ -15,7 +15,8 @@
     ["music_sparkle", "Sparkle", ["speed"], "music"], ["music_meteor", "Meteor", ["speed"], "music"],
     ["music_fire", "Music fire", ["speed"], "music"], ["music_aurora", "Northern lights", ["speed"], "music"],
     ["music_heart", "Heartbeat", ["speed", "color", "color2"], "music"]]
-    .map(([id, name, uses, group]) => ({ id, name, uses, group: group || "animation" }));
+    .map(([id, name, uses, group]) => ({ id, name, uses, group: group || "animation",
+      flows: ["rainbow", "spectrum", "breathing", "wave", "comet", "aurora"].includes(id) }));
   const zones = [{ index: 0, name: "Pump", leds: 29, min: 29, max: 29, resizable: false, detected: -1 },
     ...[1, 2, 3, 4, 5, 6].map(i => ({ index: i, name: `Corsair Fan Header ${i}`, leds: i <= 3 ? 8 : 0, min: 0, max: 34,
       resizable: true, detected: i <= 3 ? 8 : null }))];
@@ -128,7 +129,7 @@
     games: { cs2: { found: true, connected: /[?&]cs2\b/.test(location.search), fileThere: true, receiving: /[?&]cs2\b/.test(location.search),
       inMatch: /[?&]cs2\b/.test(location.search), team: "CT", health: 87 } },
     settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "",
-      lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "",
+      lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
   };
   const wledFx = ["Android", "Aurora", "Blink", "Bouncing Balls", "Breathe", "Candle", "Chase", "Colorloop", "Fire 2012",

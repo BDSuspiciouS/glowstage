@@ -103,6 +103,7 @@ DEFAULTS = {
                  "auto_game": "",        # a game in full screen: "", "screen" or "preset:<name>"
                  "auto_video": "",       # a video in full screen: the same
                  "away_lights": "",      # locked, screen off or asleep: "" nothing, "pc" or "all" off (away.py)
+                 "flow": False,          # animations run from light to light along the stage (effects._places)
                  "first_run": "",        # the day Glowstage first ran (YYYY-MM-DD)
                  "support_asked": "",    # "", "later:YYYY-MM-DD", "never" or "done" (the support card)
                  "seen_version": "",     # the version whose "what's new" card was seen (whatsnew.py)

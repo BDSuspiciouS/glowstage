@@ -1097,6 +1097,8 @@ function renderEffects() {
   const usesColor = !fx || fx.uses.includes("color");
   $("#fx-colors").style.display = usesColor ? "" : "none";
   speed.closest(".field-row").style.display = !fx || fx.uses.includes("speed") ? "" : "none";
+  $("#fx-flow").hidden = !(fx && fx.flows);
+  $("#fx-flow-on").checked = !!(S.data.settings || {}).flow;
   const audio = S.data.audio || {};
   $("#fx-note").textContent = !fx ? "Pick an effect to start it."
     : fx.id === "screen" ? "Follows the main colors on your primary display. Great for the monitor strip during games and films."
@@ -1370,6 +1372,12 @@ function bindStatic() {
   hex.addEventListener("change", commitHex);
 
   $("#fx-speed").addEventListener("input", e => sendTargets({ speed: Number(e.target.value) }, "speed"));
+  $("#fx-flow-on").addEventListener("change", async e => {
+    await call("set_setting", "flow", e.target.checked);
+    toast(e.target.checked ? "Your animations now run from light to light. Light show → Arrange sets where each light is"
+      : "Each light runs its own animation again");
+    refresh(true);
+  });
   $("#fx-c1").addEventListener("input", e => sendTargets({ color: e.target.value }, "c1"));
   $("#fx-c2").addEventListener("input", e => sendTargets({ color2: e.target.value }, "c2"));
   $("#native-speed").addEventListener("input", e => { const d = nativeDevice(); if (d) send([d.id], { speed: Number(e.target.value) }, "nspeed"); });

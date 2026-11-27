@@ -113,7 +113,10 @@ class EffectEngine:
                 settings = self.manager.config["settings"]
                 intensity = sum(st.speed for st in show) / len(show) / 100
                 ctx["show"] = self.show.update(heard, now, intensity, settings.get("show_strobe", True), sync)
-        if show or screen or game:   # where each light sits on the stage
+        flow = bool(self.manager.config["settings"].get("flow")) and any(
+            getattr(EFFECTS.get(st.effect), "flows", False) for _, st in targets)
+        ctx["flow"] = flow
+        if show or screen or game or flow:   # where each light sits on the stage
             spans = stage_spans(list(self.manager.devices.values()), self.manager.config.data.get("show_layout"))
         for dev, st in targets:
             due = now - self._last.get(dev.id, 0.0) >= 1 / dev.max_fps - 0.004
