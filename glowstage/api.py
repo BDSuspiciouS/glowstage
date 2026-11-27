@@ -12,6 +12,7 @@ from . import genre_install, online, webfix, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
+from .away import SCOPES
 from .sun import SUN
 
 log = logging.getLogger(__name__)
@@ -224,6 +225,8 @@ class Api:
             if value not in ("", "screen") and not (value.startswith("preset:")
                                                     and value[7:] in self._app.manager.preset_names()):
                 raise ValueError("Choose a look from the list")
+        if key == "away_lights" and value not in SCOPES:
+            raise ValueError("Choose what happens from the list")
         self._app.config["settings"][key] = value
         self._app.config.save_soon()
         if key == "hotkeys":

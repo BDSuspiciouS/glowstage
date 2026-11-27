@@ -51,7 +51,7 @@ class App:
 
     def run(self) -> None:
         winutil.set_app_id()
-        winutil.watch_shutdown(self._on_windows_shutdown)
+        winutil.watch_windows(self._on_windows_shutdown, self.manager.away.set)
         self.manager.start()
         self.tray.start()
         self.hotkeys.set_enabled(bool(self.config["settings"].get("hotkeys")))

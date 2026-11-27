@@ -248,11 +248,16 @@ def end_openrgb_task() -> bool:
     return r.returncode == 0
 
 
-# ---- shutdown -----------------------------------------------------------------------------
+# ---- shutdown, lock, screen off, sleep -------------------------------------------------------
 
 SM_SHUTTINGDOWN = 0x2000
 WM_QUERYENDSESSION = 0x0011
 WM_ENDSESSION = 0x0016
+WM_POWERBROADCAST = 0x0218
+WM_WTSSESSION_CHANGE = 0x02B1
+WTS_SESSION_LOCK, WTS_SESSION_UNLOCK = 0x7, 0x8
+PBT_APMSUSPEND, PBT_APMRESUMESUSPEND, PBT_APMRESUMEAUTOMATIC = 0x4, 0x7, 0x12
+PBT_POWERSETTINGCHANGE = 0x8013
 WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
 
 
@@ -263,19 +268,50 @@ class WNDCLASSW(ctypes.Structure):
                 ("lpszClassName", wt.LPCWSTR)]
 
 
+class GUID(ctypes.Structure):
+    _fields_ = [("Data1", wt.DWORD), ("Data2", wt.WORD), ("Data3", wt.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+
+class POWERBROADCAST_SETTING(ctypes.Structure):
+    _fields_ = [("PowerSetting", GUID), ("DataLength", wt.DWORD), ("Data", wt.DWORD)]
+
+
+# The screen: 0 off, 1 on, 2 dimmed. Windows says what it is right away, then every change.
+GUID_CONSOLE_DISPLAY_STATE = GUID(0x6FE69556, 0x704A, 0x47A0,
+                                  (ctypes.c_ubyte * 8)(0x8F, 0x24, 0xC2, 0x8D, 0x93, 0x6F, 0xDA, 0x47))
+
+
 def shutting_down() -> bool:
     return bool(ctypes.windll.user32.GetSystemMetrics(SM_SHUTTINGDOWN))
 
 
-def watch_shutdown(on_shutdown) -> None:
-    """Call on_shutdown() when Windows asks to shut down, restart or sign out. It runs on the
-    watcher thread and should finish within a couple of seconds."""
-    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+def watch_windows(on_shutdown, on_away=None) -> None:
+    """Call on_shutdown() when Windows asks to shut down, restart or sign out; it runs on the
+    watcher thread and should finish within a couple of seconds. And on_away(reason, on) when
+    the PC is locked or unlocked ("locked"), its screen goes off or on ("screen off"), or it goes
+    to sleep or wakes up ("asleep"); before sleep it has about two seconds."""
+    # Our own copies of the DLLs, so these prototypes never clash with another module's.
+    user32, kernel32 = ctypes.WinDLL("user32"), ctypes.WinDLL("kernel32")
     # Be asked before most other programs, so OpenRGB is still running when we switch lights off.
-    kernel32.SetProcessShutdownParameters(0x3FF, 0)
+    ctypes.windll.kernel32.SetProcessShutdownParameters(0x3FF, 0)
     user32.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
     user32.DefWindowProcW.restype = ctypes.c_ssize_t
+    kernel32.GetModuleHandleW.argtypes = [wt.LPCWSTR]
+    kernel32.GetModuleHandleW.restype = wt.HMODULE
+    user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
+    user32.RegisterClassW.restype = wt.ATOM
+    user32.CreateWindowExW.argtypes = [wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ctypes.c_int, ctypes.c_int,
+                                       ctypes.c_int, ctypes.c_int, wt.HWND, wt.HMENU, wt.HINSTANCE, wt.LPVOID]
+    user32.CreateWindowExW.restype = wt.HWND
+    user32.RegisterPowerSettingNotification.argtypes = [wt.HANDLE, ctypes.POINTER(GUID), wt.DWORD]
+    user32.RegisterPowerSettingNotification.restype = wt.HANDLE
     handled = threading.Event()
+
+    def away(reason: str, on: bool) -> None:
+        try:
+            on_away(reason, on)
+        except Exception:
+            log.exception("away handler failed")
 
     def wndproc(hwnd, msg, wparam, lparam):
         if msg == WM_QUERYENDSESSION:
@@ -288,20 +324,49 @@ def watch_shutdown(on_shutdown) -> None:
             return 1  # never block shutdown
         if msg == WM_ENDSESSION:
             return 0
+        if msg == WM_WTSSESSION_CHANGE and on_away:
+            if wparam in (WTS_SESSION_LOCK, WTS_SESSION_UNLOCK):
+                away("locked", wparam == WTS_SESSION_LOCK)
+            return 0
+        if msg == WM_POWERBROADCAST and on_away:
+            if wparam == PBT_APMSUSPEND:
+                away("asleep", True)
+            elif wparam in (PBT_APMRESUMESUSPEND, PBT_APMRESUMEAUTOMATIC):
+                away("asleep", False)
+            elif wparam == PBT_POWERSETTINGCHANGE and lparam:
+                setting = POWERBROADCAST_SETTING.from_address(lparam)
+                if bytes(setting.PowerSetting) == bytes(GUID_CONSOLE_DISPLAY_STATE):
+                    away("screen off", setting.Data == 0)
+            return 1
         return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+    def listen(hwnd) -> None:
+        """Ask for lock and screen news. Right after Windows starts, the session service may
+        not be ready yet: then try again for a minute."""
+        if not user32.RegisterPowerSettingNotification(hwnd, ctypes.byref(GUID_CONSOLE_DISPLAY_STATE), 0):
+            log.warning("Can't follow the screen going off")
+        wtsapi32 = ctypes.WinDLL("wtsapi32")
+        wtsapi32.WTSRegisterSessionNotification.argtypes = [wt.HWND, wt.DWORD]
+        wtsapi32.WTSRegisterSessionNotification.restype = wt.BOOL
+        for _ in range(12):
+            if wtsapi32.WTSRegisterSessionNotification(hwnd, 0):   # NOTIFY_FOR_THIS_SESSION
+                return
+            time.sleep(5)
+        log.warning("Can't follow the PC being locked")
 
     def run():
         proc = WNDPROC(wndproc)
         hinst = kernel32.GetModuleHandleW(None)
         cls = WNDCLASSW(lpfnWndProc=proc, hInstance=hinst, lpszClassName=f"{APP_NAME}ShutdownWatcher")
         user32.RegisterClassW(ctypes.byref(cls))
-        user32.CreateWindowExW.restype = wt.HWND
         # A hidden top-level window: message-only windows don't get WM_QUERYENDSESSION.
         hwnd = user32.CreateWindowExW(0, cls.lpszClassName, f"{APP_NAME} shutdown watcher", 0,
                                       0, 0, 0, 0, None, None, hinst, None)
         if not hwnd:
             log.warning("shutdown watcher window could not be created")
             return
+        if on_away:
+            threading.Thread(target=listen, args=(hwnd,), name="away-listen", daemon=True).start()
         msg = wt.MSG()
         while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
             user32.TranslateMessage(ctypes.byref(msg))

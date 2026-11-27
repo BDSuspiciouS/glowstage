@@ -13,6 +13,7 @@ from . import genre_install
 from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations
+from .away import Away
 from .games import Games
 from .devices.base import Device
 from .devices.discovery import Discovery
@@ -51,6 +52,7 @@ class DeviceWorker:
         self.device = device
         self.on_error = on_error
         self._pending: LightState | None = None
+        self._working = False
         self._cv = threading.Condition()
         threading.Thread(target=self._run, name=f"worker:{device.id}", daemon=True).start()
 
@@ -59,18 +61,25 @@ class DeviceWorker:
             self._pending = state
             self._cv.notify()
 
+    @property
+    def busy(self) -> bool:
+        """A state is waiting or being applied."""
+        return self._working or self._pending is not None
+
     def _run(self) -> None:
         while True:
             with self._cv:
                 while self._pending is None:
                     self._cv.wait()
+                self._working = True
                 state, self._pending = self._pending, None
-            if not self.device.online:
-                continue  # re-applied when the device reconnects
             try:
-                self.device.apply(state)
+                if self.device.online:   # (an offline one gets its state again when it reconnects)
+                    self.device.apply(state)
             except Exception as e:
                 self.on_error(self.device, e)
+            finally:
+                self._working = False
 
 
 class DeviceManager:
@@ -84,6 +93,7 @@ class DeviceManager:
         self.listeners: list[Callable[[], None]] = []
         self.revision = 0
         self._applied: set[str] = set()      # devices we have pushed a state to this session
+        self._touches: dict[str, int] = {}   # how often each light was changed (away.py)
         self._connecting: set[str] = set()
         self.force_on = False                # set when started with Windows: lights come on
         self._forced: set[str] = set()
@@ -93,6 +103,7 @@ class DeviceManager:
         self.engine = EffectEngine(self)
         self.games = Games(config, self._changed)
         self.automations = Automations(self)
+        self.away = Away(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -319,19 +330,23 @@ class DeviceManager:
         self._apply({dev_id: patch for dev_id in targets},
                     preset=self.config["settings"].get("active_preset", "") if keep else "")
 
-    def _apply(self, patches: dict[str, dict], preset: str) -> None:
-        """Patch many lights at once: one save and one change for all of them."""
+    def _apply(self, patches: dict[str, dict], preset: str, save: bool = True) -> None:
+        """Patch many lights at once: one save and one change for all of them. (save=False:
+        for now only, the lights come back with their saved state next time.)"""
         with self.lock:
             for dev_id, patch in patches.items():
                 if dev_id not in self.devices or not patch:
                     continue
                 st = self.states[dev_id].patched(patch)
                 self.states[dev_id] = st
-                self.config["states"][dev_id] = st.to_dict()
+                if save:
+                    self.config["states"][dev_id] = st.to_dict()
                 self._applied.add(dev_id)
+                self._touches[dev_id] = self._touches.get(dev_id, 0) + 1
                 self.workers[dev_id].submit(st)
             self.config["settings"]["active_preset"] = preset
-        self.config.save_soon()
+        if save:
+            self.config.save_soon()
         self._changed()
 
     def set_power_all(self, on: bool) -> None:
@@ -385,6 +400,39 @@ class DeviceManager:
     def screen_sync(self) -> None:
         """The lights of the show follow the screen (each the part where it sits on the stage)."""
         self._apply({i: {"mode": "effect", "effect": "screen"} for i in self.show_lights()}, preset="")
+
+    # ---- away: lights off while you're away (away.py) -----------------------------------------
+
+    def away_off(self, scope: str) -> dict[str, int]:
+        """Switch off the lights in `scope` ("pc" or "all") that are on, without saving that.
+        Returns them, each with its change count right after (to see later whether anything
+        else changed it)."""
+        with self.lock:
+            ids = [i for i in self.visible_ids() if i in self.states and self.states[i].on
+                   and (scope == "all" or self.devices[i].group == "pc")]
+            preset = self.config["settings"].get("active_preset", "")
+        if ids:
+            self._apply({i: {"on": False} for i in ids}, preset=preset, save=False)
+        with self.lock:
+            return {i: self._touches.get(i, 0) for i in ids}
+
+    def away_back(self, off: dict[str, int]) -> list[str]:
+        """Switch the lights from away_off on again, except ones changed since."""
+        with self.lock:
+            ids = [i for i, n in off.items() if i in self.devices and self._touches.get(i, 0) == n]
+            preset = self.config["settings"].get("active_preset", "")
+        if ids:
+            self._apply({i: {"on": True} for i in ids}, preset=preset)
+        return ids
+
+    def wait_applied(self, ids: list[str], timeout: float) -> bool:
+        """Wait (at most `timeout` s) until these lights have their new state."""
+        deadline = time.monotonic() + timeout
+        while any(self.workers[i].busy for i in ids if i in self.workers):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+        return True
 
     # ---- schedules: presets, on, off or the show at set times ---------------------------------
 

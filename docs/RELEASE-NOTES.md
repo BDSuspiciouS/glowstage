@@ -1,8 +1,13 @@
-Glowstage 0.9.5: light that follows the sun.
+Glowstage 0.9.6: lights off when you step away.
 
-**Install:** download `Glowstage-0.9.5-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
+**Install:** download `Glowstage-0.9.6-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
 
 **New**
+- Lights off when you step away (Setup → Automatic): when you lock the PC, its screen goes off or it goes to sleep, the PC's lights (or all of them, your choice) switch off, and they come back as they were when you return. A light that a schedule changes meanwhile keeps its new look, and if Windows shuts down while you're away, your lights still come back next time. Off until you switch it on.
+- No automatic looks (games, videos, music) while you're away.
+- Fixed: the window that hears Windows shut down was set up with a cut-off handle, which could write needless errors into the crash log.
+
+**New in 0.9.5**
 - Follow the sun: a new look and preset that lights your room like the day outside. Cool and bright at noon, golden as the sun sets, warm in the evening, and from 23:00 a low amber glow for the night. Sunrise and sunset come from where you live (Windows' region setting), worked out on your PC: no location access, no internet. Use it as a preset, from the tray, or on a schedule.
 - The speed slider hides for looks that don't use it (Screen sync, Follow the sun).
 
@@ -28,6 +33,6 @@ Glowstage 0.9.5: light that follows the sun.
 - A live stage view of every light in your room; choose which lights join the show.
 - Slow lights (Hue, Govee, Home Assistant, Elgato) get calm versions of the fast looks.
 - PC RGB through OpenRGB, WLED, Nanoleaf, ASRock Radeon cards and SignalRGB-protocol QMK keyboards; in beta: Philips Hue, LIFX, Govee, Yeelight, Elgato, Twinkly, Magic Home, Home Assistant and DMX (Art-Net / sACN).
-- Lives in the tray, lights on at boot and off at shutdown, tells you when a new version is out.
+- Lives in the tray, lights on at boot and off at shutdown or when you step away, updates itself with one click.
 
 **Needs:** Windows 10/11 64-bit. For PC RGB, OpenRGB: the welcome tour (or Setup → PC lighting) gets it for you.

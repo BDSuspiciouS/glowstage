@@ -223,6 +223,8 @@ class Automations:
     def _run(self) -> None:
         meter, meter_at, failed = None, 0.0, ""
         while not self._stop.wait(1.0):
+            if self.manager.away.active:   # nobody's watching: no automatic looks (away.py)
+                continue
             rules = self.rules()
             now = time.monotonic()
             kind, peak = None, 0.0

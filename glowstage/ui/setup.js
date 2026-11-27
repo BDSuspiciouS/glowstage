@@ -280,7 +280,9 @@ function automaticSection() {
     h("p", { class: "hint", text: "Your lights change by themselves and go back to how they were afterwards. Change anything yourself and Glowstage leaves them alone until it's over." }),
     pick("auto_game", "When a game is full screen", looks, s.auto_game || ""),
     pick("auto_video", "When a video is full screen (a browser or video player)", looks, s.auto_video || ""),
-    pick("auto_show", "When music plays", [["", "Nothing"], ["show", "Start the light show"]], s.auto_show ? "show" : ""));
+    pick("auto_show", "When music plays", [["", "Nothing"], ["show", "Start the light show"]], s.auto_show ? "show" : ""),
+    pick("away_lights", "When you step away: the PC is locked, its screen goes off or it sleeps",
+      [["", "Nothing"], ["pc", "Switch the PC's lights off"], ["all", "Switch all lights off"]], s.away_lights || ""));
 }
 
 function scheduleSection() {
