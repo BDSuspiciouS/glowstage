@@ -1,6 +1,7 @@
 "use strict";
 /* Sample backend so the UI can be previewed in a plain browser. Not used by the app. */
 (() => {
+  const OFFLINE = /[?&]offline\b/.test(location.search);   // ?offline: two lights stop answering
   const st = (o = {}) => ({ on: true, brightness: 100, mode: "color", color: "#7c4dff", color2: "#00e5ff",
     effect: "rainbow", speed: 50, native: null, palette: null, ...o });
   const effects = [["rainbow", "Rainbow wave", ["speed"]], ["spectrum", "Spectrum cycle", ["speed"]],
@@ -31,6 +32,7 @@
     update: /[?&]update\b/.test(location.search)
       ? { version: "0.9.8", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.8" } : null,
     askSupport: /[?&]support\b/.test(location.search),
+    offlineAge: OFFLINE ? 120 : 0,   // with ?offline the lights count as already gone for two minutes
     activePreset: "",
     devices: [
       { id: "openrgb:Corsair Commander Core", kind: "openrgb", group: "pc", name: "Commander Core", online: true, error: null,
@@ -43,9 +45,9 @@
         hasNative: false, label: "GX87 · 87 keys", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
       { id: "wled:1", kind: "wled", group: "room", name: "Desk strip", online: true, error: null, pixels: 297, hasNative: true,
         label: "WLED 0.15.3", host: "192.168.1.26", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
-      { id: "wled:2", kind: "wled", group: "room", name: "Monitor", online: true, error: null, pixels: 99, hasNative: true,
+      { id: "wled:2", kind: "wled", group: "room", name: "Monitor", online: !OFFLINE, error: OFFLINE ? "Not responding" : null, pixels: 99, hasNative: true,
         label: "WLED 0.15.3", host: "192.168.1.27", state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
-      { id: "nanoleaf:1", kind: "nanoleaf", group: "room", name: "Shapes", online: true, error: null, pixels: 9,
+      { id: "nanoleaf:1", kind: "nanoleaf", group: "room", name: "Shapes", online: !OFFLINE, error: OFFLINE ? "Unreachable" : null, pixels: 9,
         hasNative: true, label: "Nanoleaf Shapes · 9 panels", host: "192.168.1.30", paired: true, state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false },
       { id: "hue:001788:3", kind: "hue", group: "room", name: "Floor lamp", online: false, error: "Not paired", pixels: 1,
         hasNative: false, label: "Hue color lamp", host: "192.168.1.41", paired: false, state: st({ color: "#ffb46b" }), hidden: false },
@@ -125,6 +127,7 @@
       { title: "Sleep timer", go: "sleep", text: "At bedtime your lights fade out like a sunset and switch off." }] } : null,
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "" } : { on: false, url: "", error: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
+    wake: /[?&]wake/.test(location.search) ? { until: Date.now() / 1000 + 900, minutes: 30 } : null,
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
     updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
     recovered: /[?&]recovered\b/.test(location.search) ? "2026-11-26" : "",
@@ -174,6 +177,7 @@
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
+    cancel_wake: () => { data.wake = null; return ok(); },
     whats_new_seen: () => { data.whatsNew = null; return ok(); },
     undo: () => ok(),
     rename_preset: (o, n) => { const p = data.presets.find(x => x.name === o); if (p) p.name = n; data.revision++; return ok(); },

@@ -16,6 +16,7 @@ from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations, clean_app_looks
 from .away import Away
 from .timer import SleepTimer
+from .wake import WakeUp, wake_minutes
 from .games import Games
 from .devices.base import Device
 from .devices.discovery import Discovery
@@ -110,6 +111,7 @@ class DeviceManager:
         self.automations = Automations(self)
         self.away = Away(self)
         self.sleep = SleepTimer(self)
+        self.wake = WakeUp(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -141,6 +143,7 @@ class DeviceManager:
         self._stop.set()
         self.automations.stop()
         self.sleep.stop()
+        self.wake.stop()
         self.games.stop()
         self.engine.stop()
         self.discovery.stop()
@@ -544,7 +547,7 @@ class DeviceManager:
             elif not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
                 raise ValueError(f"{t or 'A time'} isn't a time of day (like 23:30), sunrise or sunset")
             action = str(s.get("action", ""))
-            if action not in ("off", "on", "show") and not action.startswith("preset:"):
+            if action not in ("off", "on", "show", "wake:15", "wake:30", "wake:45") and not action.startswith("preset:"):
                 raise ValueError("Choose what should happen")
             days = sorted({int(d) for d in s.get("days", range(7)) if 0 <= int(d) <= 6})
             item = {"time": t, "days": days, "action": action, "enabled": bool(s.get("enabled", True))}
@@ -564,7 +567,16 @@ class DeviceManager:
     def schedule_name(s: dict) -> str:
         """A schedule's time for the log: "23:00", "sunset-30", "sunrise+15", "sunset"."""
         off = s.get("offset", 0) if s.get("time") in ("sunrise", "sunset") else 0
-        return f"{s['time']}{off:+d}" if off else str(s["time"])
+        name = f"{s['time']}{off:+d}" if off else str(s["time"])
+        early = wake_minutes(s)
+        if early:   # a wake-up starts earlier: "07:00 (wake-up from 06:30)"
+            t = str(s["time"])
+            if re.fullmatch(r"\d\d:\d\d", t):
+                start = max(0, int(t[:2]) * 60 + int(t[3:5]) - early)
+                name += f" (wake-up from {start // 60:02d}:{start % 60:02d})"
+            else:
+                name += f" (wake-up {early} min early)"
+        return name
 
     def _scheduler(self) -> None:
         """Every 15 s: run what's due. A time missed by more than two minutes (the PC was asleep)
@@ -587,6 +599,7 @@ class DeviceManager:
             minute = self.schedule_minute(s, now)
             if minute is None:
                 continue
+            minute = max(0, minute - wake_minutes(s))    # a wake-up starts earlier
             late = (now - now.replace(hour=minute // 60, minute=minute % 60, second=0, microsecond=0)).total_seconds()
             key = f"{self.schedule_name(s)} {s['action']}"
             if 0 <= late < 120 and fired.get(key) != now.date():
@@ -603,6 +616,8 @@ class DeviceManager:
             self.start_show()
         elif action.startswith("preset:"):
             self.apply_preset(action[len("preset:"):])
+        elif action.startswith("wake:"):
+            self.wake.start(int(action[len("wake:"):]))
 
     def lights_off_now(self, pc: bool = True, room: bool = True) -> None:
         """Windows is shutting down: switch the lights off right away. Their saved state stays

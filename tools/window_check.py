@@ -124,6 +124,7 @@ CHECKS = r"""
   out.presets = document.querySelectorAll('#page-home .preset').length;
   out.homeButtons = ['#all-color', '#sleep-timer', '#all-power'].filter(s => !q(s));
   out.whatsNewCard = !!q('.note-new');
+  out.pipette = 'EyeDropper' in window && !q('#eyedropper').hidden;
   openSearch(); await wait(150);
   out.searchRows = document.querySelectorAll('.qs-row').length;
   closeSearch();

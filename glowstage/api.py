@@ -74,6 +74,7 @@ class Api:
                  "canUndo": self._m.can_undo(),
                  "sun": SUN.describe(),
                  "sleep": self._m.sleep.describe(),
+                 "wake": self._m.wake.describe(),
                  "askSupport": self._ask_support(),
                  "whatsNew": whatsnew.card(self._app.config["settings"]),
                  "remote": self._app.remote.describe()}
@@ -106,6 +107,11 @@ class Api:
     @_safe
     def cancel_sleep_timer(self):
         self._m.sleep.cancel()
+
+    @_safe
+    def cancel_wake(self):
+        """Stop the wake-up light: its lights go back to how they were before it started."""
+        self._m.wake.cancel()
 
     @_safe
     def set_app_looks(self, items):

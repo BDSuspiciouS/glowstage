@@ -29,6 +29,7 @@
       <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3.5v17M3.5 12h17M9.5 6 12 3.5 14.5 6M9.5 18l2.5 2.5 2.5-2.5M6 9.5 3.5 12 6 14.5M18 9.5l2.5 2.5-2.5 2.5"/></symbol>
       <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5.5l11-2v12.5"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/></symbol>
+      <symbol id="i-pipette" viewBox="0 0 24 24"><path d="M13.5 6.5 17.5 10.5"/><path d="M15.5 4.5a2.5 2.5 0 0 1 3.5 0l.5.5a2.5 2.5 0 0 1 0 3.5L17.5 10.5 13.5 6.5z"/><path d="M15.5 8.5 7 17l-3.5 1.5L5 15l8.5-8.5"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20.5 20.5"/></symbol>
       <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
     </defs>
@@ -222,6 +223,7 @@
       <div class="field-row">
         <span class="field-label">Hex</span>
         <input id="hex" class="text-input hex-input num" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Color code, like #ff8800">
+        <button id="eyedropper" class="btn pipette-btn" type="button" title="Pick a color from anywhere on your screen" hidden><svg><use href="#i-pipette"/></svg>Pick from screen</button>
       </div>
     </section>
 

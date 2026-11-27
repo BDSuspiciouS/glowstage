@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 PAGE = UI_DIR / "phone.html"
 MAX_BODY = 4096
+GROUPS = (("pc", "PC"), ("room", "Room"))
 
 
 def lan_ip() -> str:
@@ -187,11 +188,24 @@ class Remote:
     def state(self) -> dict:
         m = self.manager
         with m.lock:
-            lights = [m.states[i] for i in m.visible_ids() if i in m.states and m.devices[i].online]
+            visible = [i for i in m.visible_ids() if i in m.states]
+            lights = [m.states[i] for i in visible if m.devices[i].online]
+            rows = [{"id": i, "name": m.devices[i].name, "group": _group_of(m.devices[i]),
+                     "on": m.states[i].on, "brightness": m.states[i].brightness,
+                     "color": m.states[i].color, "online": bool(m.devices[i].online)} for i in visible]
         on = [st for st in lights if st.on]
+        groups = []
+        for key, name in GROUPS:
+            mine = [r for r in rows if r["group"] == key]
+            if not mine:
+                continue                                  # (no lights in this group: no row)
+            lit = [r for r in mine if r["on"] and r["online"]]
+            groups.append({"key": key, "name": name, "on": bool(lit),
+                           "brightness": round(sum(r["brightness"] for r in lit) / len(lit)) if lit else 0})
         return {
-            "on": len(on), "lights": len(lights),
+            "on": len(on), "count": len(lights),
             "brightness": round(sum(st.brightness for st in on) / len(on)) if on else 0,
+            "groups": groups, "lights": rows,
             "presets": [{k: p[k] for k in ("name", "effects", "colors", "off")} for p in m.preset_previews()],
             "active": m.config["settings"].get("active_preset", ""),
             "show": m.show_running(),
@@ -201,6 +215,8 @@ class Remote:
 
     def act(self, req: dict) -> None:
         m, what = self.manager, str(req.get("do", ""))
+        if what in ("group", "group_brightness", "light", "light_brightness"):
+            return self._act_lights(what, req)
         if what in ("power", "preset", "show"):
             m.remember()                      # (undo works for the phone's changes too)
         if what == "power":
@@ -222,6 +238,50 @@ class Remote:
             m.sleep.start(minutes) if minutes else m.sleep.cancel()
         else:
             raise ValueError("Unknown action")
+
+    def _act_lights(self, what: str, req: dict) -> None:
+        """The groups and single lights: everything is checked before anything changes."""
+        m = self.manager
+        if what in ("group", "group_brightness"):
+            group = req.get("group")
+            if group not in ("pc", "room"):
+                raise ValueError("There's no such group")
+        else:
+            dev_id = req.get("id")
+            with m.lock:
+                known = isinstance(dev_id, str) and dev_id in m.visible_ids() and dev_id in m.states
+                online = known and bool(m.devices[dev_id].online)
+            if not known:
+                raise ValueError("There's no such light")
+            if not online:
+                raise ValueError("That light isn't answering")
+        if what in ("group", "light"):
+            on = req.get("on")
+            if not isinstance(on, bool):
+                raise ValueError("on must be true or false")
+            m.remember()                      # (one change, one undo)
+            if what == "group":
+                m.set_power_group(group, on)
+            else:
+                m.update([dev_id], {"on": on})
+            return
+        value = req.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or abs(value) == float("inf"):
+            raise ValueError("Brightness must be a number")
+        value = max(1, min(100, int(value)))
+        if what == "light_brightness":
+            m.update([dev_id], {"brightness": value})
+            return
+        with m.lock:                          # (only the group's lights that are on)
+            ids = [i for i in m.visible_ids()
+                   if i in m.states and m.states[i].on and _group_of(m.devices[i]) == group]
+        if ids:
+            m.update(ids, {"brightness": value})
+
+
+def _group_of(device) -> str:
+    """"pc" for the PC's lights, "room" for all the others (the same rule as the manager's)."""
+    return "pc" if device.group == "pc" else "room"
 
 
 OLD_LINK = (b"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"

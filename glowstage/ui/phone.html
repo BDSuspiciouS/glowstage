@@ -48,6 +48,28 @@
   .sleep-on { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .banner { display: none; background: rgba(255,107,91,.12); color: #ffb3aa; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
   .banner.show { display: block; }
+  .item { padding: 10px 0; border-top: 1px solid var(--line); }
+  .item:first-child { border-top: 0; padding-top: 0; }
+  .item:last-child { padding-bottom: 0; }
+  .item-top { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+  .dot { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #3a3b44; border: 1px solid var(--line-2); }
+  .name { flex: 1; min-width: 0; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note { color: var(--danger); font-size: 13.5px; font-weight: 500; }
+  .switch {
+    flex: none; position: relative; width: 56px; height: 44px; border: 0; padding: 0; background: none; cursor: pointer;
+  }
+  .switch::before {
+    content: ""; position: absolute; left: 0; top: 7px; width: 56px; height: 30px; border-radius: 15px;
+    background: var(--card-2); border: 1px solid var(--line-2); transition: background .2s;
+  }
+  .switch::after {
+    content: ""; position: absolute; left: 4px; top: 11px; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--muted); transition: transform .2s, background .2s;
+  }
+  .switch[aria-checked=true]::before { background: var(--primary); border-color: transparent; }
+  .switch[aria-checked=true]::after { background: var(--primary-ink); transform: translateX(26px); }
+  .switch:disabled, input[type=range]:disabled { opacity: .4; cursor: default; }
+  .item .row { gap: 12px; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 </style>
 </head>
@@ -63,6 +85,11 @@
   <section>
     <h2>Brightness</h2>
     <div class="row"><input type="range" id="bright" min="1" max="100" aria-label="Brightness"><span class="num" id="bright-val"></span></div>
+  </section>
+  <section id="groups-box" hidden><div id="groups"></div></section>
+  <section id="lights-box" hidden>
+    <h2>Lights</h2>
+    <div id="lights"></div>
   </section>
   <section>
     <h2>Presets</h2>
@@ -80,7 +107,8 @@
 "use strict";
 const key = new URLSearchParams(location.search).get("k") || "";
 const $ = id => document.getElementById(id);
-let state = null, busyUntil = 0;
+let state = null, busyUntil = 0, dragging = false;
+const rows = {};                                  // the group and light rows, by "group:pc" / "light:id"
 
 const PALETTES = {
   rainbow: ["#ff3b5c", "#ffb03b", "#3bff8a", "#3bc8ff", "#8a5bff"], spectrum: ["#ff3b5c", "#3bff8a", "#3bc8ff", "#ff3bd2"],
@@ -121,9 +149,83 @@ async function poll() {
   catch (e) { problem(e.message.includes("link") ? e.message : "Can't reach Glowstage. Is the PC on, and your phone on the same Wi-Fi?"); }
 }
 
+// One row: a name, a switch and a brightness slider. Built once, then only updated, so a slider
+// you are dragging never jumps.
+function makeRow(kind, item, label, dot) {
+  const id = `${kind}:${item.id}`;
+  const el = document.createElement("div");
+  el.className = "item";
+  const top = document.createElement("div");
+  top.className = "item-top";
+  const parts = [];
+  let dotEl = null;
+  if (dot) { dotEl = document.createElement("span"); dotEl.className = "dot"; dotEl.setAttribute("aria-hidden", "true"); parts.push(dotEl); }
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = item.name;
+  const note = document.createElement("span");
+  note.className = "note";
+  note.textContent = "Not answering";
+  note.hidden = true;
+  const sw = document.createElement("button");
+  sw.type = "button"; sw.className = "switch"; sw.setAttribute("role", "switch");
+  sw.setAttribute("aria-label", label);
+  top.append(...parts, name, note, sw);
+  const line = document.createElement("div");
+  line.className = "row";
+  const range = document.createElement("input");
+  range.type = "range"; range.min = 1; range.max = 100;
+  range.setAttribute("aria-label", `Brightness, ${label}`);
+  const val = document.createElement("span");
+  val.className = "num";
+  line.append(range, val);
+  el.append(top, line);
+  const r = { id, el, dotEl, note, sw, range, val, kind, key: item.id };
+  sw.onclick = () => {
+    const on = sw.getAttribute("aria-checked") !== "true";
+    act(kind === "group" ? { do: "group", group: item.id, on } : { do: "light", id: item.id, on });
+  };
+  let slide;
+  range.oninput = () => {
+    val.textContent = `${range.value}%`;
+    clearTimeout(slide);
+    const value = Number(range.value);
+    slide = setTimeout(() => act(kind === "group"
+      ? { do: "group_brightness", group: item.id, value } : { do: "light_brightness", id: item.id, value }), 120);
+  };
+  for (const ev of ["pointerdown", "touchstart"]) range.addEventListener(ev, () => { dragging = true; }, { passive: true });
+  for (const ev of ["pointerup", "pointercancel", "touchend", "touchcancel", "change", "blur"]) range.addEventListener(ev, () => { dragging = false; });
+  rows[id] = r;
+  return r;
+}
+function updateRow(r, item) {
+  const online = item.online !== false;
+  r.sw.setAttribute("aria-checked", String(!!item.on));
+  r.sw.disabled = !online;
+  r.range.disabled = !online || !item.on;
+  r.note.hidden = online;
+  if (r.dotEl) r.dotEl.style.background = online && item.on ? item.color : "";
+  if (document.activeElement !== r.range && !dragging) r.range.value = item.brightness || 1;
+  r.val.textContent = !online ? "" : item.on ? `${Math.round(item.brightness)}%` : "off";
+}
+function syncRows(box, kind, items, labelOf, dot) {
+  const sig = JSON.stringify(items.map(i => [i.id, i.name]));
+  if (box.dataset.sig !== sig) {
+    box.dataset.sig = sig;
+    for (const k of Object.keys(rows)) if (k.startsWith(kind + ":")) delete rows[k];
+    box.replaceChildren(...items.map(i => makeRow(kind, i, labelOf(i), dot).el));
+  }
+  for (const i of items) updateRow(rows[`${kind}:${i.id}`], i);
+}
+
 function render(s) {
   state = s;
-  $("sub").textContent = s.lights ? `${s.on} of ${s.lights} lights on` : "No lights found";
+  $("sub").textContent = s.count ? `${s.on} of ${s.count} lights on` : "No lights found";
+  const groups = s.groups.map(g => ({ id: g.key, name: g.name, on: g.on, brightness: g.brightness, online: true }));
+  $("groups-box").hidden = !groups.length;
+  $("lights-box").hidden = !s.lights.length;
+  syncRows($("groups"), "group", groups, g => `${g.name} lights`, false);
+  syncRows($("lights"), "light", s.lights, l => l.name, true);
   $("power").classList.toggle("is-on", s.on > 0);
   $("power").setAttribute("aria-pressed", String(s.on > 0));
   if (document.activeElement !== $("bright")) $("bright").value = s.brightness || 1;

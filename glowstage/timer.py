@@ -46,6 +46,7 @@ class SleepTimer:
         if not 1 <= minutes <= 240:
             raise ValueError("Choose between 1 minute and 4 hours")
         m = self.manager
+        m.wake.cancel(put_back=False)   # a sleep timer and a wake-up don't run at once
         with self._lock:
             if self.active:             # a new time: begin again from the lights as they were
                 self._put_back()

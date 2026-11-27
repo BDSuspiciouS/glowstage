@@ -75,7 +75,7 @@ class PhoneRemote(unittest.TestCase):
 
     def test_state(self):
         state = json.loads(self.get("/api/state")[1])
-        self.assertEqual((state["on"], state["lights"], state["brightness"]), (2, 2, 60))
+        self.assertEqual((state["on"], state["count"], state["brightness"]), (2, 2, 60))
         self.assertIn("Warm white", [p["name"] for p in state["presets"]])
 
     def test_actions(self):

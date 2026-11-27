@@ -344,7 +344,9 @@ function scheduleSection() {
     S.settingsSig = "";
     refresh(true);
   };
-  const actions = [["off", "Lights off"], ["on", "Lights on"], ["show", "Start the light show"],
+  const actions = [["off", "Lights off"], ["on", "Lights on"],
+    ["wake:15", "Wake up slowly (15 min)"], ["wake:30", "Wake up slowly (30 min)"], ["wake:45", "Wake up slowly (45 min)"],
+    ["show", "Start the light show"],
     ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])];
   const sunNow = S.data.sun || {};
   const isSun = s => s.time === "sunrise" || s.time === "sunset";

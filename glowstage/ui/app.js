@@ -256,8 +256,56 @@ const AUTO_NOTES = {
   music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
 };
 
+/* Home: lights that haven't answered for a minute, with what to try. Counted from when this window last saw them answer. */
+const OFFLINE_TIPS = {
+  wled: "Check it has power and is on the same Wi-Fi. If its address changed, Search now in Setup finds it again.",
+  nanoleaf: "Check it has power. If it was reset, pair it again in Setup.",
+  openrgb: "OpenRGB may have stopped: restart it in Setup \u2192 PC lighting.",
+  hue: "Check the bridge has power and is on your network.",
+  asrock_gpu: "Unplug and plug it back in, or restart Glowstage.",
+  qmk: "Unplug and plug it back in, or restart Glowstage.",
+};
+const offlineTip = d => OFFLINE_TIPS[d.kind]
+  || ((driverOf(d.kind) || {}).hub ? OFFLINE_TIPS.hue : "Check it has power and is on your network.");
+
+function offlineLights() {
+  const now = Date.now(), after = (S.data.offlineAfter ?? 60) * 1000;
+  S.offSince = S.offSince || {};
+  const gone = [];
+  for (const d of visible()) {
+    if (d.online || d.paired === false) { delete S.offSince[d.id]; continue; }   // answering, or waiting to be paired
+    if (!(d.id in S.offSince)) S.offSince[d.id] = now - (S.data.offlineAge || 0) * 1000;
+    if (now - S.offSince[d.id] >= after) gone.push(d);
+  }
+  return gone;
+}
+
+function offlineNote(gone) {
+  const many = gone.length > 1;
+  const check = async () => {
+    S.offChecking = true; renderHomeNotes();
+    try { await call("check_online"); } finally { S.offChecking = false; }
+    refresh(true);
+  };
+  return h("div", { class: "note card note-offline", role: "status" },
+    h("span", { class: "note-icon" }, icon("power")),
+    h("div", { class: "note-text" },
+      h("strong", { role: "heading", "aria-level": "2", text: many ? `${gone.length} lights aren't answering` : `${gone[0].name} isn't answering` }),
+      h("ul", { class: "off-list" }, gone.map(d => h("li", {},
+        h("span", { class: "new-title", text: many ? `${d.name}: ${d.error || "Offline"}` : d.error || "Offline" }),
+        h("span", { class: "muted", text: offlineTip(d) }))))),
+    h("div", { class: "note-actions" },
+      h("button", { class: "btn btn-primary", type: "button", text: S.offChecking ? "Checking\u2026" : "Try again",
+        disabled: S.offChecking, onclick: check }),
+      h("button", { class: "btn", type: "button", text: "Setup", onclick: () => showNew("setup:lights") }),
+      h("button", { class: "btn btn-quiet", type: "button", text: "Close", "aria-label": "Close this note",
+        onclick: () => { S.offClosed = gone.map(d => d.id).join("|"); renderHomeNotes(); } })));
+}
+
 function renderHomeNotes() {
   const host = $("#home-notes");
+  const gone = offlineLights();
+  const showOff = gone.length && S.offClosed !== gone.map(d => d.id).join("|");
   const up = S.data.update;
   const upd = S.data.updating || {};
   const busy = ["downloading", "checking", "installing"].includes(upd.state);
@@ -279,12 +327,20 @@ function renderHomeNotes() {
   const auto = app ? { icon: "spark", title: `${app.name} is open`, text: "Your lights changed for it by themselves and go back when you close it." }
     : AUTO_NOTES[S.data.auto];
   const sleep = S.data.sleep;
+  const wake = S.data.wake;
   const news = !S.newsClosed && S.data.whatsNew;
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
-    sleep && sleep.until, news && news.version]);
+    sleep && sleep.until, wake && wake.until, news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
+    wake ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("bulb")),
+      h("div", { class: "note-text" }, h("strong", { text: "Waking you up" }),
+        h("span", { class: "muted", text: `Your lights come up slowly until ${clockTime(wake.until)}.` })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Stop", onclick: async () => {
+          await call("cancel_wake"); refresh(true); } }))) : null,
     sleep ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("moon")),
       h("div", { class: "note-text" }, h("strong", { text: `Lights off at ${clockTime(sleep.until)}` }),
@@ -327,6 +383,7 @@ function renderHomeNotes() {
           try { localStorage.setItem("glowstage.update.dismissed", up.version); } catch { /* fine */ }
           host.dataset.sig = ""; renderHomeNotes();
         } }))) : null,
+    showOff ? offlineNote(gone) : null,
     showSupport ? h("div", { class: "note card note-support" },
       h("span", { class: "note-icon" }, icon("heart")),
       h("div", { class: "note-text" }, h("strong", { text: "Enjoying Glowstage?" }),
@@ -1586,6 +1643,20 @@ function bindStatic() {
   };
   hex.addEventListener("keydown", e => { if (e.key === "Enter") { commitHex(); hex.blur(); } });
   hex.addEventListener("change", commitHex);
+  // The pipette: take a color from anywhere on the screen (a photo, a game, a wallpaper).
+  const pipette = $("#eyedropper");
+  if ("EyeDropper" in window) {
+    pipette.hidden = false;
+    pipette.addEventListener("click", async () => {
+      let picked;
+      try { picked = (await new EyeDropper().open()).sRGBHex; } catch { return; }   // (Esc: nothing picked)
+      const rgb = hexToRgb(picked) || (String(picked).match(/\d+/g) || []).slice(0, 3).map(Number);
+      if (rgb.length !== 3) return;
+      const c = rgbToHex(rgb);
+      sendTargets({ mode: "color", on: true, color: c }, "color");
+      rememberColor(c);
+    });
+  }
 
   $("#fx-speed").addEventListener("input", e => sendTargets({ speed: Number(e.target.value) }, "speed"));
   $("#fx-flow-on").addEventListener("change", async e => {
