@@ -69,7 +69,7 @@ Lights marked *beta* are new and haven't been tested on every model. If yours mi
 2. Unzip it anywhere (your Documents is fine) and run `Glowstage.exe`. It adds itself to the Start menu.
 3. The welcome tour finds your lights. Open **Light show**, press **Start the show** and play some music.
 
-Windows 10 or 11, 64-bit. Windows may say the app is from an unknown publisher, because it isn't code-signed (that costs money every year): choose *More info → Run anyway*. Glowstage tells you when a new version is out.
+Windows 10 or 11, 64-bit. Windows may say the app is from an unknown publisher, because it isn't code-signed (that costs money every year): choose *More info → Run anyway*. When a new version is out, Glowstage tells you and updates itself with one click: it gets the new version from this page, checks it against the checksum GitHub lists, and restarts.
 
 ## Support Glowstage
 

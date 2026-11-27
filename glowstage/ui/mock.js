@@ -26,7 +26,7 @@
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
     update: /[?&]update\b/.test(location.search)
-      ? { version: "0.9.4", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.4" } : null,
+      ? { version: "0.9.5", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.5" } : null,
     askSupport: /[?&]support\b/.test(location.search),
     activePreset: "",
     devices: [
@@ -74,7 +74,7 @@
       "openrgb:QCK": { start: 0.91, end: 1, layer: "front", custom: false },
       "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
     },
-    about: { name: "Glowstage", version: "0.9.3", repo: "https://github.com/example/glowstage",
+    about: { name: "Glowstage", version: "0.9.4", repo: "https://github.com/example/glowstage",
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
@@ -112,6 +112,8 @@
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
     auto: (location.search.match(/[?&]auto=(cs2|game|video|music)/) || [])[1] || null,
+    updating: { state: "idle", progress: 0, message: "", canInstall: true },
+    updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
     games: { cs2: { found: true, connected: /[?&]cs2\b/.test(location.search), fileThere: true, receiving: /[?&]cs2\b/.test(location.search),
       inMatch: /[?&]cs2\b/.test(location.search), team: "CT", health: 87 } },
     settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "",
@@ -155,6 +157,13 @@
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
     set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
+    install_update: () => {
+      let p = 0;
+      const tick = () => { p += 0.12; Object.assign(data.updating, p < 1
+        ? { state: "downloading", progress: p, message: `Getting the new version… ${Math.round(p * 56)} of 56 MB` }
+        : { state: "installing", progress: 1, message: "Installing: Glowstage restarts in a moment…" }); if (p < 1) setTimeout(tick, 400); };
+      tick(); return ok();
+    },
     games_connect: () => { Object.assign(data.games.cs2, { connected: true }); data.revision++; return ok(); },
     games_disconnect: () => { Object.assign(data.games.cs2, { connected: false, receiving: false, inMatch: false }); data.revision++; return ok(); },
     hide_window: () => ok(),

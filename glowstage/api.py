@@ -47,6 +47,8 @@ class Api:
                  "about": {"name": APP_NAME, "version": VERSION, "repo": f"https://github.com/{REPO}",
                            "donate": self._app.online.donate_links()},
                  "update": self._app.online.update(),
+                 "updating": self._app.updater.describe(),
+                 "updateResult": self._app.update_result,
                  "askSupport": self._ask_support()}
         if since is not None and since == self._m.revision:
             return {**self._m.live_status(), **extra, "same": True}
@@ -224,6 +226,13 @@ class Api:
         self._app.config.save_soon()
         if key == "hotkeys":
             self._app.hotkeys.set_enabled(bool(value))
+
+    @_safe
+    def install_update(self):
+        """Update now: download the new version, check it, put it in place and restart."""
+        if not self._app.online.update():
+            raise ValueError("There's no newer version")
+        self._app.updater.start(show_window=True)
 
     @_safe
     def games_connect(self):

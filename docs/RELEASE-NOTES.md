@@ -1,10 +1,12 @@
-Glowstage 0.9.3: your room plays along with Counter-Strike 2.
+Glowstage 0.9.4: updates with one click.
 
-**Install:** download `Glowstage-0.9.3-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay.
+**Install:** download `Glowstage-0.9.4-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating from an older version?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay. This is the last time you have to do that by hand.
 
 **New**
-- Counter-Strike 2 lighting (Setup → Games → Connect): while you're in a match your lights play along. Your team's color, your health as a bar across the room (the right side goes dark first), a red heartbeat when you're low, white when you're flashed, fire when you burn, dim in a smoke. The bomb blinks red ever faster, the blast floods the room, a defuse flashes ice white, the round's winners sweep their color across, and every kill gives a short pop (gold for a headshot). When you leave the match your own look comes back.
-- It uses Valve's own game state integration: CS2 sends what happens to Glowstage on your PC, nothing reads or changes the game, so it's safe for VAC. Connecting puts one small file in CS2's cfg folder; Disconnect removes it.
+- Updates with one click: when a new version is out, Home says so with an *Update now* button. Glowstage downloads the new version from its GitHub release, checks it against the SHA-256 checksum GitHub lists for it, puts it in place of itself and restarts, in a few seconds. If anything can't be replaced (a virus scanner holding a file), it puts the old version back, so a failed update never leaves a broken app.
+
+**New in 0.9.3**
+- Counter-Strike 2 lighting (Setup → Games → Connect): your team's color, your health as a bar across the room, white when you're flashed, the bomb blinking ever faster, a pop for every kill. It uses Valve's own game state integration, so nothing touches the game and it's safe for VAC.
 
 **New in 0.9.2**
 - Automatic looks (Setup → Automatic): a full-screen game or video can switch your lights to Screen sync or a preset (*Gaming*, *Movie*), and they go back afterwards. Change anything yourself and Glowstage leaves your lights alone until it's over.

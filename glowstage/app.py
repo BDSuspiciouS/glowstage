@@ -18,6 +18,7 @@ from .api import Api
 from .config import Config
 from .hotkeys import Hotkeys
 from .online import Online
+from .updater import Updater
 from .icon import icon_file
 from .manager import DeviceManager
 from .paths import APP_DIR, APP_NAME, INSTALL_DIR, UI_DIR, VERSION, launch_command
@@ -34,6 +35,9 @@ class App:
         self.tray = Tray(self)
         self.hotkeys = Hotkeys(self.manager)
         self.online = Online(self.config, self.manager._changed)
+        self.updater = Updater(self.manager._changed, self.quit)
+        # ("--updated" / "--update-failed": the update that just ran, for a word in the window)
+        self.update_result = next((a[2:] for a in sys.argv if a in ("--updated", "--update-failed")), "")
         settings = self.config["settings"]
         if not settings.get("first_run"):
             settings["first_run"] = datetime.date.today().isoformat()
@@ -140,6 +144,10 @@ def main() -> None:
                                                   exc_info=(a.exc_type, a.exc_value, a.exc_traceback))
     log.info("%s %s starting (%s)", APP_NAME, VERSION, " ".join(sys.argv[1:]) or "no options")
     webfix.enable_crash_log()
+    if "--install-update" in sys.argv:   # the new version, started from the update folder: swap and go
+        from . import updater
+        updater.run_install(sys.argv)
+        return
     if "--after" in sys.argv:  # restarting: let the old copy finish closing first
         winutil.wait_for_exit(int(sys.argv[sys.argv.index("--after") + 1]), timeout=20)
 
@@ -150,6 +158,8 @@ def main() -> None:
     winutil.migrate_legacy()
     webfix.install()
     threading.Thread(target=winutil.ensure_shortcut, name="shortcut", daemon=True).start()
+    from . import updater
+    threading.Thread(target=updater.clean_up, name="update-cleanup", daemon=True).start()
     app = holder["app"] = App(start_minimized="--minimized" in sys.argv, autostart="--autostart" in sys.argv)
     try:
         app.run()

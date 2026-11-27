@@ -258,10 +258,17 @@ const AUTO_NOTES = {
 function renderHomeNotes() {
   const host = $("#home-notes");
   const up = S.data.update;
-  const showUpdate = up && up.version && dismissedUpdate() !== up.version;
+  const upd = S.data.updating || {};
+  const busy = ["downloading", "checking", "installing"].includes(upd.state);
+  const showUpdate = up && up.version && (busy || upd.state === "failed" || dismissedUpdate() !== up.version);
+  if (S.data.updateResult && !S.updateToldOnce) {
+    S.updateToldOnce = true;
+    if (S.data.updateResult === "updated") toast(`Glowstage is updated to ${(S.data.about || {}).version || "the new version"}`);
+    else toast("The update didn't work: you still have the version you had", true);
+  }
   const showSupport = S.data.askSupport && !S.supportClosed;
   const auto = AUTO_NOTES[S.data.auto];
-  const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto]);
+  const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
@@ -271,12 +278,22 @@ function renderHomeNotes() {
       h("div", { class: "note-actions" },
         h("button", { class: "btn", type: "button", text: "Put my lights back", onclick: async () => {
           await call("stop_automation"); refresh(true); } }))) : null,
-    showUpdate ? h("div", { class: "note card", role: "status" },
+    showUpdate && busy ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("spark")),
-      h("div", { class: "note-text" }, h("strong", { text: `Glowstage ${up.version} is out` }),
-        h("span", { class: "muted", text: "Download it from GitHub: your lights, presets and settings stay as they are." })),
+      h("div", { class: "note-text" }, h("strong", { text: `Updating to Glowstage ${up.version}` }),
+        h("span", { class: "muted", text: upd.message || "Getting the new version…" }),
+        h("div", { class: "progress", style: "margin:8px 0 0" }, h("span", { style: `width:${Math.round((upd.progress || 0) * 100)}%` })))) : null,
+    showUpdate && !busy ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("spark")),
+      h("div", { class: "note-text" }, h("strong", { text: upd.state === "failed" ? "The update didn't work" : `Glowstage ${up.version} is out` }),
+        h("span", { class: "muted", text: upd.state === "failed" ? upd.message
+          : upd.canInstall ? "Update with one click: Glowstage gets it from GitHub, checks it and restarts. Your lights, presets and settings stay as they are."
+          : "Download it from GitHub: your lights, presets and settings stay as they are." })),
       h("div", { class: "note-actions" },
-        h("button", { class: "btn btn-primary", type: "button", text: "Download", onclick: () => call("open_link", up.url) }),
+        upd.canInstall ? h("button", { class: "btn btn-primary", type: "button", text: upd.state === "failed" ? "Try again" : "Update now",
+          onclick: async () => { await call("install_update"); refresh(true); } }) : null,
+        h("button", { class: upd.canInstall ? "btn" : "btn btn-primary", type: "button", text: upd.canInstall ? "What's new" : "Download",
+          onclick: () => call("open_link", up.url) }),
         h("button", { class: "btn btn-quiet", type: "button", text: "Not now", onclick: () => {
           try { localStorage.setItem("glowstage.update.dismissed", up.version); } catch { /* fine */ }
           host.dataset.sig = ""; renderHomeNotes();
