@@ -23,9 +23,10 @@ class Tray:
         m = self.app.manager
         yield MenuItem(f"Open {APP_NAME}", lambda: self.app.show_window(), default=True)
         yield Menu.SEPARATOR
-        yield MenuItem("All lights on", lambda: m.set_power_all(True))
-        yield MenuItem("All lights off", lambda: m.set_power_all(False))
-        yield MenuItem("Stop the light show" if m.show_running() else "Start the light show", lambda: m.toggle_show())
+        yield MenuItem("All lights on", lambda: (m.remember(), m.set_power_all(True)))
+        yield MenuItem("All lights off", lambda: (m.remember(), m.set_power_all(False)))
+        yield MenuItem("Stop the light show" if m.show_running() else "Start the light show",
+                       lambda: (m.remember(), m.toggle_show()))
         presets = m.preset_names()
         if presets:
             active = m.config["settings"].get("active_preset", "")
@@ -33,6 +34,7 @@ class Tray:
                                                       checked=lambda item, n=name: n == active)
                                              for name in presets)))
         yield MenuItem("Sleep timer", Menu(*self._sleep_items()))
+        yield MenuItem("Undo", lambda: m.undo(), enabled=lambda item: m.can_undo())
         yield Menu.SEPARATOR
         yield MenuItem(f"Restart {APP_NAME}", lambda: self.app.restart())
         yield MenuItem("Quit", lambda: self.app.quit())
@@ -56,7 +58,8 @@ class Tray:
         return start
 
     def _preset_action(self, name: str):
-        return lambda: self.app.manager.apply_preset(name)  # pystray wants 0-2 positional args
+        m = self.app.manager
+        return lambda: (m.remember(), m.apply_preset(name))  # pystray wants 0-2 positional args
 
     def start(self) -> None:
         threading.Thread(target=self.icon.run, name="tray", daemon=True).start()

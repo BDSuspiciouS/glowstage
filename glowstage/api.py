@@ -161,7 +161,16 @@ class Api:
 
     @_safe
     def update(self, ids, patch):
+        # Everything on or off, or a new effect: something to undo. (Not every step of a slider.)
+        if "mode" in patch or "effect" in patch or (not ids and set(patch) <= {"on"}):
+            self._m.remember()
         self._m.update(ids or None, patch)
+
+    @_safe
+    def undo(self):
+        """Back to the lights as they were before the last big change by hand."""
+        if not self._m.undo():
+            raise ValueError("There's nothing to undo")
 
     @_safe
     def native_options(self, dev_id):
@@ -169,6 +178,7 @@ class Api:
 
     @_safe
     def apply_preset(self, name):
+        self._m.remember()
         self._m.apply_preset(name)
 
     @_safe

@@ -83,7 +83,7 @@ class App:
     def _on_change(self) -> None:
         # The tray menu shows the presets, the one that's on and whether the show runs.
         sig = (self.manager.preset_names(), self.config["settings"].get("active_preset", ""),
-               self.manager.show_running(), self.manager.sleep.until)
+               self.manager.show_running(), self.manager.sleep.until, self.manager.can_undo())
         if sig != self._preset_names:
             self._preset_names = sig
             self.tray.refresh()

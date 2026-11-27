@@ -95,6 +95,7 @@ class DeviceManager:
         self.revision = 0
         self._applied: set[str] = set()      # devices we have pushed a state to this session
         self._touches: dict[str, int] = {}   # how often each light was changed (away.py)
+        self._undo: tuple[dict, str] | None = None   # the lights before the last big change by hand
         self._connecting: set[str] = set()
         self.force_on = False                # set when started with Windows: lights come on
         self._forced: set[str] = set()
@@ -351,6 +352,35 @@ class DeviceManager:
         if save:
             self.config.save_soon()
         self._changed()
+
+    # ---- undo: back to the lights as they were before the last big change by hand -------------
+
+    def remember(self) -> None:
+        """Before a big change by hand (a preset, everything on or off, an effect): how the
+        lights look now, for undo(). Automatic looks and schedules don't: they put back their own."""
+        with self.lock:
+            self._undo = (self.looks(), self.config["settings"].get("active_preset", ""))
+
+    def can_undo(self) -> bool:
+        return self._undo is not None
+
+    def undo(self) -> bool:
+        """The lights as they were before the last big change; undo again to redo it."""
+        with self.lock:
+            saved = self._undo
+            if saved is None:
+                return False
+            self._undo = (self.looks(), self.config["settings"].get("active_preset", ""))
+        self.restore_looks(*saved)
+        return True
+
+    def nudge_brightness(self, delta: int) -> None:
+        """Every light that's on a bit brighter or darker (a hotkey), each from where it is."""
+        with self.lock:
+            patches = {i: {"brightness": max(1, min(100, self.states[i].brightness + delta))}
+                       for i in self.visible_ids() if i in self.states and self.states[i].on}
+        if patches:
+            self._apply(patches, preset="")
 
     def set_power_all(self, on: bool) -> None:
         self.update(None, {"on": on})

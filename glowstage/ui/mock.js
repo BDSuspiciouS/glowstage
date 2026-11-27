@@ -171,6 +171,7 @@
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
     whats_new_seen: () => { data.whatsNew = null; return ok(); },
+    undo: () => ok(),
     remote_set: on => { data.remote = { on, url: on ? "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg" : "", error: "" }; data.revision++; return ok(); },
     remote_new_link: () => { data.remote = { ...data.remote, url: data.remote.url.replace(/k=.*/, "k=" + Math.random().toString(36).slice(2, 24)) }; data.revision++; return ok(); },
     remote_qr: () => ok(window.SAMPLE_QR || ""),

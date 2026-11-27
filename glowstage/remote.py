@@ -201,6 +201,8 @@ class Remote:
 
     def act(self, req: dict) -> None:
         m, what = self.manager, str(req.get("do", ""))
+        if what in ("power", "preset", "show"):
+            m.remember()                      # (undo works for the phone's changes too)
         if what == "power":
             m.set_power_all(bool(req.get("on")))
         elif what == "brightness":

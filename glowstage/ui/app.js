@@ -624,6 +624,7 @@ function toggleStrip(id) {
   if (id === "__all") {
     const anyOn = visible().some(d => d.state.on && d.online);
     send(null, { on: !anyOn }, "on:all");
+    if (anyOn) undoable("All lights are off");
     return;
   }
   const d = byId(id);
@@ -667,7 +668,7 @@ function presetCard(p) {
   return h("button", {
     class: "preset" + (active ? " is-active" : ""), type: "button", "aria-pressed": active ? "true" : "false",
     title: `Apply ${p.name}` + (p.split ? " (one look for your PC, another for your room)" : ""),
-    onclick: async () => { await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); toast(`${p.name} is on`); },
+    onclick: async () => { await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); undoable(`${p.name} is on`); },
   },
     h("span", { class: "preset-art", style: `background:${presetArt(p)}` }),
     active ? h("span", { class: "preset-on", text: "On" }) : null,
@@ -1310,11 +1311,19 @@ function openModal({ title, body, ok, onOk, wide = false, cancel = true }) {
 }
 function closeModal() { $("#modal").hidden = true; modalOk = null; }
 
-function toast(msg, isError = false) {
-  const t = h("div", { class: "toast" + (isError ? " is-error" : ""), role: isError ? "alert" : "status", text: msg });
+function toast(msg, isError = false, action = null) {
+  const t = h("div", { class: "toast" + (isError ? " is-error" : ""), role: isError ? "alert" : "status" },
+    h("span", { text: msg }),
+    action ? h("button", { class: "toast-action", type: "button", text: action.label,
+      onclick: () => { t.remove(); action.run(); } }) : null);
   $("#toasts").append(t);
-  setTimeout(() => t.remove(), isError ? 6000 : 2600);
+  setTimeout(() => t.remove(), isError ? 6000 : action ? 6000 : 2600);
 }
+
+/** A toast for a big change, with Undo: back to the lights as they were before it. */
+const undoable = msg => toast(msg, false, { label: "Undo", run: async () => {
+  await call("undo"); S.quietUntil = 0; refresh(true); toast("Your lights are back as they were");
+} });
 
 /* ============================== wiring ============================== */
 
