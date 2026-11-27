@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import datetime
 import logging
 import re
@@ -385,6 +386,34 @@ class DeviceManager:
                        for i in self.visible_ids() if i in self.states and self.states[i].on}
         if patches:
             self._apply(patches, preset="")
+
+    def set_brightness_on(self, value: int) -> None:
+        """Every light that's on gets this brightness (the tray); lights that are off stay as they are."""
+        value = max(1, min(100, int(value)))
+        with self.lock:
+            patches = {i: {"brightness": value}
+                       for i in self.visible_ids() if i in self.states and self.states[i].on}
+        if patches:
+            self._apply(patches, preset="")
+
+    def brightness_on(self) -> tuple[int, ...]:
+        """The different brightness values of the lights that are on, sorted (for the tray's check)."""
+        with self.lock:
+            return tuple(sorted({self.states[i].brightness
+                                 for i in self.visible_ids() if i in self.states and self.states[i].on}))
+
+    def groups_present(self) -> tuple[str, ...]:
+        """Which of "pc" and "room" have visible lights (the PC's lights, and everything else)."""
+        with self.lock:
+            found = {"pc" if self.devices[i].group == "pc" else "room" for i in self.visible_ids()}
+        return tuple(g for g in ("pc", "room") if g in found)
+
+    def set_power_group(self, group: str, on: bool) -> None:
+        """Switch the PC's lights ("pc") or the room's lights (all the others) on or off."""
+        with self.lock:
+            ids = [i for i in self.visible_ids() if (self.devices[i].group == "pc") == (group == "pc")]
+        if ids:
+            self.update(ids, {"on": on})
 
     def set_power_all(self, on: bool) -> None:
         self.update(None, {"on": on})
@@ -832,6 +861,24 @@ class DeviceManager:
             self.config.data["presets"] = presets
         self.config.save_soon()
         self._changed()
+
+    def duplicate_preset(self, name: str) -> str:
+        """A copy of a preset right after it ("Cozy copy", "Cozy copy 2", ...), to change without
+        losing the original. The copy's name."""
+        with self.lock:
+            presets = list(self.config["presets"])
+            at = next((k for k, p in enumerate(presets) if p["name"] == name), None)
+            if at is None:
+                raise ValueError("There's no such preset")
+            names = {p["name"] for p in presets}
+            new, n = f"{name} copy", 2
+            while new in names:
+                new, n = f"{name} copy {n}", n + 1
+            presets.insert(at + 1, {**copy.deepcopy(presets[at]), "name": new})
+            self.config.data["presets"] = presets
+        self.config.save_soon()
+        self._changed()
+        return new
 
     def delete_preset(self, name: str) -> None:
         self.config.data["presets"] = [p for p in self.config["presets"] if p["name"] != name]

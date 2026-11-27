@@ -130,7 +130,7 @@
     recovered: /[?&]recovered\b/.test(location.search) ? "2026-11-26" : "",
     games: { cs2: { found: true, connected: /[?&]cs2\b/.test(location.search), fileThere: true, receiving: /[?&]cs2\b/.test(location.search),
       inMatch: /[?&]cs2\b/.test(location.search), team: "CT", health: 87 } },
-    settings: { close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "",
+    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "",
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
   };
@@ -169,6 +169,7 @@
     pair_nanoleaf: () => Promise.resolve({ ok: false, error: "The panels aren't in pairing mode." }),
     add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), identify: () => ok(), resize_zone: () => ok(),
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
+    remember_color: c => { const l = data.settings.recent_colors; data.settings.recent_colors = [c.toLowerCase(), ...l.filter(x => x !== c.toLowerCase())].slice(0, 8); data.revision++; return ok(); },
     set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
@@ -178,6 +179,11 @@
     rename_preset: (o, n) => { const p = data.presets.find(x => x.name === o); if (p) p.name = n; data.revision++; return ok(); },
     move_preset: (name, step) => { const i = data.presets.findIndex(x => x.name === name); const [p] = data.presets.splice(i, 1);
       data.presets.splice(Math.max(0, Math.min(data.presets.length, i + step)), 0, p); data.revision++; return ok(); },
+    duplicate_preset: name => { const i = data.presets.findIndex(x => x.name === name); let n = `${name} copy`, k = 2;
+      while (data.presets.some(x => x.name === n)) n = `${name} copy ${k++}`;
+      data.presets.splice(i + 1, 0, { ...data.presets[i], name: n }); data.revision++; return ok(n); },
+    nudge_brightness: delta => { for (const d of data.devices) if (d.state.on) d.state.brightness = Math.max(1, Math.min(100, d.state.brightness + delta));
+      data.revision++; return ok(); },
     diagnostics: () => ok("Glowstage 0.9.7 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off, schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
     report_problem: () => ok(),
     list_backups: () => ok(/[?&]nobackups\b/.test(location.search) ? [] : [

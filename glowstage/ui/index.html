@@ -209,10 +209,15 @@
         <div id="wheel-handle" class="wheel-handle" aria-hidden="true"></div>
       </div>
       <div id="swatches" class="swatches"></div>
+      <div id="recent-row" class="field-row recent-row" hidden>
+        <span class="field-label">Recent</span>
+        <div id="recent" class="swatches"></div>
+      </div>
       <div class="field-row">
         <span class="field-label">White</span>
-        <div id="kelvin" class="kelvin-track" role="slider" tabindex="0" aria-label="White temperature"
+        <div id="kelvin" class="kelvin-track" role="slider" tabindex="0" aria-label="White, warm to cool"
              aria-valuemin="2200" aria-valuemax="6500"><div class="kelvin-thumb"></div></div>
+        <span id="kelvin-val" class="num muted kelvin-val" aria-hidden="true"></span>
       </div>
       <div class="field-row">
         <span class="field-label">Hex</span>

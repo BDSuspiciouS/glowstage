@@ -73,6 +73,20 @@ class Presets(unittest.TestCase):
         self.m.move_preset(last, 1)
         self.assertEqual(self.names()[-1], last)
 
+    def test_a_copy_right_after_it(self):
+        self.m.save_preset("Mine")
+        first = self.m.duplicate_preset("Mine")
+        second = self.m.duplicate_preset("Mine")
+        names = self.names()
+        self.assertEqual((first, second), ("Mine copy", "Mine copy 2"))
+        self.assertEqual(names[names.index("Mine") + 1], "Mine copy 2")      # (the newest copy comes first)
+        copy = next(p for p in self.m.config["presets"] if p["name"] == first)
+        mine = next(p for p in self.m.config["presets"] if p["name"] == "Mine")
+        self.assertEqual(copy["states"], mine["states"])
+        copy["states"]["desk"]["color"] = "#000000"                          # (its own copy, not the same dict)
+        self.assertNotEqual(mine["states"]["desk"]["color"], "#000000")
+        with self.assertRaises(ValueError):
+            self.m.duplicate_preset("Nothing")
 
 if __name__ == "__main__":
     unittest.main()

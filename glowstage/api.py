@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import functools
 import logging
+import re
 import threading
 import webbrowser
 from pathlib import Path
@@ -215,6 +216,16 @@ class Api:
         self._app.config.save_soon()
 
     @_safe
+    def remember_color(self, hex):
+        """A color set by hand (wheel, hex field, white slider): kept as one of the last 8."""
+        c = str(hex or "").strip().lower()
+        if not re.fullmatch(r"#[0-9a-f]{6}", c):
+            raise ValueError("Use a hex color like #ff8800")
+        s = self._app.config["settings"]
+        s["recent_colors"] = ([c] + [x for x in s.get("recent_colors", []) if x != c])[:8]
+        self._app.config.save_soon()
+
+    @_safe
     def support_answer(self, answer):
         """The support card: "later" (ask again in a month), "never", or "done" (they gave)."""
         s = self._app.config["settings"]
@@ -241,8 +252,9 @@ class Api:
 
     @_safe
     def update(self, ids, patch):
-        # Everything on or off, or a new effect: something to undo. (Not every step of a slider.)
-        if "mode" in patch or "effect" in patch or (not ids and set(patch) <= {"on"}):
+        # Everything (or a group) on or off, or a new effect: something to undo. (Not every step
+        # of a slider, nor one light's own power button.)
+        if "mode" in patch or "effect" in patch or (set(patch) <= {"on"} and (not ids or len(ids) > 1)):
             self._m.remember()
         self._m.update(ids or None, patch)
 
@@ -272,6 +284,16 @@ class Api:
     @_safe
     def move_preset(self, name, step):
         self._m.move_preset(name, step)
+
+    @_safe
+    def duplicate_preset(self, name):
+        """A copy of a preset right after it: the copy's name."""
+        return self._m.duplicate_preset(name)
+
+    @_safe
+    def nudge_brightness(self, delta):
+        """Every light that is on a bit brighter or darker (the + and - keys in the window)."""
+        self._m.nudge_brightness(max(-100, min(100, int(delta))))
 
     @_safe
     def delete_preset(self, name):

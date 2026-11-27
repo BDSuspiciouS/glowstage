@@ -108,6 +108,7 @@ DEFAULTS = {
                  "first_run": "",        # the day Glowstage first ran (YYYY-MM-DD)
                  "support_asked": "",    # "", "later:YYYY-MM-DD", "never" or "done" (the support card)
                  "seen_version": "",     # the version whose "what's new" card was seen (whatsnew.py)
+                 "recent_colors": [],    # the last 8 colors set by hand, newest first (#rrggbb)
                  "presets_version": PRESETS_VERSION},
 }
 

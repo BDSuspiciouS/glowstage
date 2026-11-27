@@ -61,7 +61,7 @@ function kelvinToRgb(k) {
     g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
     b = 255;
   }
-  return [r, g, b].map(v => Math.round(clamp(v, 0, 255)));
+  return [r, g, b].map(v => Math.trunc(clamp(v, 0, 255)));   // cut off, like glowstage/colors.py
 }
 const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * clamp(t, 0, 1));
 const scaleRgb = (c, f) => c.map(v => v * f);
@@ -583,8 +583,17 @@ function renderTiles() {
     S.groups = {};
     for (const [key, title] of [["pc", "In your PC"], ["room", "In your room"]]) {
       const grid = h("div", { class: "tiles" }), count = h("span", { class: "count" });
-      const sec = h("section", { class: "light-group" }, h("div", { class: "section-head" }, h("h2", {}, title, count)), grid);
-      S.groups[key] = { sec, grid, count };
+      const where = key === "pc" ? "in your PC" : "in your room";
+      const slider = h("div", { class: "slider", role: "slider", tabindex: "0", "aria-valuemin": "0", "aria-valuemax": "100", "aria-label": `Brightness, lights ${where}` },
+        h("div", { class: "slider-fill" }));
+      const power = h("button", { class: "tile-power", type: "button" }, icon("power"));
+      const look = h("button", { class: "btn btn-sm", type: "button", text: "Color & effects", "aria-label": `Color and effects for the lights ${where}` });
+      const tools = h("div", { class: "group-tools" }, slider, power, look);
+      const sec = h("section", { class: "light-group" }, h("div", { class: "section-head" }, h("h2", {}, title, count), tools), grid);
+      S.groups[key] = { sec, grid, count, slider, power, where };
+      bindSlider(slider, "__" + key, v => send(groupIds(key), { brightness: v }, "bri:__" + key));
+      power.addEventListener("click", () => toggleGroup(key));
+      look.addEventListener("click", () => { S.selected = groupIds(key); openSheet(); });
       host.append(sec);
     }
   }
@@ -593,6 +602,18 @@ function renderTiles() {
     const members = devs.filter(d => (d.group === "pc" ? "pc" : "room") === key);
     g.sec.hidden = !members.length;
     g.count.textContent = members.length;
+    // The group's own controls: average brightness of the lights that are on, and one power button.
+    const lit = members.filter(d => d.online && d.state.on);
+    const base = lit.length ? lit : members;
+    const avg = base.length ? Math.round(base.reduce((a, d) => a + d.state.brightness, 0) / base.length) : 100;
+    if (S.dragging !== "__" + key) {
+      const colors = lit.slice(0, 8).map(glowColor);
+      setSlider(g.slider, avg, colors.length > 1 ? `linear-gradient(90deg, ${colors.join(", ")})` : colors[0] || "#f3f1ed", !lit.length);
+    }
+    g.power.classList.toggle("is-on", lit.length > 0);
+    g.power.style.setProperty("--c", lit.length ? glowColor(lit[0]) : "#888");
+    g.power.setAttribute("aria-label", `Turn the lights ${g.where} ${lit.length ? "off" : "on"}`);
+    g.power.title = lit.length ? "Turn off" : "Turn on";
     for (const d of members) if (!S.tiles.has(d.id)) S.tiles.set(d.id, makeTile(d.id));
     const order = members.map(d => d.id);
     if ([...g.grid.children].map(n => n.dataset.id).join("|") !== order.join("|")) fill(g.grid, order.map(id => S.tiles.get(id)));
@@ -638,6 +659,18 @@ function toggleStrip(id) {
   if (!d) return;
   if (d.paired === false) return openPairDialog(d);
   send([id], { on: !d.state.on }, "on:" + id);
+}
+
+/* The lights of one group on Home ("pc" or "room"), as their ids. */
+const groupIds = key => visible().filter(d => (d.group === "pc" ? "pc" : "room") === key).map(d => d.id);
+
+/* A group's power button: off if any of its lights is on, else on. Off offers Undo, like All off
+   (the app remembers the lights before a group switches). */
+function toggleGroup(key) {
+  const ids = groupIds(key);
+  const anyOn = ids.some(id => { const d = byId(id); return d.online && d.state.on; });
+  send(ids, { on: !anyOn }, "on:__" + key);
+  if (anyOn) undoable(key === "pc" ? "The lights in your PC are off" : "The lights in your room are off");
 }
 
 /* ============================== presets ============================== */
@@ -760,6 +793,15 @@ function openPresetMenu(p) {
       h("div", { class: "form-actions" },
         h("button", { class: "btn", type: "button", text: "Save my lights into it", title: "It gets your lights as they are now",
           onclick: async () => { if (await act("save_preset", p.name)) { closeModal(); toast(`${p.name} now has your lights as they are`); } } }),
+        h("button", { class: "btn", type: "button", text: "Make a copy", title: "A copy right after it, to change without losing this one",
+          onclick: async () => {
+            const r = await callRaw("duplicate_preset", p.name);
+            if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return; }
+            for (let i = 0; i < 10 && !S.data.presets.some(x => x.name === r.result); i++) await refresh(true);
+            const copy = S.data.presets.find(x => x.name === r.result);
+            if (copy) openPresetMenu(copy);                 // (to name it right away)
+            toast(`Made ${r.result}`);
+          } }),
         h("button", { class: "btn btn-quiet", type: "button", text: "Delete…", onclick: () => { closeModal(); confirmDeletePreset(p.name); } }))),
     ok: "Save name",
     onOk: async () => {
@@ -895,11 +937,41 @@ function bindWheel() {
     const r = wrap.getBoundingClientRect();
     const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
     const sat = Math.min(1, Math.hypot(dx, dy) / (r.width / 2));
-    sendTargets({ mode: "color", on: true, color: rgbToHex(hsvToRgb(Math.atan2(dy, dx) / (2 * Math.PI), sat, 1)) }, "color");
+    handColor = rgbToHex(hsvToRgb(Math.atan2(dy, dx) / (2 * Math.PI), sat, 1));
+    sendTargets({ mode: "color", on: true, color: handColor }, "color");
   };
+  const done = () => { if (handColor) rememberColor(handColor); handColor = null; };
   wrap.addEventListener("pointerdown", e => { wrap.setPointerCapture(e.pointerId); pick(e); });
   wrap.addEventListener("pointermove", e => { if (wrap.hasPointerCapture(e.pointerId)) pick(e); });
+  wrap.addEventListener("pointerup", done);
+  wrap.addEventListener("pointercancel", done);
 }
+
+/** A color set by hand goes to the front of the recent colors (kept by the app; once per pick, not per drag step). */
+let handColor = null;
+function rememberColor(c) {
+  c = c.toLowerCase();
+  const s = S.data && S.data.settings;
+  if (s) s.recent_colors = [c, ...(s.recent_colors || []).filter(x => x !== c)].slice(0, 8);
+  call("remember_color", c);
+  renderRecent();
+}
+
+function renderRecent() {
+  const list = (S.data && S.data.settings && S.data.settings.recent_colors) || [];
+  $("#recent-row").hidden = !list.length;
+  const box = $("#recent");
+  const key = list.join(",");
+  if (box.dataset.key !== key) {
+    box.dataset.key = key;
+    fill(box, ...list.map(c => h("button", {
+      class: "swatch", type: "button", title: c, "aria-label": `Recent color ${c}`, "data-color": c, style: `background:${c}`,
+      onclick: () => sendTargets({ mode: "color", on: true, color: c }, "color"),
+    })));
+  }
+}
+
+const whiteName = k => k < 2600 ? "candle" : k < 3500 ? "warm" : k < 4800 ? "neutral" : k < 6000 ? "cool" : "daylight";
 
 function bindKelvin() {
   const track = $("#kelvin");
@@ -907,17 +979,35 @@ function bindKelvin() {
   for (let k = 2200; k <= 6500; k += 430) stops.push(rgbToHex(kelvinToRgb(k)));
   track.style.background = `linear-gradient(90deg, ${stops.join(", ")})`;
   const pickK = k => {
-    S.kelvin = Math.round(k);
-    track.setAttribute("aria-valuenow", S.kelvin);
+    S.kelvin = clamp(Math.round(k / 100) * 100, 2200, 6500);
+    showKelvin();
     sendTargets({ mode: "color", on: true, color: rgbToHex(kelvinToRgb(S.kelvin)) }, "color");
   };
+  const keep = () => rememberColor(rgbToHex(kelvinToRgb(S.kelvin)));
   const at = e => { const r = track.getBoundingClientRect(); return 2200 + clamp((e.clientX - r.left) / r.width, 0, 1) * 4300; };
   track.addEventListener("pointerdown", e => { track.setPointerCapture(e.pointerId); pickK(at(e)); });
   track.addEventListener("pointermove", e => { if (track.hasPointerCapture(e.pointerId)) pickK(at(e)); });
+  track.addEventListener("pointerup", keep);
   track.addEventListener("keydown", e => {
-    const step = { ArrowRight: 100, ArrowUp: 100, ArrowLeft: -100, ArrowDown: -100 }[e.key];
-    if (step) { e.preventDefault(); pickK(clamp((S.kelvin || 4000) + step, 2200, 6500)); }
+    const cur = S.kelvin || 4000;
+    const step = { ArrowRight: 100, ArrowUp: 100, ArrowLeft: -100, ArrowDown: -100, PageUp: 500, PageDown: -500 }[e.key];
+    if (step) { e.preventDefault(); pickK(cur + step); }
+    else if (e.key === "Home") { e.preventDefault(); pickK(2200); }
+    else if (e.key === "End") { e.preventDefault(); pickK(6500); }
   });
+  track.addEventListener("keyup", e => {
+    if (["ArrowRight", "ArrowUp", "ArrowLeft", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(e.key)) keep();
+  });
+  showKelvin();
+}
+
+/** The white slider's value for screen readers and the short readout next to it. */
+function showKelvin() {
+  const k = S.kelvin || 4000, text = `${k} K · ${whiteName(k)}`;
+  const track = $("#kelvin");
+  track.setAttribute("aria-valuenow", k);
+  track.setAttribute("aria-valuetext", text);
+  $("#kelvin-val").textContent = S.kelvin ? text : "";
 }
 
 function renderColor() {
@@ -931,6 +1021,10 @@ function renderColor() {
   if (document.activeElement !== hex) hex.value = color.toUpperCase();
   const active = p && p.state.mode === "color" ? color.toLowerCase() : "";
   for (const b of $("#swatches").children) b.setAttribute("aria-pressed", String(b.dataset.color === active));
+  renderRecent();
+  // When the lights show one of the whites, the slider moves to it; otherwise it stays where it was.
+  if (active) for (let k = 2200; k <= 6500; k += 100) if (rgbToHex(kelvinToRgb(k)) === active) { S.kelvin = k; break; }
+  showKelvin();
   const thumb = $(".kelvin-thumb");
   const showK = S.kelvin && active === rgbToHex(kelvinToRgb(S.kelvin));
   thumb.style.display = showK ? "block" : "none";
@@ -1487,7 +1581,7 @@ function bindStatic() {
   const hex = $("#hex");
   const commitHex = () => {
     const rgb = hexToRgb(hex.value);
-    if (rgb) sendTargets({ mode: "color", on: true, color: rgbToHex(rgb) }, "color");
+    if (rgb) { sendTargets({ mode: "color", on: true, color: rgbToHex(rgb) }, "color"); rememberColor(rgbToHex(rgb)); }
     else { toast("Use a hex color like #FF8800.", true); render(); }
   };
   hex.addEventListener("keydown", e => { if (e.key === "Enter") { commitHex(); hex.blur(); } });
@@ -1542,6 +1636,7 @@ function bindStatic() {
   });
   bindSetup();
   bindSearch();
+  bindKeys();
   $("#modal-cancel").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
   $("#modal-ok").addEventListener("click", async () => {
@@ -1587,6 +1682,7 @@ function searchItems() {
   // (the window can't ask the app whether there is something to undo: it knows what it just offered Undo for)
   if (d.canUndo === undefined ? S.undoReady : d.canUndo) add(0, "Undo", undoNow);
   add(0, "Report a problem", openReport);
+  add(0, "Keyboard shortcuts", openKeys);
   for (const p of d.presets || []) add(1, p.name, () => applyPreset(p));
   for (const l of visible()) add(2, l.name, () => selectStrip(l.id, false));
   for (const e of d.effects || []) add(3, e.name, () => {
@@ -1722,6 +1818,84 @@ function bindSearch() {
   }, true);
 }
 /* ===== end of quick search ===== */
+
+/* ===== keys in the window ===== */
+/* With the window in front and no text field in use: 1-9 a preset, L all on or off, S the light
+   show, + and - brightness, N the sleep timer, Z undo, ? the list of keys. */
+
+const WINDOW_KEYS = [
+  ["Ctrl+K", "Search presets, lights, effects and settings"],
+  ["1 – 9", "Your first nine presets (in the order of the Presets page)"],
+  ["L", "All lights on or off"],
+  ["S", "Start or stop the light show"],
+  ["+  −", "Every light that is on brighter or darker"],
+  ["N", "Sleep timer"],
+  ["Z", "Undo"],
+  ["Esc", "Close a window or the color panel"],
+  ["?", "This list"],
+];
+const ANYWHERE_KEYS = [
+  ["Ctrl+Alt+Shift+L", "All lights on or off"],
+  ["Ctrl+Alt+Shift+S", "Start or stop the light show"],
+  ["Ctrl+Alt+Shift+1 – 9", "Your first nine presets"],
+  ["Ctrl+Alt+Shift+↑ ↓", "Brighter or darker (hold to keep going)"],
+  ["Ctrl+Alt+Shift+N", "Sleep timer: fade out in 30 minutes, or cancel it"],
+  ["Ctrl+Alt+Shift+Z", "Undo"],
+];
+
+const typingIn = el => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
+function windowKey(e) {
+  if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey || !S.data) return;
+  if (typingIn(e.target) || !$("#modal").hidden || QS.open || (S.wiz && S.wiz.open)) return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const nudging = ["+", "=", "-", "_"].includes(k);
+  if (e.repeat && !nudging) return;                    // (holding L mustn't flick the lights)
+  if (/^[1-9]$/.test(k)) {
+    const p = S.data.presets[+k - 1];
+    if (!p) return;
+    applyPreset(p);
+  } else if (k === "l") $("#all-power").click();
+  else if (k === "s") $("#show-start").click();
+  else if (k === "n") openSleepTimer();
+  else if (k === "z") { if (S.data.canUndo || S.undoReady) undoNow(); else toast("There's nothing to undo"); }
+  else if (nudging) nudgeAll(k === "+" || k === "=" ? 10 : -10);
+  else if (k === "?") openKeys();
+  else return;
+  e.preventDefault();
+}
+
+async function nudgeAll(delta) {
+  if (!visible().some(d => d.online && d.state.on)) { toast("Your lights are off"); return; }
+  await call("nudge_brightness", delta);
+  refresh(true);
+}
+
+/** The list of keys: in the window, and from any program (Setup → App → Hotkeys). */
+function openKeys() {
+  const rows = list => h("div", { class: "keys-list" }, ...list.map(([k, text]) =>
+    h("div", { class: "keys-row" }, h("kbd", { text: k }), h("span", { text }))));
+  const hot = !!(S.data.settings || {}).hotkeys;
+  openModal({
+    title: "Keyboard shortcuts",
+    wide: true,
+    cancel: false,
+    body: h("div", {},
+      h("h3", { class: "keys-head", text: "In this window" }),
+      rows(WINDOW_KEYS),
+      h("h3", { class: "keys-head", text: "From any program" }),
+      h("p", { class: "hint", text: hot ? "On: they work while you're in a game or another program."
+        : "Off now: switch them on in Setup → App → Hotkeys." }),
+      rows(ANYWHERE_KEYS)),
+    ok: "Close",
+    onOk: () => true,
+  });
+}
+
+function bindKeys() {
+  document.addEventListener("keydown", windowKey);
+}
+/* ===== end of keys in the window ===== */
 
 let started = false;
 async function start() {
