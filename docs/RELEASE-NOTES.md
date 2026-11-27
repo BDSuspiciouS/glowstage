@@ -1,11 +1,13 @@
-Glowstage 0.9.2: your lights change by themselves for games, videos and music.
+Glowstage 0.9.3: your room plays along with Counter-Strike 2.
 
-**Install:** download `Glowstage-0.9.2-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay.
+**Install:** download `Glowstage-0.9.3-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay.
 
 **New**
-- Automatic looks (Setup → Automatic): when a game goes full screen, your lights can follow the screen or switch to a preset such as *Gaming*; a full-screen video in a browser or video player gets its own choice (*Movie*, or following the screen). When you leave the game or close the video, your lights go back to how they were. Remote Desktop, slide shows and other programs that go full screen without being a game don't count.
-- A full-screen game or video goes before music, and the light show picks up again when you come back to the music.
-- Change anything yourself and Glowstage leaves your lights alone until it's over; Home shows what changed your lights and a button to put them back.
+- Counter-Strike 2 lighting (Setup → Games → Connect): while you're in a match your lights play along. Your team's color, your health as a bar across the room (the right side goes dark first), a red heartbeat when you're low, white when you're flashed, fire when you burn, dim in a smoke. The bomb blinks red ever faster, the blast floods the room, a defuse flashes ice white, the round's winners sweep their color across, and every kill gives a short pop (gold for a headshot). When you leave the match your own look comes back.
+- It uses Valve's own game state integration: CS2 sends what happens to Glowstage on your PC, nothing reads or changes the game, so it's safe for VAC. Connecting puts one small file in CS2's cfg folder; Disconnect removes it.
+
+**New in 0.9.2**
+- Automatic looks (Setup → Automatic): a full-screen game or video can switch your lights to Screen sync or a preset (*Gaming*, *Movie*), and they go back afterwards. Change anything yourself and Glowstage leaves your lights alone until it's over.
 
 **New in 0.9.1**
 - The light show can start by itself when music plays (*Start by itself* on the Light show page) and puts your lights back 30 seconds after the music stops. It waits for music with a beat, so talk, games and notification sounds don't set it off.

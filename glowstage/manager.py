@@ -13,6 +13,7 @@ from . import genre_install
 from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations
+from .games import Games
 from .devices.base import Device
 from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
@@ -90,6 +91,7 @@ class DeviceManager:
         self.openrgb = OpenRGBProvider(config["openrgb"], self._on_openrgb_change)
         self.discovery = Discovery(self._on_discovered)
         self.engine = EffectEngine(self)
+        self.games = Games(config, self._changed)
         self.automations = Automations(self)
 
     # ---- lifecycle -------------------------------------------------------------------
@@ -100,6 +102,7 @@ class DeviceManager:
         self.openrgb.start()
         self.discovery.start()
         self.engine.start()
+        self.games.start()
         self.automations.start()
         threading.Thread(target=self._monitor, name="monitor", daemon=True).start()
         threading.Thread(target=self._scheduler, name="schedule", daemon=True).start()
@@ -120,6 +123,7 @@ class DeviceManager:
     def stop(self) -> None:
         self._stop.set()
         self.automations.stop()
+        self.games.stop()
         self.engine.stop()
         self.discovery.stop()
         self.openrgb.stop()
@@ -373,6 +377,10 @@ class DeviceManager:
         with self.lock:
             now = {i: st.to_dict() for i, st in self.states.items() if i in self.devices}
         self._apply({i: look for i, look in looks.items() if i in now and now[i] != look}, preset=preset)
+
+    def game_lights(self, effect: str = "game_cs2") -> None:
+        """The lights of the show play along with the game."""
+        self._apply({i: {"mode": "effect", "effect": effect} for i in self.show_lights()}, preset="")
 
     def screen_sync(self) -> None:
         """The lights of the show follow the screen (each the part where it sits on the stage)."""
@@ -649,6 +657,7 @@ class DeviceManager:
                       "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
             "show": self.engine.show.info() if self.engine.show_active else None,
             "auto": self.automations.active,
+            "games": self.games.describe(),
         }
 
     # ---- stage layout (where each light sits for the light show) ------------------------------

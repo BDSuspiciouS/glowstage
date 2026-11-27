@@ -26,7 +26,7 @@ S.addForm = { kind: "wled", values: {} };
 function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label]),
-    d.hubs, d.openrgb, d.genreAi, d.settings, (d.drivers || []).length, d.stage, d.schedules,
+    d.hubs, d.openrgb, d.genreAi, d.settings, d.games, (d.drivers || []).length, d.stage, d.schedules,
     (d.presets || []).map(p => p.name), d.hotkeysTaken]);
 }
 
@@ -37,7 +37,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), automaticSection(), scheduleSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), appSection());
   body.scrollTop = scroll;
 }
 
@@ -241,6 +241,27 @@ function genreSection() {
 /* Schedule: a preset, on, off or the light show at set times on chosen days. */
 const DAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+function gamesSection() {
+  const c = ((S.data.games || {}).cs2) || {};
+  const status = !c.found ? "Not found on this PC"
+    : !c.connected ? "Found on this PC"
+    : c.inMatch ? `Playing along · ${c.team === "CT" ? "Counter-Terrorists" : c.team === "T" ? "Terrorists" : "in a match"}${c.team ? ` · ${c.health} HP` : ""}`
+    : c.receiving ? "Connected · waiting for a match"
+    : "Connected · starts when you open CS2";
+  return h("section", { class: "set-section", id: "set-games" },
+    h("h3", { text: "Games" }),
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (c.connected ? " is-on" : "") }), h("strong", { text: "Counter-Strike 2" }), h("span", { class: "muted", text: " · " + status })),
+    h("p", { class: "hint", style: "margin-bottom:10px", text: "While you play, your room plays along: your team's color, your health across the lights, white when you're flashed, the bomb blinking ever faster, a flash for every kill. When you leave the match your own look comes back." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: c.connected
+      ? "CS2 sends its state to Glowstage on this PC through Valve's own game state integration. If CS2 was already running when you connected, restart it once."
+      : "Uses Valve's own game state integration, the way RGB makers and stream overlays do: the game sends what happens, nothing reads or changes the game, so it's safe for VAC. Connecting puts one small file in CS2's cfg folder." }),
+    h("div", { class: "form-actions", style: "margin:0" },
+      !c.connected ? h("button", { class: "btn btn-primary", type: "button", text: "Connect", disabled: !c.found,
+        onclick: async () => { if (await call("games_connect") !== undefined) toast("Connected: start CS2 and play"); refresh(true); } }) : null,
+      c.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
+        onclick: async () => { await call("games_disconnect"); toast("CS2 is disconnected"); refresh(true); } }) : null));
+}
+
 function automaticSection() {
   const s = S.data.settings;
   const looks = [["", "Nothing"], ["screen", "Follow the screen"],

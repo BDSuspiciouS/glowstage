@@ -249,6 +249,7 @@ const dismissedUpdate = () => { try { return localStorage.getItem("glowstage.upd
 
 /* Notes at the top of Home: a new version is out; once in a while, the support card. */
 const AUTO_NOTES = {
+  cs2: { icon: "spark", title: "Counter-Strike 2 is on", text: "Your lights play along with the match and go back when you leave it." },
   game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
   video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
   music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
@@ -951,7 +952,7 @@ function buildEffects() {
     class: "fx-card" + (e.group === "music" ? " fx-music" : ""), type: "button", "data-fx": e.id,
     onclick: () => sendTargets({ mode: "effect", on: true, effect: e.id }, "fx"),
   }, h("canvas", { height: "14" }), h("span", { class: "fx-name", text: e.name, title: e.name }));
-  const anim = S.data.effects.filter(e => e.group !== "music");
+  const anim = S.data.effects.filter(e => e.group !== "music" && e.group !== "game");
   const music = S.data.effects.filter(e => e.group === "music");
   fill($("#fx-grid"), 
     h("div", { class: "fx-group" }, icon("spark"), "Animations"),

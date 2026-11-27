@@ -500,9 +500,98 @@ class LightShow(MusicEffect):
                            ctx.get("slow", False))
 
 
+# ---- games: these follow what happens in the game (see games.py) ----------------------------
+
+_CT = np.array([40.0, 120.0, 255.0])      # Counter-Terrorists
+_T = np.array([255.0, 135.0, 20.0])       # Terrorists
+_NEUTRAL = np.array([170.0, 175.0, 200.0])
+_RED = np.array([255.0, 0.0, 0.0])
+_WHITE = np.array([255.0, 255.0, 255.0])
+_BLAST = np.array([255.0, 190.0, 110.0])
+_GOLD = np.array([255.0, 215.0, 120.0])
+_FIRE = np.array([255.0, 90.0, 0.0])
+_DEFUSE = np.array([170.0, 225.0, 255.0])   # ice white: shows on the blue of the CT side too
+
+
+def _mix(out: np.ndarray, color: np.ndarray, k) -> np.ndarray:
+    k = np.clip(np.asarray(k, dtype=float), 0.0, 1.0)
+    if k.ndim == 1:
+        k = k[:, None]
+    return out * (1 - k) + color * k
+
+
+class CS2(Effect):
+    """Counter-Strike 2, as the game tells it (games.CS2State): the room in your team's color
+    with your health as a bar across the stage (the right side goes dark first), a red heartbeat
+    when you're low, white when you're flashed, flicker when you burn, dim in a smoke. The bomb
+    blinks red ever faster, the blast floods the room, a defuse flashes ice white, the round's winners
+    sweep their color across, and every kill gives a short white pop (gold for a headshot)."""
+    id, name = "game_cs2", "Counter-Strike 2"
+    group = "game"
+    uses = ()
+
+    def render(self, t, n, st, mem, ctx):
+        g = ctx.get("game") or {}
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        x = start + (end - start) * (np.arange(n) + 0.5) / n      # where each pixel sits: 0 left .. 1 right
+        if not g.get("inMatch"):    # in the menu: both sides' colors drift slowly across the room
+            u = (0.5 + 0.5 * np.sin(2 * np.pi * (x * 0.8 - t * 0.05)))[:, None]
+            return _rgb((_CT * u + _T * (1 - u)) * (0.35 + 0.08 * math.sin(t * 0.8)))
+        team = {"CT": _CT, "T": _T}.get(g.get("team"), _NEUTRAL)
+        ago = g.get("ago") or {}
+        hp = max(0.0, min(1.0, (g.get("health") or 0) / 100))
+        if not g.get("me"):                  # dead, watching a teammate
+            out = np.tile(team * (0.08 + 0.03 * math.sin(t * 1.5)), (n, 1))
+        elif g.get("phase") == "freezetime":  # buy time: the team color breathes
+            out = np.tile(team * (0.45 + 0.2 * math.sin(t * 2.4)), (n, 1))
+        elif hp <= 0:
+            out = np.tile(_RED * 0.06, (n, 1))
+        else:
+            if n == 1:
+                out = np.tile(team * (0.25 + 0.75 * hp), (1, 1))
+            else:
+                lit = np.clip((hp - x) / 0.04 + 0.5, 0.0, 1.0)
+                out = team[None, :] * (0.07 + 0.93 * lit[:, None])
+            if hp < 0.3:                     # low: a red heartbeat
+                out = _mix(out, _RED, 0.85 * math.exp(-((t * 1.6) % 1.0) * 7))
+        bomb = g.get("bomb")
+        if bomb is not None:                 # the C4 blinks faster and faster: once a second at the
+            k = 0.88 / 40.0                  # plant, about eight a second at the end (the blink period
+            e = min(bomb, 40.0)              # shrinks with time, so its phase is the integral of 1/period)
+            phase = -math.log(1 - k * e) / k + max(0.0, bomb - 40.0) / 0.12
+            if phase % 1.0 < 0.3:
+                out = _mix(out, _RED, 0.75)
+        if ago.get("exploded", 99) < 2.5:
+            out = _mix(out, _BLAST, math.exp(-ago["exploded"] * 1.6))
+        if ago.get("defused", 99) < 2.0:
+            a = ago["defused"]
+            out = _mix(out, _DEFUSE, 0.9 * math.exp(-a * 1.5) * (0.5 + 0.5 * math.cos(a * 14)))
+        if ago.get("round_over", 99) < 4.0 and g.get("winTeam") in ("CT", "T"):
+            a = ago["round_over"]
+            wave = 0.5 + 0.5 * np.cos(2 * np.pi * (x - a * 0.8))
+            out = _mix(out, _CT if g["winTeam"] == "CT" else _T, (1 - a / 4.0) * wave)
+        if ago.get("headshot", 99) < 0.4:
+            out = _mix(out, _GOLD, 0.8 * (1 - ago["headshot"] / 0.4))
+        elif ago.get("kill", 99) < 0.35:
+            out = _mix(out, _WHITE, 0.55 * (1 - ago["kill"] / 0.35))
+        burning = g.get("burning") or 0.0
+        if burning > 0:
+            flicker = np.array([_noise(i * 0.7 + t * 9, 11) for i in range(n)])
+            # (fire over the team color, not mixed with it: blue and orange half-and-half look purple)
+            out = _mix(out, _FIRE * (0.55 + 0.45 * flicker[:, None]), min(1.0, burning * 1.3))
+        out = out * (1 - 0.65 * (g.get("smoked") or 0.0))
+        return _rgb(_mix(out, _WHITE, g.get("flashed") or 0.0))
+
+
+def _rgb(arr: np.ndarray) -> list[RGB]:
+    a = np.clip(arr, 0, 255).astype(int)
+    return [(int(r), int(g), int(b)) for r, g, b in a]
+
+
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
     Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Screen(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
-    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(),
+    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),
 )}
 MUSIC_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "music"}
+GAME_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "game"}

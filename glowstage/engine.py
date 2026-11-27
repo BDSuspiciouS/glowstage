@@ -9,7 +9,7 @@ import time
 
 from .audio import AudioAnalyzer
 from .colors import scale
-from .effects import EFFECTS, MUSIC_EFFECTS
+from .effects import EFFECTS, GAME_EFFECTS, MUSIC_EFFECTS
 from .genre import DiscogsDetector
 from .screen import ScreenSampler
 from .show import SLOW_FPS, ShowDirector, stage_spans
@@ -98,6 +98,9 @@ class EffectEngine:
         screen = any(st.effect == "screen" for _, st in targets)
         if screen:
             ctx["screen"] = self.screen.request()
+        game = any(st.effect in GAME_EFFECTS for _, st in targets)
+        if game:
+            ctx["game"] = self.manager.games.cs2.snapshot(now)
         if any(st.effect in MUSIC_EFFECTS for _, st in targets):
             heard = self.audio.request()  # one snapshot per frame keeps every light on the same beat
             sync = self.manager.show_sync()["ms"] / 1000
@@ -106,7 +109,7 @@ class EffectEngine:
                 settings = self.manager.config["settings"]
                 intensity = sum(st.speed for st in show) / len(show) / 100
                 ctx["show"] = self.show.update(heard, now, intensity, settings.get("show_strobe", True), sync)
-        if show or screen:   # where each light sits on the stage
+        if show or screen or game:   # where each light sits on the stage
             spans = stage_spans(list(self.manager.devices.values()), self.manager.config.data.get("show_layout"))
         for dev, st in targets:
             due = now - self._last.get(dev.id, 0.0) >= 1 / dev.max_fps - 0.004

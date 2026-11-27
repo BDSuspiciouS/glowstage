@@ -2,11 +2,12 @@
 puts them back the way they were afterwards (Setup → Automatic; the light show's "Start by
 itself" switch is the music one).
 
+- A Counter-Strike 2 match, once CS2 is connected (games.py): the lights play along with it.
 - A game in full screen: the look chosen for games (Screen sync, or a preset such as Gaming).
 - A video in full screen, in a browser or a video player: the look chosen for videos.
 - Music with a beat: the light show.
 
-A full-screen game or video wins over music. When you take over (change a light, pick a preset,
+A CS2 match wins over everything; a full-screen game or video wins over music. When you take over (change a light, pick a preset,
 switch off; from the window, the tray, a hotkey or a schedule) Glowstage keeps its hands off
 until whatever it reacted to is over.
 
@@ -35,7 +36,7 @@ from ctypes import wintypes as w
 
 log = logging.getLogger(__name__)
 
-RULES = ("game", "video", "music")   # first wins
+RULES = ("cs2", "game", "video", "music")   # first wins
 
 LEVEL = 1e-4         # the meter's peak above which something plays (0..1; silence is exactly 0).
                      # Low on purpose: players are often turned far down (peaks of 0.001).
@@ -45,6 +46,7 @@ MUSIC_CHECKS = 3     # in this many checks in a row (one a second)
 QUIET_END = 30.0     # seconds without sound after which the music is over
 GAP = 2.0            # shorter dips in the sound don't count (between songs, a breakdown)
 SCREEN_SETTLE = 3.0  # seconds a full-screen game or video has to last, or be gone, to count
+CS2_ON, CS2_OFF = 1.0, 6.0   # seconds a CS2 match has to be on / off (CS2 sends at least every 10 s)
 
 VIDEO_APPS = {
     "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "arc.exe",
@@ -190,6 +192,8 @@ class Automations:
         self._screen_kind: str | None = None    # what's in full screen, as last seen
         self._screen_since = 0.0
         self._screen: str | None = None     # ... once it lasted SCREEN_SETTLE
+        self._cs2_seen: tuple[bool, float] = (False, 0.0)   # in a CS2 match, since
+        self._cs2 = False                   # ... once that settled
         self._sound_since: float | None = None
         self._last_sound = -1e9
         self._checks = 0                    # checks in a row that heard music
@@ -199,7 +203,8 @@ class Automations:
     def rules(self) -> dict[str, str]:
         """What each rule does: "" (nothing), "screen", "show" or "preset:<name>"."""
         s = self.manager.config["settings"]
-        return {"game": s.get("auto_game") or "", "video": s.get("auto_video") or "",
+        return {"cs2": "game:cs2" if self.manager.games.settings.get("cs2") else "",
+                "game": s.get("auto_game") or "", "video": s.get("auto_video") or "",
                 "music": "show" if s.get("auto_show") else ""}
 
     def start(self) -> None:
@@ -221,6 +226,7 @@ class Automations:
             rules = self.rules()
             now = time.monotonic()
             kind, peak = None, 0.0
+            cs2 = bool(rules["cs2"]) and self.manager.games.active(now)
             if rules["game"] or rules["video"]:
                 try:
                     kind = full_screen()[0]
@@ -246,19 +252,24 @@ class Automations:
                 meter.close()
                 meter = None
             try:
-                self.step(now, rules, kind, peak)
+                self.step(now, rules, kind, peak, cs2)
             except Exception:
                 log.exception("Automatic look failed")
         if meter:
             meter.close()
 
     # (separate from the thread, for tests)
-    def step(self, now: float, rules: dict[str, str], kind: str | None, peak: float) -> None:
+    def step(self, now: float, rules: dict[str, str], kind: str | None, peak: float, cs2: bool = False) -> None:
         m = self.manager
         if not any(rules.values()):     # all switched off: forget, leave the lights as they are
             self.active, self._saved, self._set, self._hands_off = None, None, None, False
-            self._music, self._checks, self._screen = False, 0, None
+            self._music, self._checks, self._screen, self._cs2 = False, 0, None, False
             return
+
+        if cs2 != self._cs2_seen[0]:
+            self._cs2_seen = (cs2, now)
+        if now - self._cs2_seen[1] >= (CS2_ON if cs2 else CS2_OFF):
+            self._cs2 = cs2
 
         if kind != self._screen_kind:
             self._screen_kind, self._screen_since = kind, now
@@ -266,7 +277,8 @@ class Automations:
             self._screen = self._screen_kind
         self._listen(now, rules, peak)
 
-        want = next((r for r in RULES if rules[r] and (self._screen == r if r != "music" else self._music)), None)
+        holds = {"cs2": self._cs2, "game": self._screen == "game", "video": self._screen == "video", "music": self._music}
+        want = next((r for r in RULES if rules[r] and holds[r]), None)
         if self.active and self._set is not None and not _same(m.looks(), self._set):
             log.info("Automatic look (%s): taken over by hand", self.active)
             self.active, self._saved, self._set, self._hands_off = None, None, None, True
@@ -307,7 +319,7 @@ class Automations:
             self._music = False
         if self._music:
             return
-        busy = self._screen is not None and rules.get(self._screen)    # a game or video goes first
+        busy = self._cs2 or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
         if self._sound_since is None or now - self._sound_since < SOUND_FIRST or busy or self._hands_off:
             self._checks = 0
             return
@@ -321,6 +333,8 @@ class Automations:
         m = self.manager
         if action == "show":
             m.start_show()
+        elif action == "game:cs2":
+            m.game_lights("game_cs2")
         elif action == "screen":
             m.screen_sync()
         elif action.startswith("preset:") and action[7:] in m.preset_names():

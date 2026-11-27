@@ -32,6 +32,7 @@
 - **It knows what it's listening to.** An offline AI recognises the genre (built in, or with one click an enhanced AI that knows 400 music styles) and every genre gets its own choreography: step chases for techno, a disco floor for house, everything glowing with the 808 for hip-hop, slow washes for chill. Colors follow the chords.
 - **One stage for the whole room.** Chases run from the strip above your monitor over the keyboard to the fans in your case. Drag lights into place on the stage, and choose which ones join the show.
 - **Lights that follow your screen.** With Screen sync every light takes the part of the picture where it sits: the strip above your monitor runs along with a film or a game from left to right, a bulb takes the screen's color as a whole.
+- **Your room plays along with Counter-Strike 2.** Your team's color, your health as a bar across the lights, white when you're flashed, the bomb blinking ever faster, a pop for every kill. It uses Valve's own game state integration, so nothing touches the game and it's safe for VAC (Setup → Games).
 - **Presets for every moment.** Focus, Reading, Cozy, Gaming, Movie and more, each lighting your PC and your room its own way. Save your own with one click, run them from the tray or a hotkey, on a schedule (*Late night* at 23:00, everything off at 1:00), or automatically: *Gaming* when a game goes full screen, *Movie* for a full-screen video, and back to your own look afterwards.
 - **In sync with what you hear.** Bluetooth headphones play the sound later than your PC sends it; Glowstage notices and waits for them. Slow lights (Hue, Govee, Home Assistant) get calmer looks that still catch every hit.
 - **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for the RGB inside your PC if you want it, and gets you to your first light show in a minute. It lives quietly in the tray.
@@ -104,6 +105,12 @@ The RGB inside your PC goes through OpenRGB. Setup → PC lighting can download 
 <summary><b>Glowstage froze or closed</b></summary>
 
 It writes down where it was in `%APPDATA%\Glowstage\hang.log` (when it stops responding) and `crash.log`. Please attach those and `glowstage.log` to a [bug report](https://github.com/BDSuspiciouS/glowstage/issues/new/choose).
+</details>
+
+<details>
+<summary><b>Is the Counter-Strike 2 lighting safe for VAC?</b></summary>
+
+Yes. It uses Valve's own game state integration, the feature RGB makers and stream overlays use: CS2 itself sends what happens in the match to Glowstage on your PC. Nothing reads the game's memory or changes the game. Connecting puts one small text file (`gamestate_integration_glowstage.cfg`) in CS2's cfg folder; Disconnect removes it.
 </details>
 
 <details>

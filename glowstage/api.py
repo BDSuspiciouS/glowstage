@@ -226,6 +226,15 @@ class Api:
             self._app.hotkeys.set_enabled(bool(value))
 
     @_safe
+    def games_connect(self):
+        """Game lighting: put the small file in CS2's cfg folder and start listening."""
+        self._app.manager.games.connect()
+
+    @_safe
+    def games_disconnect(self):
+        self._app.manager.games.disconnect()
+
+    @_safe
     def stop_automation(self):
         """"Put my lights back": undo the automatic look (game, video, music) now."""
         self._app.manager.automations.release()
