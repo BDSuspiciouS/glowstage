@@ -282,7 +282,51 @@ function automaticSection() {
     pick("auto_video", "When a video is full screen (a browser or video player)", looks, s.auto_video || ""),
     pick("auto_show", "When music plays", [["", "Nothing"], ["show", "Start the light show"]], s.auto_show ? "show" : ""),
     pick("away_lights", "When you step away: the PC is locked, its screen goes off or it sleeps",
-      [["", "Nothing"], ["pc", "Switch the PC's lights off"], ["all", "Switch all lights off"]], s.away_lights || ""));
+      [["", "Nothing"], ["pc", "Switch the PC's lights off"], ["all", "Switch all lights off"]], s.away_lights || ""),
+    appLooks());
+}
+
+/* A look while an app is open: Focus while Photoshop is, the light show while a DJ app is. */
+function appLooks() {
+  const items = (S.data.appLooks || []).map(a => ({ ...a }));
+  const presets = (S.data.presets || []).map(p => ["preset:" + p.name, p.name]);
+  const looks = [["screen", "Follow the screen"], ["show", "The light show"], ...presets];
+  const save = async () => {
+    const r = await callRaw("set_app_looks", items);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const add = async () => {
+    const open = await call("open_apps");
+    if (!open) return;
+    const have = new Set(items.map(a => a.exe));
+    const choices = open.filter(a => !have.has(a.exe));
+    const focus = presets.find(([v]) => v === "preset:Focus");
+    openModal({
+      title: "Give an app its own look",
+      body: choices.length
+        ? h("div", {}, h("p", { class: "hint", text: "Apps that are open right now. Pick one, then choose its look." }),
+          h("div", { class: "app-pick-list" }, choices.map(a => h("button", {
+            class: "app-pick", type: "button",
+            onclick: () => { items.push({ ...a, action: (focus || presets[0] || ["screen"])[0] }); closeModal(); save(); },
+          }, h("span", { text: a.name }), h("span", { class: "muted", text: a.exe })))))
+        : h("p", { class: "hint", text: "Open the app first (it needs a window), then come back here." }),
+      ok: "Close", cancel: false, onOk: () => true,
+    });
+  };
+  const row = (a, i) => h("div", { class: "sched-row" },
+    h("span", { class: "app-look-name", text: `While ${a.name} is open`, title: a.exe }),
+    h("select", { class: "auto-look", "aria-label": `Look while ${a.name} is open`,
+      onchange: e => { a.action = e.target.value; save(); } },
+      looks.map(([v, t]) => h("option", { value: v, text: t, selected: v === a.action }))),
+    h("button", { class: "icon-btn", type: "button", "aria-label": `Remove ${a.name}`, title: "Remove",
+      onclick: () => { items.splice(i, 1); save(); } }, icon("x")));
+  return h("div", { class: "app-looks" },
+    h("p", { class: "hint", text: "Apps: a look while an app is open, back to your own when you close it. The first app in the list goes first." }),
+    items.length ? h("div", { class: "sched-list" }, items.map(row)) : null,
+    h("div", { class: "form-actions" },
+      h("button", { class: "btn", type: "button", text: items.length ? "Add another app" : "Add an app", onclick: add })));
 }
 
 function scheduleSection() {

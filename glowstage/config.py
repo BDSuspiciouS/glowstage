@@ -89,6 +89,7 @@ DEFAULTS = {
     "schedules": [],      # [{"time": "23:00", "days": [0..6] (Monday = 0), "action": "off" | "on" | "show"
                           #   | "preset:<name>", "enabled": true}]
     "games": {"cs2": False, "port": 0, "token": ""},   # game lighting (games.py): connected, where it listens
+    "app_looks": [],      # [{"exe": "photoshop.exe", "name": "Adobe Photoshop", "action": "preset:Focus"}]: while open
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
                  "room_lights_off_at_shutdown": True, "show_strobe": True,

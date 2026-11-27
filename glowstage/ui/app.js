@@ -267,7 +267,10 @@ function renderHomeNotes() {
     else toast("The update didn't work: you still have the version you had", true);
   }
   const showSupport = S.data.askSupport && !S.supportClosed;
-  const auto = AUTO_NOTES[S.data.auto];
+  const app = String(S.data.auto || "").startsWith("app:")
+    && (S.data.appLooks || []).find(a => "app:" + a.exe === S.data.auto);
+  const auto = app ? { icon: "spark", title: `${app.name} is open`, text: "Your lights changed for it by themselves and go back when you close it." }
+    : AUTO_NOTES[S.data.auto];
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;

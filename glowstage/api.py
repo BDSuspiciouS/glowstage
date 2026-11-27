@@ -8,7 +8,7 @@ import logging
 import threading
 import webbrowser
 
-from . import genre_install, online, webfix, winutil
+from . import automations, genre_install, online, webfix, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -73,6 +73,15 @@ class Api:
     @_safe
     def set_schedules(self, items):
         self._m.set_schedules(items)
+
+    @_safe
+    def set_app_looks(self, items):
+        self._m.set_app_looks(items)
+
+    @_safe
+    def open_apps(self):
+        """The apps open right now, to pick one for Setup → Automatic → Apps."""
+        return automations.open_apps()
 
     @_safe
     def set_show_excluded(self, ids):

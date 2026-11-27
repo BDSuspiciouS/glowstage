@@ -3,11 +3,13 @@ puts them back the way they were afterwards (Setup → Automatic; the light show
 itself" switch is the music one).
 
 - A Counter-Strike 2 match, once CS2 is connected (games.py): the lights play along with it.
+- An app you chose is open (Setup → Automatic → Apps): its look, e.g. Focus while Photoshop is.
 - A game in full screen: the look chosen for games (Screen sync, or a preset such as Gaming).
 - A video in full screen, in a browser or a video player: the look chosen for videos.
 - Music with a beat: the light show.
 
-A CS2 match wins over everything; a full-screen game or video wins over music. When you take over (change a light, pick a preset,
+A CS2 match wins over everything, then your apps (the first in the list), then a full-screen
+game or video, then music. When you take over (change a light, pick a preset,
 switch off; from the window, the tray, a hotkey or a schedule) Glowstage keeps its hands off
 until whatever it reacted to is over.
 
@@ -27,8 +29,10 @@ tempo confidence of 0.7 or more within 5 to 9 s (mostly 0.9 to 1.0), spoken word
 from __future__ import annotations
 
 import ctypes
+import functools
 import logging
 import os
+import struct
 import threading
 import time
 import uuid
@@ -36,7 +40,8 @@ from ctypes import wintypes as w
 
 log = logging.getLogger(__name__)
 
-RULES = ("cs2", "game", "video", "music")   # first wins
+RULES = ("cs2", "game", "video", "music")   # first wins; your apps ("app:<exe>") come after cs2
+APP_LOOKS_MAX = 30
 
 LEVEL = 1e-4         # the meter's peak above which something plays (0..1; silence is exactly 0).
                      # Low on purpose: players are often turned far down (peaks of 0.001).
@@ -107,6 +112,143 @@ def full_screen() -> tuple[str | None, str]:
     hwnd = ctypes.windll.user32.GetForegroundWindow()
     exe = _process_name(hwnd) if hwnd else ""
     return classify(state.value, exe), exe
+
+
+# ---- which apps are open ------------------------------------------------------------------------
+
+_WNDENUMPROC = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+# Windows' own parts, and programs that are always there: not something to give a look to.
+SYSTEM_APPS = NOT_GAMES - {"powerpnt.exe", "code.exe", "devenv.exe", "obs64.exe", "excel.exe", "winword.exe",
+                           "onenote.exe", "ms-teams.exe", "teams.exe", "zoom.exe", "discord.exe", "acrobat.exe",
+                           "acrord32.exe", "sumatrapdf.exe", "windowsterminal.exe", "photos.exe",
+                           "microsoft.photos.exe", "vmware.exe", "virtualboxvm.exe"} | {
+    "applicationframehost.exe", "systemsettings.exe", "taskmgr.exe", "nvidia overlay.exe", "rundll32.exe",
+    "msedgewebview2.exe", "pythonw.exe", "python.exe", "dwm.exe", "ctfmon.exe"}
+
+
+@functools.lru_cache(maxsize=1)
+def _dlls():
+    u32, k32 = ctypes.WinDLL("user32"), ctypes.WinDLL("kernel32")
+    u32.EnumWindows.argtypes = [_WNDENUMPROC, w.LPARAM]
+    for name in ("IsWindowVisible", "GetWindowTextLengthW"):
+        getattr(u32, name).argtypes = [w.HWND]
+    u32.GetWindow.argtypes, u32.GetWindow.restype = [w.HWND, w.UINT], w.HWND
+    u32.GetWindowThreadProcessId.argtypes = [w.HWND, ctypes.POINTER(w.DWORD)]
+    k32.OpenProcess.argtypes, k32.OpenProcess.restype = [w.DWORD, w.BOOL, w.DWORD], w.HANDLE
+    k32.QueryFullProcessImageNameW.argtypes = [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)]
+    k32.CloseHandle.argtypes = [w.HANDLE]
+    dwm = ctypes.WinDLL("dwmapi")
+    dwm.DwmGetWindowAttribute.argtypes = [w.HWND, w.DWORD, ctypes.c_void_p, w.DWORD]
+    return u32, k32, dwm
+
+
+def _window_pids(u32, dwm) -> set[int]:
+    """The programs with a window of their own: on screen or minimized, not hidden in the tray."""
+    hwnds: list[int] = []
+
+    def each(hwnd, _):
+        hwnds.append(hwnd)
+        return True
+
+    u32.EnumWindows(_WNDENUMPROC(each), 0)
+    pids: set[int] = set()
+    pid, cloaked = w.DWORD(), ctypes.c_int()
+    for hwnd in hwnds:
+        if not u32.IsWindowVisible(hwnd) or u32.GetWindow(hwnd, 4) or not u32.GetWindowTextLengthW(hwnd):
+            continue
+        cloaked.value = 0               # (a Store app's window that isn't really there)
+        dwm.DwmGetWindowAttribute(hwnd, 14, ctypes.byref(cloaked), 4)
+        if not cloaked.value:
+            u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            pids.add(pid.value)
+    return pids
+
+
+def _image_path(k32, pid: int) -> str:
+    handle = k32.OpenProcess(0x1000, False, pid)      # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ""
+    try:
+        buf, size = ctypes.create_unicode_buffer(1024), w.DWORD(1024)
+        return buf.value if k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)) else ""
+    finally:
+        k32.CloseHandle(handle)
+
+
+_paths: dict[int, str] = {}     # pid -> its program, for the windows seen last time
+_paths_lock = threading.Lock()
+
+
+def _open_paths() -> dict[int, str]:
+    """pid -> program path of everything with a window open (cheap: once per new pid)."""
+    u32, k32, dwm = _dlls()
+    with _paths_lock:
+        pids = _window_pids(u32, dwm)
+        for pid in pids - _paths.keys():
+            _paths[pid] = _image_path(k32, pid)
+        for pid in _paths.keys() - pids:
+            del _paths[pid]
+        return {p: path for p, path in _paths.items() if path}
+
+
+def open_exes() -> set[str]:
+    """The programs (exe names, lower case) that have a window open right now."""
+    return {os.path.basename(path).lower() for path in _open_paths().values()}
+
+
+def _file_description(path: str) -> str:
+    """The name a program gives itself ("Adobe Photoshop 2025"), from its version info."""
+    ver = ctypes.WinDLL("version")
+    ver.GetFileVersionInfoSizeW.argtypes = [w.LPCWSTR, ctypes.POINTER(w.DWORD)]
+    ver.GetFileVersionInfoW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p]
+    ver.VerQueryValueW.argtypes = [ctypes.c_void_p, w.LPCWSTR, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.UINT)]
+    size = ver.GetFileVersionInfoSizeW(path, None)
+    if not size:
+        return ""
+    buf = ctypes.create_string_buffer(size)
+    if not ver.GetFileVersionInfoW(path, 0, size, buf):
+        return ""
+    ptr, n = ctypes.c_void_p(), w.UINT()
+    langs = [(0x0409, 0x04B0), (0x0409, 0x04E4), (0x0000, 0x04B0)]
+    if ver.VerQueryValueW(buf, "\\VarFileInfo\\Translation", ctypes.byref(ptr), ctypes.byref(n)) and n.value >= 4:
+        langs.insert(0, struct.unpack("<HH", ctypes.string_at(ptr.value, 4)))
+    for lang, cp in langs:
+        key = f"\\StringFileInfo\\{lang:04x}{cp:04x}\\FileDescription"
+        if ver.VerQueryValueW(buf, key, ctypes.byref(ptr), ctypes.byref(n)) and n.value > 1:
+            text = ctypes.wstring_at(ptr.value, n.value).rstrip("\x00").strip()
+            if text:
+                return text
+    return ""
+
+
+def _nice(exe: str) -> str:
+    stem = exe[:-4] if exe.endswith(".exe") else exe
+    return stem[:1].upper() + stem[1:]
+
+
+def open_apps() -> list[dict]:
+    """The apps open now that can get a look of their own: [{exe, name}], by name."""
+    seen: dict[str, dict] = {}
+    for path in _open_paths().values():
+        exe = os.path.basename(path).lower()
+        if exe not in SYSTEM_APPS and exe not in seen:
+            seen[exe] = {"exe": exe, "name": _file_description(path) or _nice(exe)}
+    return sorted(seen.values(), key=lambda a: a["name"].lower())
+
+
+def clean_app_looks(items, presets: list[str]) -> list[dict]:
+    """The "Apps" list as the window sends it, checked: [{exe, name, action}]."""
+    out, seen = [], set()
+    for item in list(items or [])[:APP_LOOKS_MAX]:
+        exe = str(item.get("exe", "")).strip().lower()
+        if not exe.endswith(".exe") or "\\" in exe or "/" in exe or exe in seen:
+            continue
+        action = str(item.get("action", ""))
+        if action not in ("screen", "show") and not (action.startswith("preset:") and action[7:] in presets):
+            raise ValueError("Choose a look for every app")
+        seen.add(exe)
+        out.append({"exe": exe, "name": str(item.get("name") or _nice(exe))[:80], "action": action})
+    return out
 
 
 # ---- Windows' level meter of the default sound output -----------------------------------------
@@ -198,12 +340,15 @@ class Automations:
         self._last_sound = -1e9
         self._checks = 0                    # checks in a row that heard music
         self._music = False
+        self._app_seen: dict[str, tuple[bool, float]] = {}   # exe -> (open, since)
+        self._apps: set[str] = set()        # the apps open long enough to count (SCREEN_SETTLE)
         self._stop = threading.Event()
 
     def rules(self) -> dict[str, str]:
         """What each rule does: "" (nothing), "screen", "show" or "preset:<name>"."""
         s = self.manager.config["settings"]
-        return {"cs2": "game:cs2" if self.manager.games.settings.get("cs2") else "",
+        apps = {f"app:{a['exe']}": a["action"] for a in self.manager.config.data.get("app_looks") or []}
+        return {"cs2": "game:cs2" if self.manager.games.settings.get("cs2") else "", **apps,
                 "game": s.get("auto_game") or "", "video": s.get("auto_video") or "",
                 "music": "show" if s.get("auto_show") else ""}
 
@@ -222,12 +367,18 @@ class Automations:
 
     def _run(self) -> None:
         meter, meter_at, failed = None, 0.0, ""
+        apps: set[str] = set()
         while not self._stop.wait(1.0):
             if self.manager.away.active:   # nobody's watching: no automatic looks (away.py)
                 continue
             rules = self.rules()
             now = time.monotonic()
             kind, peak = None, 0.0
+            if any(r.startswith("app:") for r in rules):
+                try:
+                    apps = open_exes()
+                except Exception as e:
+                    log.debug("No open apps: %s", e)
             cs2 = bool(rules["cs2"]) and self.manager.games.active(now)
             if rules["game"] or rules["video"]:
                 try:
@@ -254,18 +405,22 @@ class Automations:
                 meter.close()
                 meter = None
             try:
-                self.step(now, rules, kind, peak, cs2)
+                self.step(now, rules, kind, peak, cs2, apps)
             except Exception:
                 log.exception("Automatic look failed")
         if meter:
             meter.close()
 
     # (separate from the thread, for tests)
-    def step(self, now: float, rules: dict[str, str], kind: str | None, peak: float, cs2: bool = False) -> None:
+    def step(self, now: float, rules: dict[str, str], kind: str | None, peak: float, cs2: bool = False,
+             apps: set[str] | frozenset = frozenset()) -> None:
+        """One look at the PC: `rules` in order of priority (see rules()), `kind` what's full
+        screen, `peak` the sound level, `cs2` in a CS2 match, `apps` the exes with a window open."""
         m = self.manager
         if not any(rules.values()):     # all switched off: forget, leave the lights as they are
             self.active, self._saved, self._set, self._hands_off = None, None, None, False
             self._music, self._checks, self._screen, self._cs2 = False, 0, None, False
+            self._app_seen, self._apps = {}, set()
             return
 
         if cs2 != self._cs2_seen[0]:
@@ -277,10 +432,19 @@ class Automations:
             self._screen_kind, self._screen_since = kind, now
         if now - self._screen_since >= SCREEN_SETTLE:
             self._screen = self._screen_kind
+        for rule in rules:
+            if rule.startswith("app:"):
+                exe, is_open = rule[4:], rule[4:] in apps
+                seen = self._app_seen.get(exe)
+                if seen is None or seen[0] != is_open:
+                    self._app_seen[exe] = seen = (is_open, now)
+                if now - seen[1] >= SCREEN_SETTLE:
+                    (self._apps.add if is_open else self._apps.discard)(exe)
         self._listen(now, rules, peak)
 
-        holds = {"cs2": self._cs2, "game": self._screen == "game", "video": self._screen == "video", "music": self._music}
-        want = next((r for r in RULES if rules[r] and holds[r]), None)
+        holds = {"cs2": self._cs2, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
+                 **{r: r[4:] in self._apps for r in rules if r.startswith("app:")}}
+        want = next((r for r in rules if rules[r] and holds.get(r)), None)
         if self.active and self._set is not None and not _same(m.looks(), self._set):
             log.info("Automatic look (%s): taken over by hand", self.active)
             self.active, self._saved, self._set, self._hands_off = None, None, None, True
@@ -321,7 +485,8 @@ class Automations:
             self._music = False
         if self._music:
             return
-        busy = self._cs2 or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
+        busy = (self._cs2 or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
+                or any(rules.get(f"app:{exe}") for exe in self._apps))                # so do your apps
         if self._sound_since is None or now - self._sound_since < SOUND_FIRST or busy or self._hands_off:
             self._checks = 0
             return

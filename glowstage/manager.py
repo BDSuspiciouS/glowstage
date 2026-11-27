@@ -12,7 +12,7 @@ from typing import Callable
 from . import genre_install
 from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
-from .automations import Automations
+from .automations import Automations, clean_app_looks
 from .away import Away
 from .games import Games
 from .devices.base import Device
@@ -434,6 +434,12 @@ class DeviceManager:
             time.sleep(0.05)
         return True
 
+    def set_app_looks(self, items) -> None:
+        """Setup → Automatic → Apps: a look while an app is open (automations.py)."""
+        self.config.data["app_looks"] = clean_app_looks(items, self.preset_names())
+        self.config.save_soon()
+        self._changed()
+
     # ---- schedules: presets, on, off or the show at set times ---------------------------------
 
     def set_schedules(self, items) -> None:
@@ -686,6 +692,7 @@ class DeviceManager:
             "activePreset": self.config["settings"].get("active_preset", ""),
             "showExcluded": list(self.config.data.get("show_excluded") or []),
             "schedules": list(self.config.data.get("schedules") or []),
+            "appLooks": list(self.config.data.get("app_looks") or []),
             "effects": [e.describe() for e in EFFECTS.values()],
             "hubs": [h.describe() for h in list(self.hubs.values())],
             "drivers": [d.describe() for d in drivers().values()],
