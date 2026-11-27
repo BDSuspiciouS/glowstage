@@ -10,6 +10,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import backups
 from .paths import APP_DIR
 
 log = logging.getLogger(__name__)
@@ -126,13 +127,23 @@ class Config:
         self.path = path
         self.lock = threading.RLock()
         self._timer: threading.Timer | None = None
+        self.recovered = ""     # the day of the copy brought back for a config.json that couldn't be read
+        self.closed = False     # replaced by a copy or a file: saves nothing more until the restart
         data = {}
         if path.is_file():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
+                if not backups.valid(data, loose=True):
+                    raise ValueError("not Glowstage's settings")
             except (OSError, ValueError) as e:
-                log.warning("Could not read %s (%s); starting fresh", path, e)
                 path.replace(path.with_suffix(".broken.json"))
+                found = backups.newest_good(path)
+                data = found[1] if found else {}
+                if found:
+                    self.recovered = backups.describe(*found)["saved"][:10]
+                    log.warning("Could not read %s (%s); brought back the copy %s", path, e, found[0].name)
+                else:
+                    log.warning("Could not read %s (%s); starting fresh", path, e)
         if data and "setup_done" not in data.get("settings", {}):
             # Someone who already used the app (or the older RGB Control) doesn't need the welcome tour.
             data.setdefault("settings", {})["setup_done"] = True
@@ -154,20 +165,45 @@ class Config:
             self._timer.daemon = True
             self._timer.start()
 
+    def text(self) -> str:
+        """Everything, as the file holds it."""
+        with self.lock:
+            for attempt in range(5):
+                try:    # (another thread may change a setting right now: then just try again)
+                    return json.dumps(self.data, indent=2)
+                except RuntimeError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.01)
+        return ""
+
     def save_now(self) -> None:
         with self.lock:
             if self._timer:
                 self._timer.cancel()
                 self._timer = None
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            for attempt in range(5):
-                try:    # (another thread may change a setting right now: then just try again)
-                    text = json.dumps(self.data, indent=2)
-                    break
-                except RuntimeError:
-                    if attempt == 4:
-                        raise
-                    time.sleep(0.01)
-            tmp.write_text(text, encoding="utf-8")
-            os.replace(tmp, self.path)
+            if self.closed:
+                return
+            self._write(self.text())
+
+    def _write(self, text: str) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        backups.keep_daily(self.path)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def replace(self, data: dict) -> None:
+        """Another copy takes this one's place (Setup → Backups): what's here now is kept as a
+        copy first, and nothing more is saved, so the restart that follows loads the new one."""
+        if not backups.valid(data):
+            raise ValueError("That isn't Glowstage's settings")
+        with self.lock:
+            if self._timer:
+                self._timer.cancel()
+                self._timer = None
+            self._write(self.text())        # (the latest changes go into the copy too)
+            backups.keep_before(self.path)
+            self._write(json.dumps(data, indent=2))
+            self.closed = True
+        log.info("Settings replaced; restarting to load them")

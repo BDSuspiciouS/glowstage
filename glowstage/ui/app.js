@@ -83,7 +83,8 @@ function throttle(fn, ms) {
    window reloading) must not leave the page waiting forever. Pairing and adding lights wait on
    the light itself, so they get longer. */
 const CALL_TIMEOUT = 15000;
-const SLOW_CALLS = { pair: 60000, pair_nanoleaf: 60000, add_device: 45000, search: 45000 };
+const SLOW_CALLS = { pair: 60000, pair_nanoleaf: 60000, add_device: 45000, search: 45000,
+  export_settings: 3600000, pick_settings_file: 3600000 };   // (these wait for you in a file dialog)
 async function callRaw(method, ...args) {
   let timer;
   try {
@@ -265,6 +266,12 @@ function renderHomeNotes() {
     S.updateToldOnce = true;
     if (S.data.updateResult === "updated") toast(`Glowstage is updated to ${(S.data.about || {}).version || "the new version"}`);
     else toast("The update didn't work: you still have the version you had", true);
+  }
+  if (S.data.recovered && !S.recoveredTold) {
+    S.recoveredTold = true;
+    const day = new Date(S.data.recovered).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+    toast(`Your settings file couldn't be read: Glowstage went back to its copy from ${day}`, true,
+      { label: "Backups", run: () => showNew("setup:backups") });
   }
   const showSupport = S.data.askSupport && !S.supportClosed;
   const app = String(S.data.auto || "").startsWith("app:")

@@ -130,7 +130,9 @@ CHECKS = r"""
   closeSheet();
   go('setup'); await wait(500);
   out.setup = [...document.querySelectorAll('#settings-body h3')].map(h => h.textContent);
-  out.setupIds = ['set-automatic', 'set-phone'].filter(id => !document.getElementById(id));
+  out.setupIds = ['set-automatic', 'set-phone', 'set-backups'].filter(id => !document.getElementById(id));
+  const b = await window.pywebview.api.list_backups();
+  out.backups = b.ok ? b.result.map(x => `${x.file}: ${x.ok ? x.presets + ' presets' : 'unreadable'}`) : b.error;
   go('home'); await wait(200);
   return out;
 })()

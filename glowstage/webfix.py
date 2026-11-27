@@ -116,6 +116,7 @@ def enable_crash_log() -> None:
 
 
 SLOW = 3.0      # seconds: a page call that takes this long gets where it waits written to the log
+WAITS_FOR_YOU = {"export_settings", "pick_settings_file"}   # calls that wait for a file dialog: not slow
 
 
 def _slow_calls() -> None:
@@ -150,6 +151,8 @@ class track:
 
     def __enter__(self):
         global _sampler
+        if self.name in WAITS_FOR_YOU:
+            return
         with _busy_lock:
             if _sampler is None:
                 _sampler = threading.Thread(target=_slow_calls, name="slow-calls", daemon=True)

@@ -37,7 +37,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), phoneSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), phoneSection(), backupSection(), appSection());
   body.scrollTop = scroll;
 }
 
@@ -404,6 +404,68 @@ function phoneSection() {
             h("button", { class: "btn", type: "button", text: "Copy link", onclick: copy }),
             h("button", { class: "btn btn-quiet", type: "button", text: "New link", title: "The old link stops working",
               onclick: async () => { await call("remote_new_link"); toast("New link: a phone with the old one has to scan again"); S.settingsSig = ""; refresh(true); } })))));
+}
+
+/* Backups: a copy for each day, to go back to; a file of it all, to take to another PC. */
+const savedWhen = iso => iso ? new Date(iso).toLocaleString("en-GB",
+  { weekday: "short", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "an unknown day";
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const holds = b => `${plural(b.presets, "preset")} · ${plural(b.lights, "light")}`;
+const counted = b => `${plural(b.presets, "preset")}, ${plural(b.lights, "light")}`;
+
+function backupSection() {
+  return h("section", { class: "set-section", id: "set-backups" },
+    h("h3", { text: "Backups" }),
+    h("p", { class: "hint", text: "Each day you use Glowstage, it keeps a copy of your presets, lights and settings: the last 14 days. Go back to one, or save them all to a file to take to another PC." }),
+    h("div", { class: "form-actions" },
+      h("button", { class: "btn", type: "button", text: "Go back to a copy…", onclick: openBackups }),
+      h("button", { class: "btn", type: "button", text: "Save to a file…", onclick: async () => {
+        const name = await call("export_settings");
+        if (name) toast(`Saved as ${name}`);
+      } }),
+      h("button", { class: "btn", type: "button", text: "Load from a file…", onclick: async () => {
+        const b = await call("pick_settings_file");
+        if (b) confirmLoad(`Load ${b.file}?`, `It holds ${counted(b)} and settings, saved ${savedWhen(b.saved)}.`,
+          "Load and restart", () => callRaw("load_settings_file"));
+      } })));
+}
+
+async function openBackups() {
+  const list = await call("list_backups");
+  if (list === undefined) return;
+  const good = list.filter(b => b.ok);
+  openModal({
+    title: "Go back to a copy",
+    cancel: false,
+    body: good.length
+      ? h("div", {},
+          h("p", { class: "hint", text: "Your presets, lights and settings as they were then. What you have now is kept as a copy too." }),
+          h("div", { class: "app-pick-list" }, ...good.map(b => h("button", {
+            class: "app-pick backup-pick", type: "button",
+            onclick: () => confirmLoad(`Go back to ${savedWhen(b.saved)}?`,
+              `Your ${counted(b)} and your settings, as they were then.`, "Go back and restart",
+              () => callRaw("restore_backup", b.file)) },
+            h("span", { text: savedWhen(b.saved) + (b.before ? " (what you had before a load)" : "") }),
+            h("span", { class: "muted", text: holds(b) })))))
+      : h("p", { class: "hint", text: "No copies yet: the first one is made tomorrow, the first time something changes." }),
+    ok: "Close",
+    onOk: () => true,
+  });
+}
+
+function confirmLoad(title, text, ok, run) {
+  openModal({
+    title,
+    body: h("p", { class: "hint", style: "font-size:14px",
+      text: `${text} Glowstage restarts with them. What you have now is kept as a copy, under Go back to a copy.` }),
+    ok,
+    onOk: async () => {
+      const r = await run();
+      if (!r.ok) return r.error;
+      toast("Restarting Glowstage with it…");
+      return true;
+    },
+  });
 }
 
 function appSection() {

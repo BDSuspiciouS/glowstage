@@ -7,8 +7,11 @@ import functools
 import logging
 import threading
 import webbrowser
+from pathlib import Path
 
-from . import automations, diagnostics, genre_install, online, webfix, whatsnew, winutil
+import webview
+
+from . import automations, backups, diagnostics, genre_install, online, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -16,6 +19,20 @@ from .away import SCOPES
 from .sun import SUN
 
 log = logging.getLogger(__name__)
+
+FILE_TYPES = ("Glowstage settings (*.json)", "All files (*.*)")
+
+
+def _picked(result) -> str:
+    """The one path a file dialog gave ("" when cancelled): a tuple or a string, by dialog."""
+    if isinstance(result, (tuple, list)):
+        return str(result[0]) if result else ""
+    return str(result or "")
+
+
+def _documents() -> str:
+    docs = Path.home() / "Documents"
+    return str(docs if docs.is_dir() else Path.home())
 
 
 def _safe(fn):
@@ -34,6 +51,7 @@ def _safe(fn):
 class Api:
     def __init__(self, app):
         self._app = app  # underscore: pywebview must not expose this to JS
+        self._picked_file = None    # the settings file chosen to load (Setup → Backups)
 
     @property
     def _m(self):
@@ -51,6 +69,7 @@ class Api:
                  "update": self._app.online.update(),
                  "updating": self._app.updater.describe(),
                  "updateResult": self._app.update_result,
+                 "recovered": self._app.config.recovered,
                  "sun": SUN.describe(),
                  "sleep": self._m.sleep.describe(),
                  "askSupport": self._ask_support(),
@@ -137,6 +156,56 @@ class Api:
     def report_problem(self):
         """A new GitHub issue with the summary filled in (the browser shows it before it's sent)."""
         webbrowser.open(diagnostics.issue_url(diagnostics.report(self._app)))
+
+    @_safe
+    def list_backups(self):
+        """Setup → Backups: the copies of the settings there are, newest first."""
+        return backups.listing(self._app.config.path)
+
+    @_safe
+    def restore_backup(self, name):
+        """Bring back one of the copies: Glowstage restarts with it (what's here now is kept)."""
+        path = backups.find(self._app.config.path, name)
+        data = backups.read(path) if path else None
+        if not data:
+            raise ValueError("That copy can't be read")
+        self._load(data)
+
+    @_safe
+    def export_settings(self):
+        """Save the presets, lights and settings to a file, to take to another PC ("" if cancelled)."""
+        path = _picked(self._app.window.create_file_dialog(
+            webview.FileDialog.SAVE, directory=_documents(), file_types=FILE_TYPES,
+            save_filename=f"Glowstage settings {datetime.date.today().isoformat()}.json"))
+        if not path:
+            return ""
+        Path(path).write_text(self._app.config.text(), encoding="utf-8")
+        return Path(path).name
+
+    @_safe
+    def pick_settings_file(self):
+        """Choose a file of settings to load: what's in it, to confirm first (None if cancelled)."""
+        path = _picked(self._app.window.create_file_dialog(
+            webview.FileDialog.OPEN, directory=_documents(), file_types=FILE_TYPES))
+        if not path:
+            return None
+        data = backups.read(Path(path))
+        if data is None:
+            raise ValueError(f"{Path(path).name} doesn't hold Glowstage's settings")
+        self._picked_file = Path(path)
+        return backups.describe(Path(path), data)
+
+    @_safe
+    def load_settings_file(self):
+        """Load the file picked with pick_settings_file: Glowstage restarts with it."""
+        data = backups.read(self._picked_file) if self._picked_file else None
+        if not data:
+            raise ValueError("Choose the file again")
+        self._load(data)
+
+    def _load(self, data):
+        self._app.config.replace(data)
+        threading.Timer(0.3, self._app.restart, kwargs={"show": True}).start()
 
     @_safe
     def whats_new_seen(self):
