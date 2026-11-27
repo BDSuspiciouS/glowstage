@@ -703,10 +703,54 @@ class DeviceManager:
             raise ValueError("Give the preset a name")
         with self.lock:
             states = {i: self.states[i].to_dict() for i in self.visible_ids()}
-            presets = [p for p in self.config["presets"] if p["name"] != name]
-            presets.append({"name": name, "states": states})
+            presets = list(self.config["presets"])
+            new = {"name": name, "states": states}
+            at = next((k for k, p in enumerate(presets) if p["name"] == name), None)
+            if at is None:
+                presets.append(new)
+            else:
+                presets[at] = new           # (saved over: it keeps its place, and its hotkey)
             self.config.data["presets"] = presets
             self.config["settings"]["active_preset"] = name
+        self.config.save_soon()
+        self._changed()
+
+    def rename_preset(self, old: str, new: str) -> None:
+        """A preset's new name, everywhere it's used: schedules, apps, automatic looks."""
+        new = new.strip()
+        names = self.preset_names()
+        if not new:
+            raise ValueError("Give the preset a name")
+        if old not in names:
+            raise ValueError("There's no such preset")
+        if new != old and new in names:
+            raise ValueError(f"There's already a preset called {new}")
+        with self.lock:
+            for p in self.config["presets"]:
+                if p["name"] == old:
+                    p["name"] = new
+            s = self.config["settings"]
+            if s.get("active_preset") == old:
+                s["active_preset"] = new
+            for key in ("auto_game", "auto_video"):
+                if s.get(key) == f"preset:{old}":
+                    s[key] = f"preset:{new}"
+            for item in [*(self.config.data.get("schedules") or []), *(self.config.data.get("app_looks") or [])]:
+                if item.get("action") == f"preset:{old}":
+                    item["action"] = f"preset:{new}"
+        self.config.save_soon()
+        self._changed()
+
+    def move_preset(self, name: str, step: int) -> None:
+        """A preset earlier (-1) or later (+1) in the list: the tray, Home and hotkeys 1-9 follow it."""
+        with self.lock:
+            presets = list(self.config["presets"])
+            at = next((k for k, p in enumerate(presets) if p["name"] == name), None)
+            if at is None:
+                raise ValueError("There's no such preset")
+            to = max(0, min(len(presets) - 1, at + int(step)))
+            presets.insert(to, presets.pop(at))
+            self.config.data["presets"] = presets
         self.config.save_soon()
         self._changed()
 

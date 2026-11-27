@@ -173,6 +173,9 @@
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
     whats_new_seen: () => { data.whatsNew = null; return ok(); },
     undo: () => ok(),
+    rename_preset: (o, n) => { const p = data.presets.find(x => x.name === o); if (p) p.name = n; data.revision++; return ok(); },
+    move_preset: (name, step) => { const i = data.presets.findIndex(x => x.name === name); const [p] = data.presets.splice(i, 1);
+      data.presets.splice(Math.max(0, Math.min(data.presets.length, i + step)), 0, p); data.revision++; return ok(); },
     diagnostics: () => ok("Glowstage 0.9.7 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off, schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
     report_problem: () => ok(),
     remote_set: on => { data.remote = { on, url: on ? "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg" : "", error: "" }; data.revision++; return ok(); },

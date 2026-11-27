@@ -675,10 +675,53 @@ function presetCard(p) {
     h("span", { class: "preset-name", text: p.name }),
     isMusicPreset(p) ? h("span", { class: "preset-kind", title: "Moves to the music" }, icon("music")) : null,
     h("span", {
-      class: "preset-x", role: "button", tabindex: "0", "aria-label": `Delete preset ${p.name}`, title: "Delete preset",
-      onclick: e => { e.stopPropagation(); confirmDeletePreset(p.name); },
-      onkeydown: e => { if (e.key === "Enter") { e.stopPropagation(); confirmDeletePreset(p.name); } },
-    }, icon("x")));
+      class: "preset-x", role: "button", tabindex: "0", "aria-label": `More for ${p.name}: rename, update, move, delete`,
+      title: "Rename, update, move or delete",
+      onclick: e => { e.stopPropagation(); openPresetMenu(p); },
+      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openPresetMenu(p); } },
+    }, icon("more")));
+}
+
+/** A preset's own menu: its name, its lights, its place in the list (tray, Home, hotkeys), delete. */
+function openPresetMenu(p) {
+  const names = S.data.presets.map(x => x.name), at = names.indexOf(p.name);
+  const hotkeys = !!(S.data.settings || {}).hotkeys;
+  const input = h("input", { class: "text-input", style: "width:100%", value: p.name, maxlength: "40", "aria-label": "Name" });
+  const act = async (fn, ...args) => {
+    const r = await callRaw(fn, ...args);
+    if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return false; }
+    refresh(true);
+    return true;
+  };
+  const place = `Number ${at + 1} of ${names.length}: the tray menu and Home show presets in this order`
+    + (at < 9 ? `, and Ctrl+Alt+Shift+${at + 1} switches it on${hotkeys ? "" : " (with hotkeys on, in Setup → App)"}.` : ".");
+  openModal({
+    title: p.name,
+    body: h("div", { class: "preset-menu" },
+      h("label", { class: "field-label", text: "Name" }), input,
+      h("p", { class: "hint", text: place }),
+      h("div", { class: "form-actions" },
+        h("button", { class: "btn", type: "button", text: "Move earlier", disabled: at === 0,
+          onclick: async () => { if (await act("move_preset", p.name, -1)) { closeModal(); toast(`${p.name} is now number ${at}`); } } }),
+        h("button", { class: "btn", type: "button", text: "Move later", disabled: at === names.length - 1,
+          onclick: async () => { if (await act("move_preset", p.name, 1)) { closeModal(); toast(`${p.name} is now number ${at + 2}`); } } })),
+      h("div", { class: "form-actions" },
+        h("button", { class: "btn", type: "button", text: "Save my lights into it", title: "It gets your lights as they are now",
+          onclick: async () => { if (await act("save_preset", p.name)) { closeModal(); toast(`${p.name} now has your lights as they are`); } } }),
+        h("button", { class: "btn btn-quiet", type: "button", text: "Delete…", onclick: () => { closeModal(); confirmDeletePreset(p.name); } }))),
+    ok: "Save name",
+    onOk: async () => {
+      const name = input.value.trim();
+      if (!name) return "Give the preset a name.";
+      if (name === p.name) return true;
+      const r = await callRaw("rename_preset", p.name, name);
+      if (!r || r.ok === false) return (r && r.error) || "That didn't work";
+      toast(`Renamed to ${name}`);
+      refresh(true);
+      return true;
+    },
+  });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") $("#modal-ok").click(); });
 }
 
 function renderQuickPresets() {

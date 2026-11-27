@@ -196,6 +196,14 @@ class Api:
         self._m.save_preset(name)
 
     @_safe
+    def rename_preset(self, old, new):
+        self._m.rename_preset(old, new)
+
+    @_safe
+    def move_preset(self, name, step):
+        self._m.move_preset(name, step)
+
+    @_safe
     def delete_preset(self, name):
         self._m.delete_preset(name)
 
