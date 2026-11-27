@@ -670,12 +670,54 @@ function presetArt(p) {
     + `, linear-gradient(135deg, ${shade(c[0], -0.4)}, ${shade(c[1 % c.length], -0.4)})`;
 }
 
+/* Drag a preset onto another to give it that one's place: the tray menu, Home and hotkeys 1-9
+   follow the order. (Keyboard: Move earlier / later / to the top in its menu.) */
+function presetDrag(card, p) {
+  const clear = () => card.classList.remove("drop-before", "drop-after");
+  card.draggable = true;
+  card.addEventListener("dragstart", e => {
+    S.dragPreset = p.name;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", p.name);
+    card.classList.add("is-dragging");
+  });
+  card.addEventListener("dragend", () => {
+    S.dragPreset = null;
+    document.querySelectorAll(".preset.is-dragging, .preset.drop-before, .preset.drop-after")
+      .forEach(el => el.classList.remove("is-dragging", "drop-before", "drop-after"));
+  });
+  card.addEventListener("dragover", e => {
+    const from = S.dragPreset;
+    if (!from || from === p.name) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const names = S.data.presets.map(x => x.name);
+    const later = names.indexOf(from) < names.indexOf(p.name);    // (it lands after this one)
+    card.classList.toggle("drop-after", later);
+    card.classList.toggle("drop-before", !later);
+  });
+  card.addEventListener("dragleave", e => { if (!card.contains(e.relatedTarget)) clear(); });
+  card.addEventListener("drop", async e => {
+    e.preventDefault();
+    clear();
+    const from = S.dragPreset;
+    if (!from || from === p.name) return;
+    const names = S.data.presets.map(x => x.name);
+    const to = names.indexOf(p.name);
+    const r = await callRaw("move_preset", from, to - names.indexOf(from));
+    if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return; }
+    refresh(true);
+    toast(`${from} is now number ${to + 1}`);
+  });
+  return card;
+}
+
 function presetCard(p) {
   const active = S.data && S.data.activePreset === p.name;
-  return h("button", {
+  return presetDrag(h("button", {
     class: "preset" + (active ? " is-active" : ""), type: "button", "aria-pressed": active ? "true" : "false",
     title: `Apply ${p.name}` + (p.split ? " (one look for your PC, another for your room)" : ""),
-    onclick: async () => { await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); undoable(`${p.name} is on`); },
+    onclick: () => applyPreset(p),
   },
     h("span", { class: "preset-art", style: `background:${presetArt(p)}` }),
     active ? h("span", { class: "preset-on", text: "On" }) : null,
@@ -686,7 +728,7 @@ function presetCard(p) {
       title: "Rename, update, move or delete",
       onclick: e => { e.stopPropagation(); openPresetMenu(p); },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openPresetMenu(p); } },
-    }, icon("more")));
+    }, icon("more"))), p);
 }
 
 /** A preset's own menu: its name, its lights, its place in the list (tray, Home, hotkeys), delete. */
@@ -700,7 +742,7 @@ function openPresetMenu(p) {
     refresh(true);
     return true;
   };
-  const place = `Number ${at + 1} of ${names.length}: the tray menu and Home show presets in this order`
+  const place = `Number ${at + 1} of ${names.length}: the tray menu and Home show presets in this order (drag a card to move it)`
     + (at < 9 ? `, and Ctrl+Alt+Shift+${at + 1} switches it on${hotkeys ? "" : " (with hotkeys on, in Setup → App)"}.` : ".");
   openModal({
     title: p.name,
@@ -708,6 +750,9 @@ function openPresetMenu(p) {
       h("label", { class: "field-label", text: "Name" }), input,
       h("p", { class: "hint", text: place }),
       h("div", { class: "form-actions" },
+        h("button", { class: "btn", type: "button", text: "To the top", disabled: at === 0,
+          title: "First on Home and in the tray, and Ctrl+Alt+Shift+1",
+          onclick: async () => { if (await act("move_preset", p.name, -at)) { closeModal(); toast(`${p.name} is now number 1`); } } }),
         h("button", { class: "btn", type: "button", text: "Move earlier", disabled: at === 0,
           onclick: async () => { if (await act("move_preset", p.name, -1)) { closeModal(); toast(`${p.name} is now number ${at}`); } } }),
         h("button", { class: "btn", type: "button", text: "Move later", disabled: at === names.length - 1,
@@ -1398,9 +1443,11 @@ function toast(msg, isError = false, action = null) {
 }
 
 /** A toast for a big change, with Undo: back to the lights as they were before it. */
-const undoable = msg => toast(msg, false, { label: "Undo", run: async () => {
+const undoNow = async () => {
+  S.undoReady = false;
   await call("undo"); S.quietUntil = 0; refresh(true); toast("Your lights are back as they were");
-} });
+};
+const undoable = msg => { S.undoReady = true; toast(msg, false, { label: "Undo", run: undoNow }); };
 
 /* ============================== wiring ============================== */
 
@@ -1494,6 +1541,7 @@ function bindStatic() {
     if (sec) { sec.scrollIntoView({ behavior: "smooth", block: "center" }); sec.classList.add("is-flash"); setTimeout(() => sec.classList.remove("is-flash"), 1600); }
   });
   bindSetup();
+  bindSearch();
   $("#modal-cancel").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
   $("#modal-ok").addEventListener("click", async () => {
@@ -1512,6 +1560,168 @@ function bindStatic() {
     else if (S.sheetOpen) closeSheet();
   });
 }
+
+/* ===== quick search ===== */
+/* Ctrl+K (or the Search button): a small box over the page. Type a few letters, pick a preset, light,
+   effect, place or action, press Enter. */
+
+/** What a click on a preset's card does: switch it on, and offer Undo. */
+async function applyPreset(p) {
+  await call("apply_preset", p.name); S.quietUntil = 0; refresh(true); undoable(`${p.name} is on`);
+}
+
+const QS = { open: false, items: [], shown: [], active: 0, from: null, root: null, input: null, list: null, empty: null };
+const QS_KINDS = ["Action", "Preset", "Light", "Effect", "Go to"];   // (also the order ties keep)
+
+/** Everything the box can run right now, in group order: actions, presets, lights, effects, places. */
+function searchItems() {
+  const d = S.data;
+  if (!d) return [];
+  const items = [];
+  const add = (kind, name, run) => items.push({ kind, name, run, id: "qs-opt-" + items.length });
+  const anyOn = visible().some(x => x.state.on && x.online);
+  add(0, "All lights on", () => send(null, { on: true }, "on:all"));
+  add(0, "All lights off", () => { if (anyOn) toggleStrip("__all"); else toast("Your lights are already off"); });
+  add(0, "Sleep timer", openSleepTimer);
+  add(0, runningShow().length ? "Stop the light show" : "Start the light show", () => $("#show-start").click());
+  // (the window can't ask the app whether there is something to undo: it knows what it just offered Undo for)
+  if (d.canUndo === undefined ? S.undoReady : d.canUndo) add(0, "Undo", undoNow);
+  add(0, "Report a problem", openReport);
+  for (const p of d.presets || []) add(1, p.name, () => applyPreset(p));
+  for (const l of visible()) add(2, l.name, () => selectStrip(l.id, false));
+  for (const e of d.effects || []) add(3, e.name, () => {
+    S.selected = null;                                  // (every light, as with all lights chosen in Color & effects)
+    sendTargets({ mode: "effect", on: true, effect: e.id }, "fx");
+    toast(`${e.name} is on for all lights`);
+  });
+  for (const [name, page] of [["Home", "home"], ["Presets", "presets"], ["Light show", "show"], ["Setup", "setup"]]) {
+    add(4, name, () => go(page));
+  }
+  for (const [name, id] of [["Setup: Lights", "set-lights"], ["Setup: Add a light", "add-section"], ["Setup: PC lighting", "set-pc"],
+    ["Setup: Genre AI", "set-genre"], ["Setup: Games", "set-games"], ["Setup: Automatic", "set-automatic"],
+    ["Setup: Schedule", "set-schedule"], ["Setup: Phone remote", "set-phone"], ["Setup: Backups", "set-backups"],
+    ["Setup: App", "set-app"]]) {
+    add(4, name, () => id.startsWith("set-") ? showNew("setup:" + id.slice(4)) : goToSection(id));
+  }
+  return items;
+}
+
+/** Setup, scrolled to one section (the sections that have no "set-" name). */
+function goToSection(id) {
+  go("setup");
+  setTimeout(() => { const s = document.getElementById(id); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+}
+
+/** Names that start with the letters first, then names with a word that does, then names that contain them. */
+function searchMatches(items, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...items.filter(i => i.kind === 0), ...items.filter(i => i.kind === 1).slice(0, 4)];
+  const rank = name => {
+    const n = name.toLowerCase();
+    if (n.startsWith(q)) return 0;
+    if (n.split(/[^a-z0-9]+/).some(w => w.startsWith(q))) return 1;
+    return n.includes(q) ? 2 : -1;
+  };
+  return items.map((it, i) => ({ it, i, r: rank(it.name) })).filter(x => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.it.kind - b.it.kind || a.i - b.i).map(x => x.it);
+}
+
+function buildSearch() {
+  const input = h("input", {
+    class: "qs-input", type: "text", role: "combobox", autocomplete: "off", spellcheck: "false",
+    placeholder: "Search presets, lights, effects, settings…", "aria-label": "Search",
+    "aria-expanded": "true", "aria-controls": "qs-list", "aria-autocomplete": "list", "aria-activedescendant": "",
+  });
+  const list = h("ul", { class: "qs-list", id: "qs-list", role: "listbox", "aria-label": "Results" });
+  const empty = h("p", { class: "qs-empty muted", role: "status", text: "Nothing matches that", hidden: "" });
+  const root = h("div", { class: "qs", id: "qs", hidden: "" },
+    h("div", { class: "qs-box", role: "dialog", "aria-modal": "true", "aria-label": "Search" }, input, list, empty));
+  document.body.append(root);
+  QS.root = root; QS.input = input; QS.list = list; QS.empty = empty;
+  input.addEventListener("input", () => { QS.active = 0; renderSearch(); });
+  root.addEventListener("mousedown", e => {
+    if (e.target === root) closeSearch();                 // (a click on the dimmed page closes it)
+    else if (e.target !== input) e.preventDefault();      // (clicking a row keeps the focus in the box)
+  });
+  list.addEventListener("click", e => {
+    const row = e.target.closest(".qs-row");
+    if (row) runSearch(QS.shown.find(i => i.id === row.id));
+  });
+  list.addEventListener("mousemove", e => {
+    const row = e.target.closest(".qs-row");
+    const at = row ? QS.shown.findIndex(i => i.id === row.id) : -1;
+    if (at >= 0 && at !== QS.active) { QS.active = at; markSearch(false); }
+  });
+  root.addEventListener("keydown", e => {
+    if (e.isComposing) return;
+    const n = QS.shown.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (n) { QS.active = (QS.active + (e.key === "ArrowDown" ? 1 : n - 1)) % n; markSearch(true); }
+    } else if (e.key === "Enter") { e.preventDefault(); runSearch(QS.shown[QS.active]); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeSearch(); }
+    else if (e.key === "Tab") e.preventDefault();         // (the box is only the field: focus stays in it)
+  });
+}
+
+function renderSearch() {
+  QS.items = searchItems();
+  QS.shown = searchMatches(QS.items, QS.input.value);
+  QS.active = Math.min(QS.active, Math.max(0, QS.shown.length - 1));
+  fill(QS.list, QS.shown.map(it => h("li", { class: "qs-row", id: it.id, role: "option", "aria-selected": "false" },
+    h("span", { class: "qs-name", text: it.name }), h("span", { class: "qs-kind", text: QS_KINDS[it.kind] }))));
+  QS.empty.hidden = QS.shown.length > 0;
+  QS.input.setAttribute("aria-expanded", String(QS.shown.length > 0));
+  markSearch(true);
+}
+
+/** Highlight the chosen row (and keep it in view when the keys moved it). */
+function markSearch(scroll) {
+  const cur = QS.shown[QS.active];
+  for (const row of QS.list.children) {
+    const on = !!cur && row.id === cur.id;
+    row.setAttribute("aria-selected", String(on));
+    if (on && scroll) row.scrollIntoView({ block: "nearest" });
+  }
+  QS.input.setAttribute("aria-activedescendant", cur ? cur.id : "");
+}
+
+function openSearch() {
+  if (QS.open || !S.data) return;
+  if (!QS.root) buildSearch();
+  QS.from = document.activeElement;
+  QS.open = true; QS.active = 0;
+  QS.input.value = "";
+  QS.root.hidden = false;
+  renderSearch();
+  QS.input.focus();
+}
+
+function closeSearch() {
+  if (!QS.open) return;
+  QS.open = false;
+  QS.root.hidden = true;
+  const back = QS.from;
+  QS.from = null;
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+}
+
+function runSearch(item) {
+  if (!item) return;
+  closeSearch();                                          // (first, so a window the action opens gets the focus)
+  item.run();
+}
+
+function bindSearch() {
+  $("#search-open").addEventListener("click", openSearch);
+  document.addEventListener("keydown", e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "k") return;
+    e.preventDefault();                                   // (the browser's own Ctrl+K stays out of it)
+    if (QS.open) closeSearch();
+    else if ($("#modal").hidden && !(S.wiz && S.wiz.open)) openSearch();
+  }, true);
+}
+/* ===== end of quick search ===== */
 
 let started = false;
 async function start() {

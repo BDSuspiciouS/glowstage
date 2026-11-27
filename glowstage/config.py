@@ -88,8 +88,8 @@ DEFAULTS = {
     "show_sync": {},      # sound output name -> ms the music lights wait for the sound ("" = any output)
     "show_excluded": [],  # ids of lights that keep their own look while the light show runs
     "online": {},         # what online.py last heard from GitHub (latest version, support links)
-    "schedules": [],      # [{"time": "23:00", "days": [0..6] (Monday = 0), "action": "off" | "on" | "show"
-                          #   | "preset:<name>", "enabled": true}]
+    "schedules": [],      # [{"time": "23:00" | "sunrise" | "sunset", "offset": minutes (-180..180, sun times only),
+                          #   "days": [0..6] (Monday = 0), "action": "off" | "on" | "show" | "preset:<name>", "enabled": true}]
     "games": {"cs2": False, "port": 0, "token": ""},   # game lighting (games.py): connected, where it listens
     "remote": {"on": False, "port": 0, "token": ""},   # the phone remote (remote.py)
     "app_looks": [],      # [{"exe": "photoshop.exe", "name": "Adobe Photoshop", "action": "preset:Focus"}]: while open

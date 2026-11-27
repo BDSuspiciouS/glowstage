@@ -25,6 +25,7 @@
     showExcluded: [],
     appLooks: [{ exe: "photoshop.exe", name: "Adobe Photoshop 2025", action: "preset:Focus" }],
     schedules: [{ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: "preset:Late night", enabled: true },
+      { time: "sunset", offset: -30, days: [0, 1, 2, 3, 4, 5, 6], action: "preset:Focus", enabled: true },
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
     update: /[?&]update\b/.test(location.search)
@@ -166,7 +167,7 @@
     native_options: () => ok({ effects: wledFx, palettes: [{ id: 0, name: "Default" }, { id: 6, name: "Party" }, { id: 11, name: "Rainbow" }] }),
     apply_preset: name => { data.activePreset = name; data.revision++; return ok(); }, save_preset: () => ok(), delete_preset: () => ok(),
     pair_nanoleaf: () => Promise.resolve({ ok: false, error: "The panels aren't in pairing mode." }),
-    add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), resize_zone: () => ok(),
+    add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), identify: () => ok(), resize_zone: () => ok(),
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
     set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },

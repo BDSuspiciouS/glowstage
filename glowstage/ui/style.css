@@ -212,6 +212,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .preset:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(0,0,0,.8); }
 .preset:active { transform: translateY(0); }
+/* dragging a preset to a new place: the card it lands before or after gets a bar on that side */
+.preset.is-dragging { opacity: .35; }
+.preset.drop-before { box-shadow: inset 4px 0 0 var(--text); }
+.preset.drop-after { box-shadow: inset -4px 0 0 var(--text); }
 .preset-art { position: absolute; inset: 0; z-index: -1; }
 .preset-art::after {   /* a soft scrim so the name always reads */
   content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(10,10,12,.72), rgba(10,10,12,0) 62%);
@@ -241,10 +245,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .support-free { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 14px; font-size: 13.5px; }
 /* schedule */
 .sched-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 12px; }
-.sched-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; background: var(--card-2); }
+.sched-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; background: var(--card-2); }
 .sched-row.is-paused { opacity: .55; }
 .sched-time { width: 112px; height: 34px; }
-.sched-action { flex: 1 1 160px; }
+.sched-when, .sched-offset { flex: 0 0 auto; }
+.sched-hint { font-size: 12.5px; white-space: nowrap; }
+.sched-action { flex: 1 1 120px; min-width: 0; }
 .auto-look { flex: 0 0 220px; }
 .app-looks { border-top: 1px solid var(--line); padding-top: 12px; }
 .app-look-name { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -308,7 +314,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .preset-x svg { width: 13px; height: 13px; stroke-width: 2.2; }
 .preset:hover .preset-x, .preset-x:focus-visible { opacity: 1; }
-.preset-x:hover { background: var(--danger); }
+.preset-x:hover { background: rgba(10,10,12,.85); }
 .preset-add {
   height: 92px; border-radius: 14px; border: 1.5px dashed var(--line-2); background: transparent; color: var(--muted);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 13px;
@@ -533,6 +539,29 @@ input[type="range"] { flex: 1; margin: 0; accent-color: var(--text); min-width: 
 .scanning { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin-top: 14px; }
 .scanning::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: pulse 1.6s infinite; }
 .btn.btn-show { width: 100%; height: 44px; }
+
+/* quick search */
+.qs { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 0; background: rgba(6, 6, 8, .6); backdrop-filter: blur(3px); }
+.qs[hidden] { display: none; }
+.qs-box {
+  width: min(560px, calc(100vw - 32px)); overflow: hidden; border-radius: var(--r-lg);
+  background: var(--card); border: 1px solid var(--line-2); box-shadow: 0 30px 80px rgba(0,0,0,.55);
+  animation: qs-in .15s var(--ease);
+}
+.qs-input {
+  display: block; width: 100%; height: 52px; padding: 0 18px; border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; color: var(--text); font: inherit; font-size: 15.5px; outline: none;
+}
+.qs-input::placeholder { color: var(--faint); }
+.qs-input:focus-visible { box-shadow: inset 0 -2px 0 var(--text); }
+.qs-list { list-style: none; margin: 0; padding: 6px; max-height: calc(8 * 40px + 12px); overflow-y: auto; }
+.qs-row { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 10px; color: var(--text); font-size: 14px; cursor: pointer; }
+.qs-row[aria-selected="true"] { background: var(--card-2); box-shadow: inset 0 0 0 1px var(--line-2), inset 3px 0 0 var(--text); }
+.qs-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-kind { flex: none; color: var(--muted); font-size: 12px; }
+.qs-empty { margin: 0; padding: 18px 18px 20px; font-size: 13.5px; }
+.qs-empty[hidden] { display: none; }
+@keyframes qs-in { from { opacity: 0; transform: translateY(-6px); } }
 
 /* ---------- modal & toasts ---------- */
 .modal { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(6, 6, 8, .6); backdrop-filter: blur(3px); }

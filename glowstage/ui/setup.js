@@ -56,6 +56,12 @@ function lightsSection() {
     const actions = h("div", { class: "dev-actions" },
       d.paired === false ? h("button", { class: "btn btn-primary", type: "button", text: "Pair", onclick: () => openPairDialog(d) }) : null,
       h("button", {
+        class: "btn", type: "button", text: "Find", disabled: !d.online,
+        title: "Flash this light for a few seconds so you can see which one it is",
+        "aria-label": `Find ${d.name}: flash it for a few seconds`,
+        onclick: async () => { const r = await callRaw("identify", d.id); if (r && r.ok !== false) toast(`${d.name} is flashing`); else toast((r && r.error) || "Couldn't make it flash", true); },
+      }),
+      h("button", {
         class: "btn", type: "button", text: d.hidden ? "Show again" : "Hide",
         title: d.hidden ? "Show it on the stage and in the fader bank" : "Hide it from the stage and the fader bank",
         onclick: async () => { await call("set_hidden", d.id, !d.hidden); refresh(true); },
@@ -88,7 +94,7 @@ function lightsSection() {
       h("div", { class: "dev-sub", text: sub }),
       actions, zoneGrid);
   });
-  return h("section", { class: "set-section" },
+  return h("section", { class: "set-section", id: "set-lights" },
     h("h3", {}, "Lights", h("span", { class: "section-tools" },
       h("button", { class: "btn", type: "button", text: "Search now",
         onclick: async () => { await call("search"); toast("Looking for lights on your network…"); } }))),
@@ -174,7 +180,7 @@ function openrgbSection() {
   };
   const auto = h("input", { type: "checkbox", checked: o.autoLaunch,
     onchange: async e => { await call("set_openrgb_option", "auto_launch", e.target.checked); refresh(true); } });
-  return h("section", { class: "set-section" },
+  return h("section", { class: "set-section", id: "set-pc" },
     h("h3", { text: "PC lighting (OpenRGB)" }),
     h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (ok ? " is-on" : " is-warn") }),
       ok ? `Connected · ${pcCount} PC device${pcCount === 1 ? "" : "s"}` : (o.message || o.status)),
@@ -340,9 +346,36 @@ function scheduleSection() {
   };
   const actions = [["off", "Lights off"], ["on", "Lights on"], ["show", "Start the light show"],
     ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])];
+  const sunNow = S.data.sun || {};
+  const isSun = s => s.time === "sunrise" || s.time === "sunset";
+  // Today's time for a sun schedule, with its offset, kept within the day; "" when the sun doesn't rise or set today.
+  const sunToday = s => {
+    const at = sunNow[s.time];
+    if (!at) return "";
+    const m = Math.min(1439, Math.max(0, +at.slice(0, 2) * 60 + +at.slice(3, 5) + (s.offset || 0)));
+    return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  };
+  const offsets = [[-120, "2 h before"], [-90, "1½ h before"], [-60, "1 h before"], [-45, "45 min before"],
+    [-30, "30 min before"], [-15, "15 min before"], [0, "on time"], [15, "15 min after"], [30, "30 min after"],
+    [45, "45 min after"], [60, "1 h after"], [90, "1½ h after"], [120, "2 h after"]];
+  // (each choice shows the time it means today: "30 min before · 16:01")
+  const offsetText = (s, v, t) => { const at = sunToday({ ...s, offset: v }); return at ? `${t} · ${at}` : t; };
+  const offsetsFor = s => offsets.some(o => o[0] === (s.offset || 0)) ? offsets
+    : [...offsets, [s.offset, `${Math.abs(s.offset)} min ${s.offset < 0 ? "before" : "after"}`]].sort((a, b) => a[0] - b[0]);
   const row = (s, i) => h("div", { class: "sched-row" + (s.enabled === false ? " is-paused" : "") },
-    h("input", { class: "text-input sched-time", type: "time", value: s.time, "aria-label": "Time",
-      onchange: e => { if (e.target.value) { s.time = e.target.value; save(); } } }),
+    h("select", { class: "sched-when", "aria-label": "When", onchange: e => {
+      const v = e.target.value;
+      if (v === "at") { s.time = /^\d\d:\d\d$/.test(s.time) ? s.time : "23:00"; delete s.offset; }
+      else { s.time = v; s.offset = s.offset || 0; }
+      save();
+    } }, [["at", "At"], ["sunrise", "At sunrise"], ["sunset", "At sunset"]].map(([v, t]) =>
+      h("option", { value: v, text: t, selected: v === (isSun(s) ? s.time : "at") }))),
+    isSun(s)
+      ? [h("select", { class: "sched-offset", "aria-label": "How long before or after", onchange: e => { s.offset = +e.target.value; save(); } },
+          offsetsFor(s).map(([v, t]) => h("option", { value: String(v), text: offsetText(s, v, t), selected: v === (s.offset || 0) }))),
+        sunToday(s) ? null : h("span", { class: "muted sched-hint", text: "not today" })]
+      : h("input", { class: "text-input sched-time", type: "time", value: s.time, "aria-label": "Time",
+          onchange: e => { if (e.target.value) { s.time = e.target.value; save(); } } }),
     h("select", { class: "sched-action", "aria-label": "What happens", onchange: e => { s.action = e.target.value; save(); } },
       actions.map(([v, t]) => h("option", { value: v, text: t, selected: v === s.action }))),
     h("div", { class: "sched-days", role: "group", "aria-label": "Days" }, DAY_LETTERS.map((l, k) =>
@@ -358,7 +391,7 @@ function scheduleSection() {
       title: s.enabled !== false ? "On" : "Paused", onchange: e => { s.enabled = e.target.checked; save(); } }),
     h("button", { class: "icon-btn", type: "button", "aria-label": `Remove ${s.time}`, title: "Remove",
       onclick: () => { items.splice(i, 1); save(); } }, icon("x")));
-  return h("section", { class: "set-section" },
+  return h("section", { class: "set-section", id: "set-schedule" },
     h("h3", { text: "Schedule" }),
     h("p", { class: "hint", text: "Your lights change by themselves at these times, as long as Glowstage runs (in the tray is enough)." }),
     items.length ? h("div", { class: "sched-list" }, items.map(row)) : null,
@@ -474,7 +507,7 @@ function appSection() {
     h("input", { type: "checkbox", checked: !!s[key],
       onchange: async e => { await call("set_setting", key, e.target.checked); refresh(true); } }));
   const about = S.data.about || {};
-  return h("section", { class: "set-section" },
+  return h("section", { class: "set-section", id: "set-app" },
     h("h3", { text: "App" }),
     row("close_to_tray", "Keep running in the tray when I close the window"),
     row("autostart", "Start with Windows"),

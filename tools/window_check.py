@@ -124,13 +124,17 @@ CHECKS = r"""
   out.presets = document.querySelectorAll('#page-home .preset').length;
   out.homeButtons = ['#all-color', '#sleep-timer', '#all-power'].filter(s => !q(s));
   out.whatsNewCard = !!q('.note-new');
+  openSearch(); await wait(150);
+  out.searchRows = document.querySelectorAll('.qs-row').length;
+  closeSearch();
   q('#all-color').click(); await wait(300);
   switchTab('effects'); await wait(300);
   out.effects = [...document.querySelectorAll('#fx-grid .fx-card')].map(c => c.dataset.fx);
   closeSheet();
   go('setup'); await wait(500);
   out.setup = [...document.querySelectorAll('#settings-body h3')].map(h => h.textContent);
-  out.setupIds = ['set-automatic', 'set-phone', 'set-backups'].filter(id => !document.getElementById(id));
+  out.setupIds = ['set-lights', 'set-automatic', 'set-schedule', 'set-phone', 'set-backups', 'set-app']
+    .filter(id => !document.getElementById(id));
   const b = await window.pywebview.api.list_backups();
   out.backups = b.ok ? b.result.map(x => `${x.file}: ${x.ok ? x.presets + ' presets' : 'unreadable'}`) : b.error;
   go('home'); await wait(200);

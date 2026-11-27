@@ -23,7 +23,8 @@ from .devices.openrgb_dev import OpenRGBProvider
 from .devices.registry import Found, drivers
 from .effects import EFFECTS
 from .engine import EffectEngine
-from .show import stage_spans
+from .show import SLOW_FPS, stage_spans
+from .sun import SUN
 from .state import LightState
 
 log = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class DeviceManager:
         self.revision = 0
         self._applied: set[str] = set()      # devices we have pushed a state to this session
         self._touches: dict[str, int] = {}   # how often each light was changed (away.py)
+        self._identifying: set[str] = set()  # lights that are flashing so you can find them
         self._undo: tuple[dict, str] | None = None   # the lights before the last big change by hand
         self._connecting: set[str] = set()
         self.force_on = False                # set when started with Windows: lights come on
@@ -316,6 +318,8 @@ class DeviceManager:
         out = []
         for dev_id, dev in list(self.devices.items()):
             st = self.states.get(dev_id)
+            if dev_id in self._identifying:
+                continue   # (flashing: the effect must not draw over it)
             if st and dev.streaming and dev.online and st.on and st.mode == "effect" and dev.pixel_count:
                 out.append((dev, st))
         return out
@@ -484,20 +488,54 @@ class DeviceManager:
 
     # ---- schedules: presets, on, off or the show at set times ---------------------------------
 
+    # Where sunrise and sunset come from (tests swap it): day -> ("HH:MM", "HH:MM"), "" = none.
+    sun_times = SUN.times
+
+    def schedule_minute(self, s: dict, day: datetime.datetime) -> int | None:
+        """The minute of the day (0..1439) a schedule happens on `day`; None when it follows a
+        sun time that doesn't happen that day. Sun times with their offset stay within the day."""
+        kind = s.get("time", "")
+        if kind in ("sunrise", "sunset"):
+            at = self.sun_times(day)[0 if kind == "sunrise" else 1]
+            if not at:
+                return None
+            minute = int(at[:2]) * 60 + int(at[3:5]) + int(s.get("offset", 0))
+            return min(1439, max(0, minute))
+        return int(kind[:2]) * 60 + int(kind[3:5])
+
     def set_schedules(self, items) -> None:
         clean = []
         for s in items or []:
             t = str(s.get("time", ""))
-            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
-                raise ValueError(f"{t or 'A time'} isn't a time of day (like 23:30)")
+            offset = 0
+            if t in ("sunrise", "sunset"):
+                offset = s.get("offset", 0)
+                if isinstance(offset, bool) or not isinstance(offset, int) or not -180 <= offset <= 180:
+                    raise ValueError("Minutes before or after sunrise or sunset must be a whole number, at most 180")
+            elif not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t):
+                raise ValueError(f"{t or 'A time'} isn't a time of day (like 23:30), sunrise or sunset")
             action = str(s.get("action", ""))
             if action not in ("off", "on", "show") and not action.startswith("preset:"):
                 raise ValueError("Choose what should happen")
             days = sorted({int(d) for d in s.get("days", range(7)) if 0 <= int(d) <= 6})
-            clean.append({"time": t, "days": days, "action": action, "enabled": bool(s.get("enabled", True))})
-        self.config.data["schedules"] = sorted(clean, key=lambda s: s["time"])
+            item = {"time": t, "days": days, "action": action, "enabled": bool(s.get("enabled", True))}
+            if t in ("sunrise", "sunset"):
+                item["offset"] = offset
+            clean.append(item)
+        today = datetime.datetime.now()
+
+        def when(s):    # in order of when they happen today; a sun time that doesn't happen today goes last
+            m = self.schedule_minute(s, today)
+            return (m is None, m or 0)
+        self.config.data["schedules"] = sorted(clean, key=when)
         self.config.save_soon()
         self._changed()
+
+    @staticmethod
+    def schedule_name(s: dict) -> str:
+        """A schedule's time for the log: "23:00", "sunset-30", "sunrise+15", "sunset"."""
+        off = s.get("offset", 0) if s.get("time") in ("sunrise", "sunset") else 0
+        return f"{s['time']}{off:+d}" if off else str(s["time"])
 
     def _scheduler(self) -> None:
         """Every 15 s: run what's due. A time missed by more than two minutes (the PC was asleep)
@@ -505,11 +543,11 @@ class DeviceManager:
         fired: dict[str, datetime.date] = {}
         while not self._stop.wait(15):
             for s in self.due_schedules(datetime.datetime.now(), fired):
-                log.info("Schedule %s: %s", s["time"], s["action"])
+                log.info("Schedule %s: %s", self.schedule_name(s), s["action"])
                 try:
                     self.run_action(s["action"])
                 except Exception:
-                    log.exception("Schedule %s failed", s["time"])
+                    log.exception("Schedule %s failed", self.schedule_name(s))
 
     def due_schedules(self, now: datetime.datetime, fired: dict) -> list[dict]:
         """The schedules to run at `now` (each once a day; `fired` remembers which ran when)."""
@@ -517,9 +555,11 @@ class DeviceManager:
         for s in list(self.config.data.get("schedules") or []):
             if not s.get("enabled", True) or now.weekday() not in s.get("days", range(7)):
                 continue
-            hh, mm = (int(v) for v in s["time"].split(":"))
-            late = (now - now.replace(hour=hh, minute=mm, second=0, microsecond=0)).total_seconds()
-            key = f"{s['time']} {s['action']}"
+            minute = self.schedule_minute(s, now)
+            if minute is None:
+                continue
+            late = (now - now.replace(hour=minute // 60, minute=minute % 60, second=0, microsecond=0)).total_seconds()
+            key = f"{self.schedule_name(s)} {s['action']}"
             if 0 <= late < 120 and fired.get(key) != now.date():
                 fired[key] = now.date()
                 due.append(s)
@@ -596,6 +636,45 @@ class DeviceManager:
         self.config.data["hidden"] = ids
         self.config.save_soon()
         self._changed()
+
+    def identify(self, dev_id: str, seconds: float = 3.0) -> None:
+        """Make one light flash white for a few seconds so you can see which one it is, then put
+        it back as it was. Returns at once; the flashing runs on its own thread."""
+        with self.lock:
+            dev = self.devices.get(dev_id)
+            if dev is None:
+                raise ValueError("That light isn't there any more")
+            if not dev.online:
+                raise ValueError(f"{dev.name} isn't answering")
+            if dev_id in self._identifying:
+                return   # already flashing
+            self._identifying.add(dev_id)
+        threading.Thread(target=self._flash, args=(dev_id, seconds), name=f"identify:{dev_id}", daemon=True).start()
+
+    def _flash(self, dev_id: str, seconds: float) -> None:
+        """The flashing itself: only the light's worker is told; nothing is saved or remembered."""
+        try:
+            worker, dev = self.workers.get(dev_id), self.devices.get(dev_id)
+            if worker is None or dev is None:
+                return
+            # slow lights (over the network, a few updates a second) flash about once a second
+            half = 0.5 if dev.max_fps <= SLOW_FPS else 0.2
+            base = self.states[dev_id]
+            white = base.patched({"mode": "color", "color": "#ffffff", "brightness": 100, "on": True})
+            dark = base.patched({"on": False})
+            end = time.monotonic() + seconds
+            lit = True
+            while time.monotonic() < end and not self._stop.is_set():
+                worker.submit(white if lit else dark)
+                lit = not lit
+                if self._stop.wait(min(half, max(0.0, end - time.monotonic()))):
+                    break
+        finally:
+            with self.lock:
+                self._identifying.discard(dev_id)
+                worker, st = self.workers.get(dev_id), self.states.get(dev_id)
+            if worker is not None and st is not None:
+                worker.submit(st)   # the light's real state now: a change made meanwhile wins
 
     def forget(self, dev_id: str) -> None:
         """Remove a network light or hub (it comes back if discovery sees it again)."""

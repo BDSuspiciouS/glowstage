@@ -70,6 +70,7 @@ class Api:
                  "updating": self._app.updater.describe(),
                  "updateResult": self._app.update_result,
                  "recovered": self._app.config.recovered,
+                 "canUndo": self._m.can_undo(),
                  "sun": SUN.describe(),
                  "sleep": self._m.sleep.describe(),
                  "askSupport": self._ask_support(),
@@ -303,6 +304,11 @@ class Api:
     @_safe
     def set_hidden(self, dev_id, hidden):
         self._m.set_hidden(dev_id, bool(hidden))
+
+    @_safe
+    def identify(self, dev_id):
+        """Flash one light for a few seconds so you can see which one it is."""
+        self._m.identify(dev_id)
 
     @_safe
     def forget(self, dev_id):
