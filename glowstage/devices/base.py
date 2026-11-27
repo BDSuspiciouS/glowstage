@@ -83,6 +83,11 @@ class Device:
             self.streaming = False
             self.end_stream()
 
+    def desk_item(self) -> str:
+        """What sort of thing on the desk this is ("KEYBOARD", "MOUSEMAT", "MOUSE", "HEADSET_STAND",
+        "HEADSET", "KEYPAD"), for where it stands on the stage; "" for anything else."""
+        return ""
+
     def describe(self) -> dict:
         return {
             "id": self.id,

@@ -960,23 +960,30 @@ class ShowDirector:
 
 # ---- stage layout ------------------------------------------------------------------------------
 
+# Where the things on the desk stand, in front of the monitor: the keyboard, the mouse mat under
+# it and the mouse, the headset stand on the right.
+DESK = {"KEYBOARD": (0.22, 0.52), "KEYPAD": (0.12, 0.2), "MOUSEMAT": (0.2, 0.66), "MOUSE": (0.56, 0.62),
+        "HEADSET_STAND": (0.64, 0.7), "HEADSET": (0.64, 0.7)}
+
+
 def stage_spans(devices, overrides: dict | None = None) -> dict[str, tuple[float, float, str]]:
     """Where each light sits: (start, end, layer) with 0 = left and 1 = right as seen from the
     desk chair, layer "front" or "back". The WLED strips hang above the monitor (left and
-    middle), the keyboard sits in front of it, the PC's own lights stand to the right of the
-    monitor, and the Nanoleaf is on the wall behind. `overrides` (id -> [start, end] or
-    [start, end, layer]) wins; start > end runs a strip the other way."""
+    middle), the keyboard, mouse mat and mouse sit in front of it, the PC's own lights (in the
+    case) stand to the right of the monitor, and the Nanoleaf is on the wall behind. `overrides`
+    (id -> [start, end] or [start, end, layer]) wins; start > end runs a strip the other way."""
     spans: dict[str, tuple[float, float, str]] = {}
     strips = sorted((d for d in devices if d.kind == "wled"), key=lambda d: -d.pixel_count)
     for i, d in enumerate(strips):
         spans[d.id] = (*[(0.0, 0.68), (0.12, 0.6), (0.05, 0.65), (0.2, 0.5)][min(i, 3)], "front")
-    pc = sorted((d for d in devices if d.group == "pc" and d.kind != "qmk"), key=lambda d: d.name.lower())
+    desk = {d.id: DESK[d.desk_item()] for d in devices if getattr(d, "desk_item", None) and d.desk_item() in DESK}
+    for dev_id, (a, b) in desk.items():
+        spans[dev_id] = (a, b, "front")
+    pc = sorted((d for d in devices if d.group == "pc" and d.id not in desk), key=lambda d: d.name.lower())
     for i, d in enumerate(pc):
         spans[d.id] = (0.72 + 0.28 * i / len(pc), 0.72 + 0.28 * (i + 1) / len(pc), "front")
     for d in devices:
-        if d.kind == "qmk":
-            spans[d.id] = (0.22, 0.52, "front")
-        elif d.kind == "nanoleaf":
+        if d.kind == "nanoleaf":
             spans[d.id] = (0.0, 1.0, "back")
     for d in devices:   # anything else: bulbs wash the room from behind, strips and bars span the front
         if d.id not in spans:

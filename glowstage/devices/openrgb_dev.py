@@ -66,6 +66,9 @@ def pawnio_installed() -> bool:
         return False
 
 
+DESK_ITEMS = {"KEYBOARD", "MOUSEMAT", "MOUSE", "HEADSET_STAND", "HEADSET", "KEYPAD"}
+
+
 class OpenRGBDevice(Device):
     kind = "openrgb"
     group = "pc"
@@ -132,6 +135,10 @@ class OpenRGBDevice(Device):
 
     def native_effects(self) -> list[dict]:
         return [{"id": m.name, "name": m.name} for m in self._dev.modes if m.name.lower() not in NON_EFFECT_MODES]
+
+    def desk_item(self) -> str:
+        kind = getattr(getattr(self._dev, "type", None), "name", "")
+        return kind if kind in DESK_ITEMS and not getattr(self, "zone_names", None) else ""
 
     def zones(self) -> list[dict]:
         return [

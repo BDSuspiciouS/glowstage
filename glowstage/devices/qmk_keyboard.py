@@ -185,6 +185,9 @@ class QmkKeyboard(Device):
     def extra_info(self) -> dict:
         return {"label": f"QMK · {self.pixel_count} keys", "protocol": self.protocol}
 
+    def desk_item(self) -> str:
+        return "KEYBOARD"
+
 
 def discover() -> list[QmkKeyboard]:
     """Keyboards that answer SignalRGB's protocol. Never raises."""
