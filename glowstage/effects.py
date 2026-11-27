@@ -8,7 +8,7 @@ import random
 
 import numpy as np
 
-from . import show
+from . import show, sun
 from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
 from .state import LightState
@@ -143,6 +143,16 @@ class Aurora(Effect):
             val = 0.25 + 0.75 * _noise(x * 1.7 - t * r * 1.3, 4)
             out.append(hsv(hue, 0.85, val))
         return out
+
+
+class Daylight(Effect):
+    """The light of the day where you live (sun.py): cool and bright by day, golden as the sun
+    sets, warm in the evening, a low amber glow at night. One calm color for the whole room."""
+    id, name = "daylight", "Follow the sun"
+    uses = ()
+
+    def render(self, t, n, st, mem, ctx):
+        return [sun.color()] * n
 
 
 class Screen(Effect):
@@ -589,7 +599,7 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Screen(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Daylight(), Screen(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),
 )}

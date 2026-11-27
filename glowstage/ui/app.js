@@ -331,6 +331,7 @@ const FX_LOOK = {
   fire: "linear-gradient(90deg, #7a1000, #ff5a00, #ffb000, #ffd25a)", music_fire: "linear-gradient(90deg, #7a1000, #ff5a00, #ffb000, #ffd25a)",
   aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)", music_aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)",
   screen: "linear-gradient(90deg, #3a6bff, #ff8a3a, #2bd3c4)",
+  daylight: "linear-gradient(90deg, #ff9a45, #ffe0c7, #ffb06a)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
   music_show: "linear-gradient(90deg, #00e5ff, #2a4bff, #ff00c8, #ff0040)",
 };
@@ -569,6 +570,7 @@ const PRESET_PALETTES = {
   music_party: ["#ff2f92", "#ffb03b", "#3bc8ff", "#8a5bff"], music_spectrum: ["#3bff8a", "#3bc8ff", "#ff3bd2"],
   music_ripple: ["#2b6bff", "#00e5ff", "#ff2f92"], music_sparkle: ["#ffd23b", "#ff3bd2", "#3bc8ff"],
   music_meteor: ["#ff5f3b", "#ffd23b", "#3b6bff"], screen: ["#3a6bff", "#ff8a3a", "#2bd3c4"],
+  daylight: ["#ffe6cc", "#ff8a3a", "#ffc27a", "#c2541a"],
   fire: ["#ffd25a", "#ff5a00", "#8a1500"], music_fire: ["#ffd25a", "#ff5a00", "#8a1500"],
   aurora: ["#2bff9a", "#2bd3ff", "#8a4bff"], music_aurora: ["#2bff9a", "#2bd3ff", "#8a4bff"],
   music_organ: ["#ff2a2a", "#2aff5a", "#2a6bff"], music_show: ["#00e5ff", "#ff00c8", "#2a4bff", "#ff0040"],
@@ -784,6 +786,8 @@ function noise(x, seed) {
 }
 const FIRE = [[0, 0, 0], [120, 8, 0], [255, 50, 0], [255, 130, 10], [255, 210, 80]];
 const SCREEN_DEMO = [[40, 90, 255], [255, 130, 50], [30, 200, 190], [200, 60, 120]];
+/* A day in eight seconds, as glowstage/sun.py lights it: night, dawn, sunrise, day, sunset, evening. */
+const SUN_DAY = [[51, 26, 0], [158, 98, 43], [194, 114, 54], [255, 224, 199], [255, 224, 199], [198, 118, 56], [158, 98, 43], [104, 59, 15]];
 
 /* Same math as glowstage/effects.py, so the previews match what the lights do. */
 const PREVIEW = {
@@ -823,6 +827,10 @@ const PREVIEW = {
       const x = i / n * 3;
       return hsvToRgb(0.33 + 0.42 * noise(x + t * r, 3), 0.85, 0.25 + 0.75 * noise(x * 1.7 - t * r * 1.3, 4));
     });
+  },
+  daylight: (t, n) => {
+    const k = (t * 1.0) % SUN_DAY.length, i = Math.floor(k);
+    return Array(n).fill(lerp(SUN_DAY[i], SUN_DAY[(i + 1) % SUN_DAY.length], k - i));
   },
   screen: (t, n) => {
     const k = (t * 0.25) % SCREEN_DEMO.length, i = Math.floor(k);
@@ -998,12 +1006,21 @@ function renderEffects() {
   const fx = st.mode === "effect" && S.data.effects.find(e => e.id === st.effect);
   const usesColor = !fx || fx.uses.includes("color");
   $("#fx-colors").style.display = usesColor ? "" : "none";
+  speed.closest(".field-row").style.display = !fx || fx.uses.includes("speed") ? "" : "none";
   const audio = S.data.audio || {};
   $("#fx-note").textContent = !fx ? "Pick an effect to start it."
     : fx.id === "screen" ? "Follows the main colors on your primary display. Great for the monitor strip during games and films."
+    : fx.id === "daylight" ? sunNote(S.data.sun)
     : fx.id === "music_show" ? showNote(S.data.show, audio)
     : fx.group === "music" ? `Listening to ${audio.device || "your PC's sound output"}. Speed sets how punchy it is; when the music stops, the lights glow softly.`
     : fx.uses.includes("color") ? "" : "This effect uses its own colors.";
+}
+
+function sunNote(sun) {
+  const how = "Cool and bright by day, golden as the sun sets, warm in the evening and a low amber glow at night.";
+  if (!sun) return how;
+  const times = sun.sunrise && sun.sunset ? `: sunrise ${sun.sunrise}, sunset ${sun.sunset}` : "";
+  return `Follows the sun in ${sun.place}${times}. Now: ${sun.phase}, ${sun.kelvin} K. ${how}`;
 }
 
 const SHOW_SECTIONS = { groove: "groove", break: "break", build: "build-up", gap: "about to drop", drop: "drop",

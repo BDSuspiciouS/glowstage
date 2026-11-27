@@ -12,6 +12,7 @@ from . import genre_install, online, webfix, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
+from .sun import SUN
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class Api:
                  "update": self._app.online.update(),
                  "updating": self._app.updater.describe(),
                  "updateResult": self._app.update_result,
+                 "sun": SUN.describe(),
                  "askSupport": self._ask_support()}
         if since is not None and since == self._m.revision:
             return {**self._m.live_status(), **extra, "same": True}

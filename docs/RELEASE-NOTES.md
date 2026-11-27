@@ -1,8 +1,12 @@
-Glowstage 0.9.4: updates with one click.
+Glowstage 0.9.5: light that follows the sun.
 
-**Install:** download `Glowstage-0.9.4-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating from an older version?** Quit Glowstage from its tray icon, then unzip over the old folder: your lights and settings stay. This is the last time you have to do that by hand.
+**Install:** download `Glowstage-0.9.5-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
 
 **New**
+- Follow the sun: a new look and preset that lights your room like the day outside. Cool and bright at noon, golden as the sun sets, warm in the evening, and from 23:00 a low amber glow for the night. Sunrise and sunset come from where you live (Windows' region setting), worked out on your PC: no location access, no internet. Use it as a preset, from the tray, or on a schedule.
+- The speed slider hides for looks that don't use it (Screen sync, Follow the sun).
+
+**New in 0.9.4**
 - Updates with one click: when a new version is out, Home says so with an *Update now* button. Glowstage downloads the new version from its GitHub release, checks it against the SHA-256 checksum GitHub lists for it, puts it in place of itself and restarts, in a few seconds. If anything can't be replaced (a virus scanner holding a file), it puts the old version back, so a failed update never leaves a broken app.
 
 **New in 0.9.3**
@@ -20,7 +24,7 @@ Glowstage 0.9.4: updates with one click.
 - A festival-style light show to whatever your PC plays: beat-locked, hears build-ups and drops, learns the song while it plays, checked against an hour of real songs.
 - Offline AI genre detection with its own choreography per genre, colors that follow the chords; one click away, an enhanced genre AI that knows 400 music styles.
 - Sync for your speakers: Bluetooth headphones and speakers are detected and the lights wait for their sound.
-- Presets that know your PC from your room (Focus, Reading, Cozy, Gaming, Movie and more), from the tray, a hotkey or a schedule.
+- Presets that know your PC from your room (Follow the sun, Focus, Reading, Cozy, Gaming, Movie and more), from the tray, a hotkey or a schedule.
 - A live stage view of every light in your room; choose which lights join the show.
 - Slow lights (Hue, Govee, Home Assistant, Elgato) get calm versions of the fast looks.
 - PC RGB through OpenRGB, WLED, Nanoleaf, ASRock Radeon cards and SignalRGB-protocol QMK keyboards; in beta: Philips Hue, LIFX, Govee, Yeelight, Elgato, Twinkly, Magic Home, Home Assistant and DMX (Art-Net / sACN).

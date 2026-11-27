@@ -20,6 +20,8 @@ CONFIG_PATH = APP_DIR / "config.json"
 DEFAULT_PRESETS = [
     {"name": "Rainbow", "all": {"on": True, "brightness": 100, "mode": "effect", "effect": "rainbow", "speed": 40}},
     {"name": "Warm white", "all": {"on": True, "brightness": 70, "mode": "color", "color": "#ffb46b"}},
+    {"name": "Follow the sun", "room": {"on": True, "brightness": 100, "mode": "effect", "effect": "daylight"},
+                               "pc": {"on": True, "brightness": 35, "mode": "effect", "effect": "daylight"}},
     {"name": "Focus", "room": {"on": True, "brightness": 95, "mode": "color", "color": "#eaf1ff"},
                       "pc": {"on": True, "brightness": 30, "mode": "color", "color": "#eaf1ff"}},
     {"name": "Reading", "room": {"on": True, "brightness": 90, "mode": "color", "color": "#ffdcb0"},
@@ -54,7 +56,7 @@ OLD_PRESETS = {
     "Focus": {"name": "Focus", "all": {"on": True, "brightness": 90, "mode": "color", "color": "#eaf1ff"}},
     "Movie": {"name": "Movie", "all": {"on": True, "brightness": 70, "mode": "effect", "effect": "screen"}},
 }
-PRESETS_VERSION = 2
+PRESETS_VERSION = 3
 
 
 def upgrade_presets(presets: list[dict]) -> list[dict]:
