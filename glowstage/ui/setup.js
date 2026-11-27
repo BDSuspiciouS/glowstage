@@ -27,7 +27,7 @@ function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label]),
     d.hubs, d.openrgb, d.genreAi, d.settings, d.games, (d.drivers || []).length, d.stage, d.schedules,
-    (d.presets || []).map(p => p.name), d.hotkeysTaken]);
+    (d.presets || []).map(p => p.name), d.hotkeysTaken, d.remote, d.appLooks]);
 }
 
 function renderSettings(force = false) {
@@ -37,7 +37,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), phoneSection(), appSection());
   body.scrollTop = scroll;
 }
 
@@ -369,6 +369,41 @@ function scheduleSection() {
           items.push({ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: late ? "preset:" + late.name : "off", enabled: true });
           save();
         } })));
+}
+
+/* Setup → Phone remote: the lights from your phone, on the same Wi-Fi (remote.py). */
+function phoneSection() {
+  const r = S.data.remote || {};
+  const set = async on => {
+    const res = await callRaw("remote_set", on);
+    if (!res || res.ok === false) toast((res && res.error) || "Couldn't switch the phone remote", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const qr = h("div", { class: "phone-qr", role: "img", "aria-label": "QR code with the phone remote's link" });
+  if (r.on && r.url) {
+    if (S.qrFor === r.url) qr.innerHTML = S.qrSvg;     // (made here by Glowstage itself)
+    else call("remote_qr").then(svg => { if (svg) { S.qrFor = r.url; S.qrSvg = svg; qr.innerHTML = svg; } });
+  }
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(r.url); toast("Link copied"); }
+    catch { toast("Couldn't copy it: select the link and copy it yourself", true); }
+  };
+  return h("section", { class: "set-section", id: "set-phone" },
+    h("h3", { text: "Phone remote" }),
+    h("p", { class: "hint", text: "Switch your lights, set the brightness, pick a preset, start the light show or the sleep timer from your phone, on the same Wi-Fi. Only a phone with this code's link can: it carries a secret key." }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Control Glowstage from my phone" }),
+      h("input", { type: "checkbox", checked: !!r.on, onchange: e => set(e.target.checked) })),
+    !r.on ? null : !r.url ? h("p", { class: "hint", text: r.error || "Starting…" })
+      : h("div", { class: "phone-box" }, qr,
+        h("div", { class: "phone-text" },
+          h("p", { text: "Scan the code with your phone's camera and open the link. Add the page to your home screen to keep it at hand." }),
+          h("code", { class: "phone-url", text: r.url }),
+          h("p", { class: "hint", text: "The first time, Windows may ask whether Glowstage may use the network: allow it for private networks." }),
+          h("div", { class: "form-actions" },
+            h("button", { class: "btn", type: "button", text: "Copy link", onclick: copy }),
+            h("button", { class: "btn btn-quiet", type: "button", text: "New link", title: "The old link stops working",
+              onclick: async () => { await call("remote_new_link"); toast("New link: a phone with the old one has to scan again"); S.settingsSig = ""; refresh(true); } })))));
 }
 
 function appSection() {

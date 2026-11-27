@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from .paths import VERSION
 
-# go: "setup:automatic" (Setup → Automatic), "effect:<id>" (the effects panel, at that look),
+# go: "setup:automatic" / "setup:phone" (that part of Setup), "effect:<id>" (the effects panel, at that look),
 # "sleep" (the sleep timer).
 NOTES: dict[str, list[dict]] = {
     "0.9.7": [
+        {"title": "Phone remote", "go": "setup:phone",
+         "text": "Scan a code and control your lights from your phone: on and off, brightness, presets, the sleep timer."},
         {"title": "Screen + sound", "go": "setup:automatic",
          "text": "In any game your lights follow the screen and flash with every shot or explosion, on the side it came from."},
         {"title": "Typing ripples", "go": "effect:typing",

@@ -54,7 +54,8 @@ class Api:
                  "sun": SUN.describe(),
                  "sleep": self._m.sleep.describe(),
                  "askSupport": self._ask_support(),
-                 "whatsNew": whatsnew.card(self._app.config["settings"])}
+                 "whatsNew": whatsnew.card(self._app.config["settings"]),
+                 "remote": self._app.remote.describe()}
         if since is not None and since == self._m.revision:
             return {**self._m.live_status(), **extra, "same": True}
         return {**self._m.snapshot(), **extra}
@@ -112,6 +113,20 @@ class Api:
         if asked.startswith("later:"):
             return today >= asked[6:]
         return (datetime.date.today() - datetime.date.fromisoformat(first)).days >= 5
+
+    @_safe
+    def remote_set(self, on):
+        """Setup → Phone remote: listen on the home network for the phone page, or stop."""
+        self._app.remote.set_on(bool(on))
+
+    @_safe
+    def remote_new_link(self):
+        self._app.remote.new_link()
+
+    @_safe
+    def remote_qr(self):
+        """The phone remote's link as a QR code (SVG)."""
+        return self._app.remote.qr_svg()
 
     @_safe
     def whats_new_seen(self):

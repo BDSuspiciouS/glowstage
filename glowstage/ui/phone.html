@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1013">
+<meta name="referrer" content="no-referrer">
+<title>Glowstage</title>
+<style>
+  :root {
+    --bg: #0f1013; --card: #17181c; --card-2: #1e1f24; --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.14);
+    --text: #f3f1ed; --muted: #9c9ca5; --primary: #f3f1ed; --primary-ink: #141418; --danger: #ff6b5b;
+    --f: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 var(--f); }
+  main { max-width: 520px; margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom)); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+  .power {
+    width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--card-2);
+    color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background .2s, color .2s, transform .1s;
+  }
+  .power svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .power.is-on { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+  .power:active, .btn:active, .preset:active, .chip:active { transform: scale(.97); }
+  section { background: var(--card); border-radius: 18px; padding: 16px; margin-bottom: 12px; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 12px; letter-spacing: .02em; }
+  .row { display: flex; align-items: center; gap: 14px; }
+  input[type=range] { flex: 1; accent-color: var(--text); height: 32px; }
+  .num { font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: right; color: var(--muted); }
+  .presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .preset {
+    position: relative; height: 78px; border-radius: 14px; border: 0; padding: 10px 12px; overflow: hidden; cursor: pointer;
+    display: flex; align-items: flex-end; color: #fff; font: 600 14px var(--f); text-align: left; background: #26272d;
+  }
+  .preset span { position: relative; text-shadow: 0 1px 6px rgba(0,0,0,.55); }
+  .preset::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,.45)); }
+  .preset.is-active { outline: 2px solid var(--text); outline-offset: 2px; }
+  .btn {
+    width: 100%; min-height: 48px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--card-2);
+    color: var(--text); font: 600 15px var(--f); cursor: pointer;
+  }
+  .btn.is-on { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { flex: 1 1 0; min-height: 44px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--text); font: 500 14px var(--f); cursor: pointer; }
+  .sleep-on { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .banner { display: none; background: rgba(255,107,91,.12); color: #ffb3aa; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
+  .banner.show { display: block; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Glowstage</h1><div class="sub" id="sub">Connecting…</div></div>
+    <button class="power" id="power" type="button" aria-label="All lights on or off">
+      <svg viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M6.6 6.9a7.5 7.5 0 1 0 10.8 0"/></svg>
+    </button>
+  </header>
+  <div class="banner" id="banner" role="alert"></div>
+  <section>
+    <h2>Brightness</h2>
+    <div class="row"><input type="range" id="bright" min="1" max="100" aria-label="Brightness"><span class="num" id="bright-val"></span></div>
+  </section>
+  <section>
+    <h2>Presets</h2>
+    <div class="presets" id="presets"></div>
+  </section>
+  <section>
+    <button class="btn" id="show" type="button">Start the light show</button>
+  </section>
+  <section>
+    <h2>Sleep timer</h2>
+    <div id="sleep"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const key = new URLSearchParams(location.search).get("k") || "";
+const $ = id => document.getElementById(id);
+let state = null, busyUntil = 0;
+
+const PALETTES = {
+  rainbow: ["#ff3b5c", "#ffb03b", "#3bff8a", "#3bc8ff", "#8a5bff"], spectrum: ["#ff3b5c", "#3bff8a", "#3bc8ff", "#ff3bd2"],
+  music_party: ["#ff2f92", "#ffb03b", "#3bc8ff", "#8a5bff"], music_show: ["#00e5ff", "#ff00c8", "#2a4bff", "#ff0040"],
+  music_ripple: ["#2b6bff", "#00e5ff", "#ff2f92"], screen: ["#3a6bff", "#ff8a3a", "#2bd3c4"], screen_sound: ["#fff0dc", "#3a6bff", "#ff8a3a"],
+  fire: ["#ffd25a", "#ff5a00", "#8a1500"], aurora: ["#2bff9a", "#2bd3ff", "#8a4bff"], daylight: ["#ffe6cc", "#ff8a3a", "#ffc27a"],
+};
+function art(p) {
+  if (p.off) return "linear-gradient(135deg, #24252b, #141418)";
+  const fx = (p.effects || []).find(e => PALETTES[e]);
+  const c = fx ? PALETTES[fx] : (p.colors || []);
+  if (!c.length) return "linear-gradient(135deg, #3a3b44, #1a1b20)";
+  if (c.length === 1) return `radial-gradient(120% 130% at 20% 0%, ${c[0]}, ${c[0]} 45%, #111 140%)`;
+  return `radial-gradient(90% 110% at 0% 0%, ${c[0]} 0%, transparent 70%), radial-gradient(90% 110% at 100% 10%, ${c[1]} 0%, transparent 70%),`
+    + ` radial-gradient(90% 110% at 30% 110%, ${c[2 % c.length]} 0%, transparent 70%), linear-gradient(135deg, #222, #111)`;
+}
+const clock = s => new Date(s * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+async function api(path, body) {
+  const r = await fetch(`${path}?k=${encodeURIComponent(key)}`, body
+    ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 403) throw new Error("This link doesn't work any more: scan the code in Glowstage (Setup → Phone remote) again.");
+  if (!r.ok || data.ok === false) throw new Error(data.error || "Glowstage didn't answer");
+  return data;
+}
+function problem(text) {
+  $("banner").textContent = text || "";
+  $("banner").classList.toggle("show", !!text);
+}
+async function act(body) {
+  busyUntil = Date.now() + 1500;
+  try { const r = await api("/api/do", body); problem(""); render(r.state); } catch (e) { problem(e.message); }
+}
+async function poll() {
+  if (document.hidden || Date.now() < busyUntil) return;
+  try { render(await api("/api/state")); problem(""); }
+  catch (e) { problem(e.message.includes("link") ? e.message : "Can't reach Glowstage. Is the PC on, and your phone on the same Wi-Fi?"); }
+}
+
+function render(s) {
+  state = s;
+  $("sub").textContent = s.lights ? `${s.on} of ${s.lights} lights on` : "No lights found";
+  $("power").classList.toggle("is-on", s.on > 0);
+  $("power").setAttribute("aria-pressed", String(s.on > 0));
+  if (document.activeElement !== $("bright")) $("bright").value = s.brightness || 1;
+  $("bright-val").textContent = s.on ? `${s.brightness}%` : "off";
+  const sig = JSON.stringify([s.presets, s.active]);
+  if ($("presets").dataset.sig !== sig) {
+    $("presets").dataset.sig = sig;
+    $("presets").replaceChildren(...s.presets.map(p => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "preset" + (p.name === s.active ? " is-active" : "");
+      b.style.background = art(p);
+      b.setAttribute("aria-pressed", String(p.name === s.active));
+      const t = document.createElement("span");
+      t.textContent = p.name;
+      b.append(t);
+      b.onclick = () => act({ do: "preset", name: p.name });
+      return b;
+    }));
+  }
+  $("show").textContent = s.show ? "Stop the light show" : "Start the light show";
+  $("show").classList.toggle("is-on", s.show);
+  const sleep = $("sleep");
+  if (s.sleep) {
+    sleep.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = "sleep-on";
+    const t = document.createElement("span");
+    t.textContent = `Lights off at ${clock(s.sleep.until)}`;
+    const c = document.createElement("button");
+    c.className = "chip"; c.type = "button"; c.style.flex = "0 0 auto"; c.style.padding = "0 16px";
+    c.textContent = "Cancel";
+    c.onclick = () => act({ do: "sleep", minutes: 0 });
+    row.append(t, c);
+    sleep.append(row);
+  } else if (!sleep.querySelector(".chips")) {
+    sleep.innerHTML = "";
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const [m, label] of [[15, "15 min"], [30, "30 min"], [60, "1 hour"]]) {
+      const c = document.createElement("button");
+      c.className = "chip"; c.type = "button"; c.textContent = label;
+      c.onclick = () => act({ do: "sleep", minutes: m });
+      chips.append(c);
+    }
+    sleep.append(chips);
+  }
+}
+
+$("power").onclick = () => state && act({ do: "power", on: !(state.on > 0) });
+$("show").onclick = () => act({ do: "show" });
+let slide;
+$("bright").oninput = e => {
+  $("bright-val").textContent = `${e.target.value}%`;
+  clearTimeout(slide);
+  slide = setTimeout(() => act({ do: "brightness", value: Number(e.target.value) }), 120);
+};
+document.addEventListener("visibilitychange", poll);
+poll();
+setInterval(poll, 2500);
+</script>
+</body>
+</html>

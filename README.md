@@ -39,6 +39,7 @@
 - **Presets for every moment.** Focus, Reading, Cozy, Gaming, Movie and more, each lighting your PC and your room its own way. Save your own with one click, run them from the tray or a hotkey, on a schedule (*Late night* at 23:00, everything off at 1:00), or automatically: *Gaming* when a game goes full screen, *Movie* for a full-screen video, *Focus* while Photoshop is open, and back to your own look afterwards. At bedtime the sleep timer fades your lights out like a sunset.
 - **Lights off when you step away.** Lock the PC, let its screen go off or put it to sleep, and the PC's lights (or all of them) switch off; they come back as they were when you return (Setup → Automatic).
 - **In sync with what you hear.** Bluetooth headphones play the sound later than your PC sends it; Glowstage notices and waits for them. Slow lights (Hue, Govee, Home Assistant) get calmer looks that still catch every hit.
+- **From your phone.** Scan a code in Setup and your phone controls the lights on the same Wi-Fi: on and off, brightness, presets, the light show and the sleep timer. Off until you switch it on; only the phone with the code's secret link gets in.
 - **Works out of the box.** A short welcome tour finds your lights, fetches OpenRGB for the RGB inside your PC if you want it, and gets you to your first light show in a minute. It lives quietly in the tray.
 
 <p align="center">

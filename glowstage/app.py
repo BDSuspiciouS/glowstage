@@ -18,6 +18,7 @@ from .api import Api
 from .config import Config
 from .hotkeys import Hotkeys
 from .online import Online
+from .remote import Remote
 from .updater import Updater
 from .icon import icon_file
 from .manager import DeviceManager
@@ -36,6 +37,7 @@ class App:
         self.hotkeys = Hotkeys(self.manager)
         self.online = Online(self.config, self.manager._changed)
         self.updater = Updater(self.manager._changed, self.quit)
+        self.remote = Remote(self.manager, self.config, self.manager._changed)
         # ("--updated" / "--update-failed": the update that just ran, for a word in the window)
         self.update_result = next((a[2:] for a in sys.argv if a in ("--updated", "--update-failed")), "")
         settings = self.config["settings"]
@@ -58,6 +60,7 @@ class App:
         self.tray.start()
         self.hotkeys.set_enabled(bool(self.config["settings"].get("hotkeys")))
         self.online.start()
+        self.remote.start()
         # Straight from the files (file://), not through pywebview's own web server: that one listens
         # on a fixed port, and WebView2 kept its pages in a cache, so after an update the window
         # could get an old index.html with the new scripts, and stay empty.
@@ -73,6 +76,7 @@ class App:
         self._watch_stop.set()
         self.hotkeys.set_enabled(False)
         self.online.stop()
+        self.remote.stop()
         self.tray.stop()
         self.manager.stop()
 

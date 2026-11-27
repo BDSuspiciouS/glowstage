@@ -34,7 +34,7 @@ class WhatsNew(unittest.TestCase):
                 if go.startswith("effect:"):
                     self.assertIn(go[7:], EFFECTS, go)
                 else:
-                    self.assertIn(go, ("sleep", "setup:automatic"), go)
+                    self.assertIn(go, ("sleep", "setup:automatic", "setup:phone"), go)
 
 
 if __name__ == "__main__":
