@@ -332,6 +332,17 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   font-size: 11px; font-weight: 600; letter-spacing: .02em; color: #fff; background: rgba(10,10,12,.55);
 }
 .preset-kind svg { width: 14px; height: 14px; }
+/* a preset that sets only some of the lights: a small count next to the music mark */
+.preset-some {
+  position: absolute; right: 10px; bottom: 11px; min-width: 16px; padding: 0 5px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; color: rgba(255,255,255,.9); background: rgba(10,10,12,.45);
+}
+.preset-some.with-kind { right: 32px; }
+/* the lights to pick when saving a preset */
+.pick-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.pick-group .field-label { margin: 0; width: auto; flex: 1; white-space: nowrap; }
+.pick-all { display: flex; gap: 6px; }
+.pick-group + .check-list { margin-top: 0; max-height: none; }
 .preset-x {
   position: absolute; top: 7px; right: 7px; width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0;
   display: grid; place-items: center; background: rgba(10,10,12,.55); color: #fff; opacity: 0; transition: opacity .15s;

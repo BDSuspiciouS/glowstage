@@ -250,6 +250,7 @@ const dismissedUpdate = () => { try { return localStorage.getItem("glowstage.upd
 
 /* Notes at the top of Home: a new version is out; once in a while, the support card. */
 const AUTO_NOTES = {
+  call: { icon: "spark", title: "You're on a call", text: "Your lights changed for it by themselves and go back when the call ends." },
   cs2: { icon: "spark", title: "Counter-Strike 2 is on", text: "Your lights play along with the match and go back when you leave it." },
   game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
   video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
@@ -399,6 +400,7 @@ function renderHomeNotes() {
 /** "Show me" on the what's-new card: open the new thing. */
 function showNew(where) {
   if (where === "sleep") return openSleepTimer();
+  if (where === "search") return openSearch();
   if (where.startsWith("setup:")) {
     go("setup");
     setTimeout(() => { const s = $("#set-" + where.slice(6)); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
@@ -813,12 +815,25 @@ function presetCard(p) {
     active ? h("span", { class: "preset-on", text: "On" }) : null,
     h("span", { class: "preset-name", text: p.name }),
     isMusicPreset(p) ? h("span", { class: "preset-kind", title: "Moves to the music" }, icon("music")) : null,
+    p.lights ? h("span", { class: "preset-some" + (isMusicPreset(p) ? " with-kind" : ""), text: String(p.lights),
+      title: `Sets ${p.lights} of ${visible().length} lights` }) : null,
     h("span", {
       class: "preset-x", role: "button", tabindex: "0", "aria-label": `More for ${p.name}: rename, update, move, delete`,
       title: "Rename, update, move or delete",
       onclick: e => { e.stopPropagation(); openPresetMenu(p); },
       onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openPresetMenu(p); } },
     }, icon("more"))), p);
+}
+
+/** Which lights a preset sets, in words ("Sets 3 lights: Bureau, Monitor, Shapes"). */
+function presetSets(p) {
+  if (p.builtIn) return p.split ? "Sets every light (your PC and your room each their own way)" : "Sets every light";
+  if (!p.ids) return "Sets every light";
+  const names = p.ids.map(id => (byId(id) || {}).name).filter(Boolean);
+  const n = names.length;
+  if (!n) return "Sets no light that's still here";
+  const list = n > 4 ? `${names.slice(0, 2).join(", ")} and ${n - 2} more` : n > 1 ? `${names.slice(0, -1).join(", ")}, ${names[n - 1]}` : names[0];
+  return `Sets ${n} ${n === 1 ? "light" : "lights"}: ${list}`;
 }
 
 /** A preset's own menu: its name, its lights, its place in the list (tray, Home, hotkeys), delete. */
@@ -839,6 +854,7 @@ function openPresetMenu(p) {
     body: h("div", { class: "preset-menu" },
       h("label", { class: "field-label", text: "Name" }), input,
       h("p", { class: "hint", text: place }),
+      h("p", { class: "hint", text: presetSets(p) }),
       h("div", { class: "form-actions" },
         h("button", { class: "btn", type: "button", text: "To the top", disabled: at === 0,
           title: "First on Home and in the tray, and Ctrl+Alt+Shift+1",
@@ -848,8 +864,8 @@ function openPresetMenu(p) {
         h("button", { class: "btn", type: "button", text: "Move later", disabled: at === names.length - 1,
           onclick: async () => { if (await act("move_preset", p.name, 1)) { closeModal(); toast(`${p.name} is now number ${at + 2}`); } } })),
       h("div", { class: "form-actions" },
-        h("button", { class: "btn", type: "button", text: "Save my lights into it", title: "It gets your lights as they are now",
-          onclick: async () => { if (await act("save_preset", p.name)) { closeModal(); toast(`${p.name} now has your lights as they are`); } } }),
+        h("button", { class: "btn", type: "button", text: "Save my lights into it", title: p.ids ? "Its lights get their color as they are now" : "It gets your lights as they are now",
+          onclick: async () => { if (await act("save_preset", p.name)) { closeModal(); toast(p.ids ? `${p.name} now has its lights as they are` : `${p.name} now has your lights as they are`); } } }),
         h("button", { class: "btn", type: "button", text: "Make a copy", title: "A copy right after it, to change without losing this one",
           onclick: async () => {
             const r = await callRaw("duplicate_preset", p.name);
@@ -910,14 +926,36 @@ function confirmDeletePreset(name) {
 }
 
 function openSavePreset() {
-  const input = h("input", { class: "text-input", style: "width:100%", placeholder: "e.g. Late night", maxlength: "40" });
+  const input = h("input", { class: "text-input", style: "width:100%", placeholder: "e.g. Late night", maxlength: "40", "aria-label": "Preset name" });
+  // Which lights it holds: all ticked to start with; "All" / "None" per group.
+  const boxes = new Map();
+  const picker = [];
+  for (const [key, title] of [["pc", "In your PC"], ["room", "In your room"]]) {
+    const lights = visible().filter(d => (d.group === "pc") === (key === "pc"));
+    if (!lights.length) continue;
+    const setAll = on => { for (const d of lights) boxes.get(d.id).checked = on; };
+    const rows = lights.map(d => {
+      const box = h("input", { type: "checkbox", class: "switch", checked: true, "aria-label": d.name });
+      boxes.set(d.id, box);
+      return h("label", { class: "check-row" }, h("span", { class: "check-text" }, h("span", { class: "check-name", text: d.name })), box);
+    });
+    picker.push(
+      h("div", { class: "pick-group" },
+        h("span", { class: "field-label", text: title }),
+        h("span", { class: "pick-all" },
+          h("button", { class: "btn btn-quiet", type: "button", text: "All", "aria-label": `All lights ${title.toLowerCase()}`, onclick: () => setAll(true) }),
+          h("button", { class: "btn btn-quiet", type: "button", text: "None", "aria-label": `No lights ${title.toLowerCase()}`, onclick: () => setAll(false) }))),
+      h("div", { class: "check-list" }, rows));
+  }
   openModal({
     title: "Save as preset",
-    body: h("div", {}, h("p", { class: "hint", style: "margin-bottom:12px", text: "Saves the color, effect and brightness of every light as they are now." }), input),
+    body: h("div", {}, h("p", { class: "hint", style: "margin-bottom:12px", text: "Saves the color, effect and brightness of the lights you tick, as they are now. Lights you leave out keep their look when you switch it on." }), input, picker),
     ok: "Save preset",
     onOk: async () => {
       if (!input.value.trim()) return "Give the preset a name.";
-      const r = await callRaw("save_preset", input.value);
+      const ids = [...boxes].filter(([, b]) => b.checked).map(([id]) => id);
+      if (!ids.length) return "Choose at least one light.";
+      const r = await callRaw("save_preset", input.value, ids);
       if (!r.ok) return r.error;
       toast(`Saved ${input.value.trim()}`);
       refresh(true);

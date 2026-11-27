@@ -794,6 +794,8 @@ class DeviceManager:
     def preset_previews(self) -> list[dict]:
         """Name plus the colors/effect to draw each preset's swatch in the UI."""
         out = []
+        with self.lock:
+            visible = self.visible_ids()
         for p in self.config["presets"]:
             states = [p[k] for k in ("all", "room", "pc") if p.get(k)] or list(p.get("states", {}).values())
             lit = [s for s in states if s.get("on", True)]
@@ -804,9 +806,13 @@ class DeviceManager:
                     c = s.get(key)
                     if c and c not in colors:
                         colors.append(c)
+            # (which lights it sets: a user preset may hold only some; None = every light)
+            ids = [i for i in visible if i in p["states"]] if "states" in p else None
+            some = ids is not None and len(ids) < len(visible)
             out.append({"name": p["name"], "effects": sorted(e for e in effects if e), "colors": colors[:4],
                         "off": not lit, "builtIn": "states" not in p,
-                        "split": bool(p.get("pc") or p.get("room"))})
+                        "split": bool(p.get("pc") or p.get("room")),
+                        "lights": len(ids) if some else None, "ids": ids if some else None})
         return out
 
     def apply_preset(self, name: str) -> None:
@@ -820,15 +826,29 @@ class DeviceManager:
                    for dev_id, group in groups.items()}
         self._apply({i: p for i, p in patches.items() if p}, preset=name)
 
-    def save_preset(self, name: str) -> None:
+    def save_preset(self, name: str, ids: list[str] | None = None) -> None:
+        """Save the lights as they are now. ids = only those lights (None = every visible light; an
+        existing preset that holds only some lights keeps its own set)."""
         name = name.strip()
         if not name:
             raise ValueError("Give the preset a name")
         with self.lock:
-            states = {i: self.states[i].to_dict() for i in self.visible_ids()}
+            visible = self.visible_ids()
             presets = list(self.config["presets"])
-            new = {"name": name, "states": states}
             at = next((k for k, p in enumerate(presets) if p["name"] == name), None)
+            if ids is None:
+                old = presets[at].get("states") if at is not None else None
+                ids = [i for i in visible if i in old] if old else visible
+                ids = ids or visible        # (all of its lights are gone: start again with every light)
+            else:
+                ids = list(dict.fromkeys(ids))
+                if not ids:
+                    raise ValueError("Choose at least one light")
+                if any(i not in visible for i in ids):
+                    raise ValueError("One of those lights is gone")
+                ids = [i for i in visible if i in ids]
+            states = {i: self.states[i].to_dict() for i in ids}
+            new = {"name": name, "states": states}
             if at is None:
                 presets.append(new)
             else:
@@ -855,7 +875,7 @@ class DeviceManager:
             s = self.config["settings"]
             if s.get("active_preset") == old:
                 s["active_preset"] = new
-            for key in ("auto_game", "auto_video"):
+            for key in ("auto_game", "auto_video", "auto_call"):
                 if s.get(key) == f"preset:{old}":
                     s[key] = f"preset:{new}"
             for item in [*(self.config.data.get("schedules") or []), *(self.config.data.get("app_looks") or [])]:

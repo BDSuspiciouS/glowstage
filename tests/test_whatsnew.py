@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from glowstage import whatsnew
 from glowstage.effects import EFFECTS
@@ -34,7 +35,13 @@ class WhatsNew(unittest.TestCase):
                 if go.startswith("effect:"):
                     self.assertIn(go[7:], EFFECTS, go)
                 else:
-                    self.assertIn(go, ("sleep", "setup:automatic", "setup:phone"), go)
+                    self.assertIn(go, whatsnew.GOES, go)
+
+    def test_setup_places_are_real_sections(self):
+        setup = (Path(__file__).parent.parent / "glowstage" / "ui" / "setup.js").read_text(encoding="utf-8")
+        for go in whatsnew.GOES:
+            if go.startswith("setup:"):
+                self.assertIn(f'id: "set-{go[6:]}"', setup, go)
 
 
 if __name__ == "__main__":

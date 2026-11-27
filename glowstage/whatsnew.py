@@ -9,20 +9,26 @@ from __future__ import annotations
 
 from .paths import VERSION
 
-# go: "setup:automatic" / "setup:phone" (that part of Setup), "effect:<id>" (the effects panel, at that look),
-# "sleep" (the sleep timer).
+# go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups), "effect:<id>"
+# (the effects panel, at that look), "sleep" (the sleep timer), "search" (the quick search).
+GOES = ("sleep", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups")
+
 NOTES: dict[str, list[dict]] = {
     "0.9.7": [
+        {"title": "Quick search", "go": "search",
+         "text": "Press Ctrl+K and type a few letters: switch on a preset, open a light, jump to any setting. Press ? for every shortcut."},
         {"title": "Phone remote", "go": "setup:phone",
-         "text": "Scan a code and control your lights from your phone: on and off, brightness, presets, the sleep timer."},
+         "text": "Scan a code and control every light from your phone, on the same Wi-Fi."},
+        {"title": "Wake up with a sunrise", "go": "setup:schedule",
+         "text": "Your room's lights come up slowly before you get up, and schedules can follow sunset all year."},
         {"title": "Screen + sound", "go": "setup:automatic",
          "text": "In any game your lights follow the screen and flash with every shot or explosion, on the side it came from."},
         {"title": "Typing ripples", "go": "effect:typing",
          "text": "Every key you press lights up and sends a ripple across your keyboard."},
-        {"title": "A look per app", "go": "setup:automatic",
-         "text": "Focus while Photoshop is open, the light show with your DJ app: back to your own look when you close it."},
-        {"title": "Sleep timer", "go": "sleep",
-         "text": "At bedtime your lights fade out like a sunset and switch off."},
+        {"title": "A look per app, and for calls", "go": "setup:automatic",
+         "text": "Focus while Photoshop is open, a soft light while you're on a call: back to your own look afterwards."},
+        {"title": "Backups", "go": "setup:backups",
+         "text": "A copy of your presets and settings for each day, and a file to take them to another PC."},
     ],
 }
 

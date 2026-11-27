@@ -280,8 +280,8 @@ class Api:
         self._m.apply_preset(name)
 
     @_safe
-    def save_preset(self, name):
-        self._m.save_preset(name)
+    def save_preset(self, name, ids=None):
+        self._m.save_preset(name, ids)
 
     @_safe
     def rename_preset(self, old, new):
@@ -396,6 +396,10 @@ class Api:
             value = str(value or "")
             if value not in ("", "screen", "screen_sound") and not (value.startswith("preset:")
                                                     and value[7:] in self._app.manager.preset_names()):
+                raise ValueError("Choose a look from the list")
+        if key == "auto_call":   # "" or "preset:<name>"
+            value = str(value or "")
+            if value and not (value.startswith("preset:") and value[7:] in self._app.manager.preset_names()):
                 raise ValueError("Choose a look from the list")
         if key == "away_lights" and value not in SCOPES:
             raise ValueError("Choose what happens from the list")

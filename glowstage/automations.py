@@ -7,8 +7,10 @@ itself" switch is the music one).
 - A game in full screen: the look chosen for games (Screen sync, or a preset such as Gaming).
 - A video in full screen, in a browser or a video player: the look chosen for videos.
 - Music with a beat: the light show.
+- A call: any app using the camera or the microphone (calls.py): the look chosen for calls.
 
-A CS2 match wins over everything, then your apps (the first in the list), then a full-screen
+A call wins over everything (it has to last a few seconds, and be over for a while before
+the lights go back, so a quick voice message doesn't flick them). Then a CS2 match, then your apps (the first in the list), then a full-screen
 game or video, then music. When you take over (change a light, pick a preset,
 switch off; from the window, the tray, a hotkey or a schedule) Glowstage keeps its hands off
 until whatever it reacted to is over.
@@ -38,9 +40,11 @@ import time
 import uuid
 from ctypes import wintypes as w
 
+from . import calls
+
 log = logging.getLogger(__name__)
 
-RULES = ("cs2", "game", "video", "music")   # first wins; your apps ("app:<exe>") come after cs2
+RULES = ("call", "cs2", "game", "video", "music")   # first wins; your apps ("app:<exe>") come after cs2
 APP_LOOKS_MAX = 30
 
 LEVEL = 1e-4         # the meter's peak above which something plays (0..1; silence is exactly 0).
@@ -52,6 +56,9 @@ QUIET_END = 30.0     # seconds without sound after which the music is over
 GAP = 2.0            # shorter dips in the sound don't count (between songs, a breakdown)
 SCREEN_SETTLE = 3.0  # seconds a full-screen game or video has to last, or be gone, to count
 CS2_ON, CS2_OFF = 1.0, 6.0   # seconds a CS2 match has to be on / off (CS2 sends at least every 10 s)
+CALL_ON, CALL_OFF = 5.0, 10.0   # seconds the camera or microphone has to be in use / free: a quick voice
+                                # message shouldn't flick the lights, a short pause in a call shouldn't end it
+CALL_POLL = 3.0      # seconds between looks at which apps use the camera or microphone
 
 VIDEO_APPS = {
     "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "arc.exe",
@@ -336,6 +343,8 @@ class Automations:
         self._screen: str | None = None     # ... once it lasted SCREEN_SETTLE
         self._cs2_seen: tuple[bool, float] = (False, 0.0)   # in a CS2 match, since
         self._cs2 = False                   # ... once that settled
+        self._call_seen: tuple[bool, float] = (False, 0.0)   # camera or microphone in use, since
+        self._call = False                  # ... once that settled
         self._sound_since: float | None = None
         self._last_sound = -1e9
         self._checks = 0                    # checks in a row that heard music
@@ -348,9 +357,11 @@ class Automations:
         """What each rule does: "" (nothing), "screen", "screen_sound", "show" or "preset:<name>"."""
         s = self.manager.config["settings"]
         apps = {f"app:{a['exe']}": a["action"] for a in self.manager.config.data.get("app_looks") or []}
+        # (A call comes after games: with voice chat in a game the microphone is on all the time,
+        # and the game's lighting should stay.)
         return {"cs2": "game:cs2" if self.manager.games.settings.get("cs2") else "", **apps,
-                "game": s.get("auto_game") or "", "video": s.get("auto_video") or "",
-                "music": "show" if s.get("auto_show") else ""}
+                "game": s.get("auto_game") or "", "call": s.get("auto_call") or "",
+                "video": s.get("auto_video") or "", "music": "show" if s.get("auto_show") else ""}
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="automations", daemon=True).start()
@@ -368,6 +379,7 @@ class Automations:
     def _run(self) -> None:
         meter, meter_at, failed = None, 0.0, ""
         apps: set[str] = set()
+        on_call, call_at = False, -1e9
         while not self._stop.wait(1.0):
             if self.manager.away.active:   # nobody's watching: no automatic looks (away.py)
                 continue
@@ -380,6 +392,18 @@ class Automations:
                 except Exception as e:
                     log.debug("No open apps: %s", e)
             cs2 = bool(rules["cs2"]) and self.manager.games.active(now)
+            if rules["call"]:
+                if now - call_at >= CALL_POLL:
+                    call_at = now
+                    try:
+                        found = calls.in_use()
+                        if bool(found) != on_call:
+                            log.info("Camera or microphone %s", calls.describe(found) if found else "free again")
+                        on_call = bool(found)
+                    except Exception as e:
+                        log.debug("No camera or microphone state: %s", e)
+            else:
+                on_call = False
             if rules["game"] or rules["video"]:
                 try:
                     kind = full_screen()[0]
@@ -405,7 +429,7 @@ class Automations:
                 meter.close()
                 meter = None
             try:
-                self.step(now, rules, kind, peak, cs2, apps)
+                self.step(now, rules, kind, peak, cs2, apps, on_call)
             except Exception:
                 log.exception("Automatic look failed")
         if meter:
@@ -413,13 +437,15 @@ class Automations:
 
     # (separate from the thread, for tests)
     def step(self, now: float, rules: dict[str, str], kind: str | None, peak: float, cs2: bool = False,
-             apps: set[str] | frozenset = frozenset()) -> None:
+             apps: set[str] | frozenset = frozenset(), call: bool = False) -> None:
         """One look at the PC: `rules` in order of priority (see rules()), `kind` what's full
-        screen, `peak` the sound level, `cs2` in a CS2 match, `apps` the exes with a window open."""
+        screen, `peak` the sound level, `cs2` in a CS2 match, `apps` the exes with a window open,
+        `call` the camera or microphone is in use."""
         m = self.manager
         if not any(rules.values()):     # all switched off: forget, leave the lights as they are
             self.active, self._saved, self._set, self._hands_off = None, None, None, False
-            self._music, self._checks, self._screen, self._cs2 = False, 0, None, False
+            self._music, self._checks, self._screen, self._cs2, self._call = False, 0, None, False, False
+            self._call_seen = (False, now)
             self._app_seen, self._apps = {}, set()
             return
 
@@ -427,6 +453,11 @@ class Automations:
             self._cs2_seen = (cs2, now)
         if now - self._cs2_seen[1] >= (CS2_ON if cs2 else CS2_OFF):
             self._cs2 = cs2
+
+        if call != self._call_seen[0]:
+            self._call_seen = (call, now)
+        if now - self._call_seen[1] >= (CALL_ON if call else CALL_OFF):
+            self._call = call
 
         if kind != self._screen_kind:
             self._screen_kind, self._screen_since = kind, now
@@ -442,7 +473,7 @@ class Automations:
                     (self._apps.add if is_open else self._apps.discard)(exe)
         self._listen(now, rules, peak)
 
-        holds = {"cs2": self._cs2, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
+        holds = {"call": self._call, "cs2": self._cs2, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
                  **{r: r[4:] in self._apps for r in rules if r.startswith("app:")}}
         want = next((r for r in rules if rules[r] and holds.get(r)), None)
         if self.active and self._set is not None and not _same(m.looks(), self._set):
@@ -485,7 +516,7 @@ class Automations:
             self._music = False
         if self._music:
             return
-        busy = (self._cs2 or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
+        busy = (self._call or self._cs2 or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
                 or any(rules.get(f"app:{exe}") for exe in self._apps))                # so do your apps
         if self._sound_since is None or now - self._sound_since < SOUND_FIRST or busy or self._hands_off:
             self._checks = 0

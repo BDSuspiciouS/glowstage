@@ -55,7 +55,7 @@ def report(app) -> str:
     apps = len(app.config.data.get("app_looks") or [])
     out.append("Automatic: " + ", ".join([
         f"games {s.get('auto_game') or 'off'}", f"videos {s.get('auto_video') or 'off'}",
-        f"music {'on' if s.get('auto_show') else 'off'}", f"away {s.get('away_lights') or 'off'}",
+        f"music {'on' if s.get('auto_show') else 'off'}", f"calls {s.get('auto_call') or 'off'}", f"away {s.get('away_lights') or 'off'}",
         f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}"]))
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",

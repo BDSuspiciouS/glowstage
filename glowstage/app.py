@@ -81,6 +81,7 @@ class App:
         self.manager.stop()
 
     def _on_change(self) -> None:
+        self.tray.refresh_look()   # (the icon's color; it decides itself if that changed)
         # The tray menu shows the presets, the one that's on and whether the show runs.
         sig = (self.manager.preset_names(), self.config["settings"].get("active_preset", ""),
                self.manager.show_running(), self.manager.sleep.until, self.manager.can_undo(),
