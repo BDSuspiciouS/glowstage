@@ -13,6 +13,8 @@ Glowstage 0.9.7: a phone remote, games flash along, your keyboard ripples as you
 - Report a problem (Setup → App): shows you a short summary first (your version, Windows, your lights and whether they answer, the last warnings from the log; never a key or a password), then opens a GitHub issue with it filled in, or copies it.
 - After an update, Home says what's new in a short card, with a *Show me* for each new thing that takes you right to it.
 - Fixed: after an update the window could stay empty. It was loaded through a small web server on a fixed port, and WebView2 kept an old page in its cache next to the new scripts. It now opens straight from its files.
+- Fixed: with a Steam library on a hard disk that had spun down, the window could hang for seconds once a minute while Glowstage looked for CS2. It now looks in the background.
+- A window call that takes more than 3 seconds writes where it waits into the log, so a slow window can be traced.
 - The log now names an error a light reports without a message (like OpenRGB dropping its connection).
 
 **New in 0.9.6**

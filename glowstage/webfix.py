@@ -19,8 +19,10 @@ from __future__ import annotations
 import faulthandler
 import json
 import logging
+import sys
 import threading
 import time
+import traceback
 
 from .paths import APP_DIR
 
@@ -113,15 +115,45 @@ def enable_crash_log() -> None:
         log.warning("No crash log: %s", e)
 
 
+SLOW = 3.0      # seconds: a page call that takes this long gets where it waits written to the log
+
+
+def _slow_calls() -> None:
+    """Twice a second: a call from the page running SLOW seconds or more gets the place it's
+    waiting at written to the log, once, so a slow window can be traced to its cause."""
+    seen: set[tuple[int, float]] = set()
+    while True:
+        time.sleep(0.5)
+        now = time.monotonic()
+        with _busy_lock:
+            slow = [(tid, name, since) for tid, (name, since) in _busy.items() if now - since >= SLOW]
+        frames = sys._current_frames() if slow else {}
+        for tid, name, since in slow:
+            if (tid, since) in seen or tid not in frames:
+                continue
+            seen.add((tid, since))
+            where = "".join(traceback.format_stack(frames[tid])[-12:])
+            log.warning("Window call %s is slow (%.1f s so far); it waits here:\n%s", name, now - since, where.rstrip())
+        if len(seen) > 200:
+            seen.clear()
+
+
+_sampler: threading.Thread | None = None
+
+
 class track:
     """`with track("get_state"):` marks a call from the page, so the watchdog can tell which one
-    is stuck, and slow calls are logged."""
+    is stuck, and slow calls are logged (with where they wait: _slow_calls)."""
 
     def __init__(self, name: str):
         self.name = name
 
     def __enter__(self):
+        global _sampler
         with _busy_lock:
+            if _sampler is None:
+                _sampler = threading.Thread(target=_slow_calls, name="slow-calls", daemon=True)
+                _sampler.start()
             _busy[threading.get_ident()] = (self.name, time.monotonic())
 
     def __exit__(self, *exc):

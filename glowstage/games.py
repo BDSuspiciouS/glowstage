@@ -181,14 +181,24 @@ class Games:
         self._server: ThreadingHTTPServer | None = None
         self._was_in_match = False
         self._found: tuple[float, Path | None] = (-1e9, None)
+        self._file_there = False
+        self._looking = threading.Lock()
 
     def folder(self, fresh: bool = False) -> Path | None:
-        """CS2's cfg folder, looked up at most once a minute."""
-        at, folder = self._found
-        if fresh or time.monotonic() - at > 60:
+        """CS2's cfg folder. Fresh: looked up now (you're connecting). Otherwise the last answer,
+        looked up again in the background once a minute: a Steam library on a hard disk that has
+        spun down takes seconds to answer, and the window mustn't wait for that."""
+        if fresh:
+            self._look()
+        elif time.monotonic() - self._found[0] > 60 and not self._looking.locked():
+            threading.Thread(target=self._look, name="find-cs2", daemon=True).start()
+        return self._found[1]
+
+    def _look(self) -> None:
+        with self._looking:
             folder = find_cs2()
+            self._file_there = bool(folder and (folder / CFG_NAME).is_file())
             self._found = (time.monotonic(), folder)
-        return folder
 
     @property
     def settings(self) -> dict:
@@ -197,6 +207,7 @@ class Games:
     # -- lifecycle --
 
     def start(self) -> None:
+        threading.Thread(target=self._look, name="find-cs2", daemon=True).start()
         if self.settings.get("cs2"):
             self._listen()
 
@@ -271,6 +282,7 @@ class Games:
             raise ValueError("Counter-Strike 2 isn't installed on this PC (or Steam can't say where)")
         path = folder / CFG_NAME
         path.write_text(cfg_text(self.settings["port"], self.settings["token"]), encoding="utf-8")
+        self._file_there = True
         return path
 
     def connect(self) -> None:
@@ -290,6 +302,7 @@ class Games:
         if folder is not None:
             try:
                 (folder / CFG_NAME).unlink(missing_ok=True)
+                self._file_there = False
             except OSError as e:
                 log.warning("Couldn't remove %s: %s", CFG_NAME, e)
         self.stop()
@@ -302,7 +315,7 @@ class Games:
         snap = self.cs2.snapshot(now)
         return {"cs2": {
             "found": folder is not None, "connected": connected and folder is not None,
-            "fileThere": bool(folder and (folder / CFG_NAME).is_file()),
+            "fileThere": bool(folder) and self._file_there,
             "receiving": connected and self.cs2.alive(now), "inMatch": connected and snap["inMatch"],
             "team": snap["team"], "health": snap["health"],
         }}
