@@ -598,7 +598,7 @@ function renderTiles() {
 let tilesFrame = 0;
 function liveTiles(ts) {
   requestAnimationFrame(liveTiles);
-  if (S.page !== "home" || !S.data || ts - tilesFrame < 100 || typeof ST === "undefined" || !Object.keys(ST.live).length) return;
+  if (S.page !== "home" || !S.data || ts - tilesFrame < (STILL.matches ? 400 : 100) || typeof ST === "undefined" || !Object.keys(ST.live).length) return;
   tilesFrame = ts;
   for (const d of visible()) {
     if (!liveOf(d)) continue;
@@ -1220,12 +1220,16 @@ function renderSync(audio) {
   $("#show-sync-auto").hidden = !!sync.auto;
 }
 
+/* Windows' "Show animations" off (prefers-reduced-motion): the previews hold still, and the live
+   cards and the stage follow the lights a few times a second instead of smoothly. */
+const STILL = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+
 let fxFrame = 0;
 function animatePreviews(ts) {
   requestAnimationFrame(animatePreviews);
-  if (!S.sheetOpen || S.tab !== "effects" || !S.data || ts - fxFrame < 33) return;
+  if (!S.sheetOpen || S.tab !== "effects" || !S.data || ts - fxFrame < (STILL.matches ? 500 : 33)) return;
   fxFrame = ts;
-  const st = currentFxState(), t = ts / 1000, dpr = window.devicePixelRatio || 1;
+  const st = currentFxState(), t = STILL.matches ? 2.5 : ts / 1000, dpr = window.devicePixelRatio || 1;
   for (const card of document.querySelectorAll("#fx-grid .fx-card")) {
     const cv = card.firstChild, w = Math.round(cv.clientWidth * dpr), hgt = Math.round(14 * dpr);
     if (!w) continue;
@@ -1299,7 +1303,9 @@ async function renderNative() {
 /* ============================== modal and toasts ============================== */
 
 let modalOk = null;
+let modalFrom = null;      // what had the focus before the window opened: it gets it back
 function openModal({ title, body, ok, onOk, wide = false, cancel = true }) {
+  if ($("#modal").hidden) modalFrom = document.activeElement;
   $("#modal-title").textContent = title;
   $("#modal-cancel").hidden = !cancel;     // (a window with only information needs just its one button)
   $(".modal-card").classList.toggle("is-wide", wide);
@@ -1311,7 +1317,26 @@ function openModal({ title, body, ok, onOk, wide = false, cancel = true }) {
   $("#modal").hidden = false;
   setTimeout(() => $("#modal-ok").focus(), 20);
 }
-function closeModal() { $("#modal").hidden = true; modalOk = null; }
+function closeModal() {
+  $("#modal").hidden = true;
+  modalOk = null;
+  if (modalFrom && modalFrom.isConnected && typeof modalFrom.focus === "function") modalFrom.focus();
+  modalFrom = null;
+}
+
+/** Tab and Shift+Tab stay inside an open window (it covers the page). */
+function trapFocus(e) {
+  if (e.key !== "Tab" || $("#modal").hidden) return;
+  const all = [...$(".modal-card").querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")]
+    .filter(el => !el.disabled && !el.hidden && el.offsetParent !== null);
+  if (!all.length) return;
+  const first = all[0], last = all[all.length - 1];
+  if (e.shiftKey && (document.activeElement === first || !$(".modal-card").contains(document.activeElement))) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && (document.activeElement === last || !$(".modal-card").contains(document.activeElement))) {
+    e.preventDefault(); first.focus();
+  }
+}
 
 function toast(msg, isError = false, action = null) {
   const t = h("div", { class: "toast" + (isError ? " is-error" : ""), role: isError ? "alert" : "status" },
@@ -1430,6 +1455,7 @@ function bindStatic() {
     else { $("#modal-error").textContent = res || "That didn't work."; $("#modal-error").hidden = false; }
   });
   document.addEventListener("keydown", e => {
+    trapFocus(e);
     if (e.key !== "Escape") return;
     if (!$("#modal").hidden) closeModal();
     else if (S.arrange) { S.arrange = false; renderStage(); }

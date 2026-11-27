@@ -124,7 +124,7 @@ function drawStage(ts) {
   requestAnimationFrame(drawStage);
   if (!S.data || !ST.ctx || !ST.w) return;
   const busy = Object.keys(ST.live).length || ST.drag;
-  if (ts - ST.lastDraw < (busy ? 33 : 250)) return;
+  if (ts - ST.lastDraw < (busy && !STILL.matches ? 33 : 250)) return;
   ST.lastDraw = ts;
 
   layoutStage();

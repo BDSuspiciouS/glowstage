@@ -5,10 +5,11 @@ The app has to run with WebView2's debugging port open (a developer check, on th
 
     set WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333
     pythonw Glowstage.pyw --minimized
-    python tools/window_check.py 9333 [screenshot.png]
+    python tools/window_check.py 9333 [screenshot.png] [--a11y]
 
 It reloads the page, collects every error and warning the page reports, runs a few checks on
 Home, the effects panel and Setup, and prints a summary (exit code 1 when something is wrong).
+--a11y also lists every control a screen reader can't name, from Chromium's accessibility tree.
 Only the standard library: a tiny WebSocket client for the DevTools protocol.
 """
 
@@ -136,9 +137,38 @@ CHECKS = r"""
 """
 
 
+CONTROLS = {"button", "checkbox", "switch", "slider", "textbox", "combobox", "link", "tab", "menuitem",
+            "radio", "spinbutton", "listbox", "searchbox"}
+
+
+def unnamed_controls(d: DevTools) -> list[str]:
+    """Controls a screen reader can't name (no text, label or aria-label), as HTML snippets."""
+    d.call("DOM.getDocument", depth=1)
+    out = []
+    for node in d.call("Accessibility.getFullAXTree").get("nodes", []):
+        role = (node.get("role") or {}).get("value", "")
+        name = str((node.get("name") or {}).get("value", "")).strip()
+        if node.get("ignored") or role not in CONTROLS or name or "backendDOMNodeId" not in node:
+            continue
+        try:
+            html = d.call("DOM.getOuterHTML", backendNodeId=node["backendDOMNodeId"]).get("outerHTML", "")
+        except RuntimeError:
+            html = "?"
+        out.append(f"{role}: {html[:160]}")
+    return out
+
+
+VIEWS = {
+    "home": "go('home')",
+    "effects": "(async () => { document.querySelector('#all-color').click(); await new Promise(r => setTimeout(r, 300)); switchTab('effects'); })()",
+    "color": "switchTab('color')",
+    "setup": "(async () => { closeSheet(); go('setup'); })()",
+}
+
+
 def main() -> int:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 9333
-    shot = sys.argv[2] if len(sys.argv) > 2 else ""
+    shot = next((a for a in sys.argv[2:] if a.endswith(".png")), "")
     pages = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5))
     page = next((p for p in pages if p.get("type") == "page" and "index.html" in p.get("url", "")), None)
     if not page:
@@ -165,6 +195,14 @@ def main() -> int:
             problems.append(f"console.{p['type']}: " + " ".join(str(a.get("value", a.get("description", ""))) for a in p.get("args", [])))
         elif m == "Log.entryAdded" and p.get("entry", {}).get("level") in ("error", "warning"):
             problems.append(f"log {p['entry']['level']}: {p['entry'].get('text', '')} {p['entry'].get('url', '')}")
+    if "--a11y" in sys.argv:
+        d.call("Accessibility.enable")
+        for view, js in VIEWS.items():
+            d.js(js)
+            time.sleep(0.8)
+            for line in dict.fromkeys(unnamed_controls(d)):
+                problems.append(f"no name ({view}) {line}")
+        d.js("(async () => { closeSheet(); go('home'); })()")
     if shot:
         try:
             png = d.call("Page.captureScreenshot", format="png").get("data", "")
