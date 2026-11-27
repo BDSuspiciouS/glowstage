@@ -1,8 +1,12 @@
-Glowstage 0.9.6: lights off when you step away.
+Glowstage 0.9.7: your keyboard ripples as you type.
 
-**Install:** download `Glowstage-0.9.6-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
+**Install:** download `Glowstage-0.9.7-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
 
 **New**
+- Typing ripples, a new look: every key you press lights up and sends a ripple across your keyboard (on keyboards whose LED layout Glowstage knows, like the MCHOSE GX87), and your other lights glow where the key sits, left to right. Speed sets how quickly it fades, the two colors the flash and the background. While it runs, Glowstage asks Windows 60 times a second which keys are down: it never sits between your keyboard and your programs, so typing and games feel the same. It keeps a key for three seconds as a spot on the board, and saves and sends nothing.
+- The log now names an error a light reports without a message (like OpenRGB dropping its connection).
+
+**New in 0.9.6**
 - Lights off when you step away (Setup → Automatic): when you lock the PC, its screen goes off or it goes to sleep, the PC's lights (or all of them, your choice) switch off, and they come back as they were when you return. A light that a schedule changes meanwhile keeps its new look, and if Windows shuts down while you're away, your lights still come back next time. Off until you switch it on.
 - No automatic looks (games, videos, music) while you're away.
 - Fixed: the window that hears Windows shut down was set up with a cut-off handle, which could write needless errors into the crash log.

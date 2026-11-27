@@ -292,7 +292,7 @@ class DeviceManager:
     def report_error(self, dev: Device, exc: Exception) -> None:
         if getattr(exc, "winerror", None) == 10055:  # WSAENOBUFS: send queue briefly full, drop the frame
             return
-        log.warning("%s: %s", dev.name, exc)
+        log.warning("%s: %s", dev.name, str(exc) or type(exc).__name__)   # (some say nothing, like OpenRGBDisconnected)
         if dev.kind == "asrock_gpu":
             pass  # its controller retries on its own and reports its state
         elif dev.kind == "openrgb":

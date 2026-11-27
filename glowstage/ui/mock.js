@@ -6,7 +6,7 @@
   const effects = [["rainbow", "Rainbow wave", ["speed"]], ["spectrum", "Spectrum cycle", ["speed"]],
     ["breathing", "Breathing", ["speed", "color", "color2"]], ["wave", "Color wave", ["speed", "color", "color2"]],
     ["comet", "Comet", ["speed", "color", "color2"]], ["twinkle", "Starlight", ["speed", "color", "color2"]],
-    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []],
+    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []],
     ["music_show", "Light show", ["speed"], "music"],
     ["music_party", "Party", ["speed"], "music"], ["music_ripple", "Bass ripple", ["speed"], "music"],
     ["music_spectrum", "Spectrum", ["speed"], "music"], ["music_pulse", "Beat pulse", ["speed", "color", "color2"], "music"],
@@ -26,7 +26,7 @@
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
     update: /[?&]update\b/.test(location.search)
-      ? { version: "0.9.7", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.7" } : null,
+      ? { version: "0.9.8", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.8" } : null,
     askSupport: /[?&]support\b/.test(location.search),
     activePreset: "",
     devices: [
@@ -74,7 +74,7 @@
       "openrgb:QCK": { start: 0.91, end: 1, layer: "front", custom: false },
       "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
     },
-    about: { name: "Glowstage", version: "0.9.6", repo: "https://github.com/example/glowstage",
+    about: { name: "Glowstage", version: "0.9.7", repo: "https://github.com/example/glowstage",
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },

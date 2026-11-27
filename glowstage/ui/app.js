@@ -332,6 +332,7 @@ const FX_LOOK = {
   aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)", music_aurora: "linear-gradient(90deg, #2bff9a, #2bd3ff, #8a4bff)",
   screen: "linear-gradient(90deg, #3a6bff, #ff8a3a, #2bd3c4)",
   daylight: "linear-gradient(90deg, #ff9a45, #ffe0c7, #ffb06a)",
+  typing: "linear-gradient(90deg, #1b1430, #00e5ff 28%, #1b1430 48%, #7c4dff 72%, #1b1430)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
   music_show: "linear-gradient(90deg, #00e5ff, #2a4bff, #ff00c8, #ff0040)",
 };
@@ -828,6 +829,20 @@ const PREVIEW = {
       return hsvToRgb(0.33 + 0.42 * noise(x + t * r, 3), 0.85, 0.25 + 0.75 * noise(x * 1.7 - t * r * 1.3, 4));
     });
   },
+  typing: (t, n, st) => {   /* someone typing: a key every 0.17 s, with pauses between words */
+    const c = hexToRgb(st.color), bg = scaleRgb(hexToRgb(st.color2), 0.08), tau = 1.6 * Math.pow(0.12, st.speed / 100);
+    const level = new Array(n).fill(0), step = 0.17, last = Math.floor(t / step);
+    for (let k = last; k >= Math.max(0, last - Math.ceil(3 / step)); k--) {
+      if (hash01(k, 21) < 0.22) continue;
+      const age = t - k * step, x = hash01(k, 22) * 10;
+      for (let i = 0; i < n; i++) {
+        const d = Math.abs((i + 0.5) / n * 10 - x);
+        level[i] += Math.exp(-((d / 0.6) ** 2)) * Math.exp(-age / tau)
+          + 0.6 * Math.exp(-(((d - 6 * age / tau) / 1.0) ** 2)) * Math.exp(-age / (1.2 * tau));
+      }
+    }
+    return level.map(v => lerp(bg, c, Math.min(1, v)));
+  },
   daylight: (t, n) => {
     const k = (t * 1.0) % SUN_DAY.length, i = Math.floor(k);
     return Array(n).fill(lerp(SUN_DAY[i], SUN_DAY[(i + 1) % SUN_DAY.length], k - i));
@@ -1011,6 +1026,7 @@ function renderEffects() {
   $("#fx-note").textContent = !fx ? "Pick an effect to start it."
     : fx.id === "screen" ? "Follows the main colors on your primary display. Great for the monitor strip during games and films."
     : fx.id === "daylight" ? sunNote(S.data.sun)
+    : fx.id === "typing" ? "Every key you press lights up and sends a ripple across your keyboard; your other lights glow where the key sits, left to right. Speed sets how quickly it fades. Glowstage only looks at which key is down while this runs, keeps that for three seconds, and saves and sends nothing."
     : fx.id === "music_show" ? showNote(S.data.show, audio)
     : fx.group === "music" ? `Listening to ${audio.device || "your PC's sound output"}. Speed sets how punchy it is; when the music stops, the lights glow softly.`
     : fx.uses.includes("color") ? "" : "This effect uses its own colors.";

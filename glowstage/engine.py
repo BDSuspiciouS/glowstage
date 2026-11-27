@@ -11,6 +11,7 @@ from .audio import AudioAnalyzer
 from .colors import scale
 from .effects import EFFECTS, GAME_EFFECTS, MUSIC_EFFECTS
 from .genre import DiscogsDetector
+from .keys import KeyWatcher
 from .screen import ScreenSampler
 from .show import SLOW_FPS, ShowDirector, stage_spans
 
@@ -25,6 +26,7 @@ class EffectEngine:
         self.fps = fps
         self.screen = ScreenSampler()
         self.audio = AudioAnalyzer()
+        self.keys = KeyWatcher()
         self.show = ShowDirector(DiscogsDetector(self.audio))
         self.show_active = False
         self._epoch = time.monotonic()
@@ -101,6 +103,8 @@ class EffectEngine:
         game = any(st.effect in GAME_EFFECTS for _, st in targets)
         if game:
             ctx["game"] = self.manager.games.cs2.snapshot(now)
+        if any(st.effect == "typing" for _, st in targets):
+            ctx["keys"] = self.keys.recent(now)
         if any(st.effect in MUSIC_EFFECTS for _, st in targets):
             heard = self.audio.request()  # one snapshot per frame keeps every light on the same beat
             sync = self.manager.show_sync()["ms"] / 1000

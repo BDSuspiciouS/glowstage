@@ -8,7 +8,7 @@ import random
 
 import numpy as np
 
-from . import show, sun
+from . import keys, show, sun
 from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
 from .state import LightState
@@ -143,6 +143,41 @@ class Aurora(Effect):
             val = 0.25 + 0.75 * _noise(x * 1.7 - t * r * 1.3, 4)
             out.append(hsv(hue, 0.85, val))
         return out
+
+
+class Typing(Effect):
+    """Every key you press lights up and sends a ripple across the keyboard (where its LEDs are
+    known: fixture "geometry"); every other light glows where the key sits on the board, left to
+    right, with a ripple running both ways. Speed: how quickly it fades. Keys from keys.py."""
+    id, name = "typing", "Typing ripples"
+    uses = ("speed", "color", "color2")
+    SPAN = 10.0     # a strip, a fan chain: as long as ten keys
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        color, bg = np.array(hex_to_rgb(st.color), float), np.array(scale(hex_to_rgb(st.color2), 0.08), float)
+        tau = 1.6 * 0.12 ** (st.speed / 100)      # how long a key glows: 1.6 s (slow) .. 0.2 s (fast)
+        geo = (ctx.get("fixture") or {}).get("geometry")
+        if mem.get("n") != n or mem.get("geo") is not geo:
+            if geo and len(geo) == n:            # LED positions in key widths
+                mem["pts"] = np.array(geo, float) * (keys.WIDTH, keys.HEIGHT)
+            else:                                 # along the light
+                mem["pts"] = np.stack([(np.arange(n) + 0.5) / n * self.SPAN, np.zeros(n)], axis=1)
+            mem["n"], mem["geo"], mem["board"] = n, geo, bool(geo and len(geo) == n)
+        pts = mem["pts"]
+        level = np.zeros(n)
+        for age, x, y in ctx.get("keys") or ():
+            if mem["board"]:
+                d = np.hypot(pts[:, 0] - x * keys.WIDTH, pts[:, 1] - y * keys.HEIGHT)
+            else:
+                d = np.abs(pts[:, 0] - x * self.SPAN)
+            glow = np.exp(-(d / 0.6) ** 2) * math.exp(-age / tau)
+            ring = 0.6 * np.exp(-((d - 6.0 * age / tau) / 1.0) ** 2) * math.exp(-age / (1.2 * tau))
+            level += glow + ring
+        level = np.clip(level, 0.0, 1.0)[:, None]
+        out = bg + (color - bg) * level
+        return [(int(r), int(g), int(b)) for r, g, b in out]
 
 
 class Daylight(Effect):
@@ -599,7 +634,7 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Daylight(), Screen(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Typing(), Daylight(), Screen(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),
 )}
