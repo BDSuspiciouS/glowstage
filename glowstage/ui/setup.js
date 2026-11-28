@@ -26,7 +26,7 @@ S.addForm = { kind: "wled", values: {} };
 function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label, x.balance]),
-    d.hubs, d.openrgb, d.genreAi, d.settings, d.games, (d.drivers || []).length, d.stage, d.schedules,
+    d.hubs, d.openrgb, d.genreAi, d.settings, d.games, d.obs, (d.drivers || []).length, d.stage, d.schedules,
     (d.presets || []).map(p => p.name), d.hotkeysTaken, d.hotkeyKeys, d.remote, d.appLooks]);
 }
 
@@ -108,29 +108,47 @@ function lightsSection() {
     rows.length ? rows : h("p", { class: "hint", text: "No lights found yet." }));
 }
 
-/** "Balanced: warmer, 70% at full" for a light that has a balance set; nothing for one that hasn't. */
+/** "Balanced: warmer, 70% at full, colors in GRB order" for a light that has something set; nothing for one that hasn't. */
 function balanceHint(d) {
   const b = d.balance;
-  if (!b || (!b.warmth && (b.max ?? 100) >= 100)) return "";
-  const parts = [b.warmth > 0 ? "warmer" : b.warmth < 0 ? "cooler" : "", (b.max ?? 100) < 100 ? `${b.max}% at full` : ""].filter(Boolean);
+  if (!b) return "";
+  const order = b.order && b.order !== "RGB" ? b.order : "";
+  if (!b.warmth && (b.max ?? 100) >= 100 && !order) return "";
+  const parts = [b.warmth > 0 ? "warmer" : b.warmth < 0 ? "cooler" : "", (b.max ?? 100) < 100 ? `${b.max}% at full` : "",
+    order ? `colors in ${order} order` : ""].filter(Boolean);
   return `Balanced: ${parts.join(", ")}`;
+}
+
+/** The order a light is wired in, from what you see on it. `current` is the order it is set to now
+    (the test already goes through it); `seenRed` and `seenGreen` are what the light showed while
+    Glowstage showed red and green ("R", "G" or "B"). Blue is whatever is left. Slot i of what the
+    light is sent carries the channel `current[i]` and shows `seen[that channel]`, so the order the
+    light uses is those seen colors in slot order. Null when the two answers can't both be true. */
+function orderFromSightings(current, seenRed, seenGreen) {
+  if (!seenRed || !seenGreen || seenRed === seenGreen) return null;
+  const seen = { R: seenRed, G: seenGreen, B: "RGB".replace(seenRed, "").replace(seenGreen, "") };
+  return [...current].map(c => seen[c]).join("");
 }
 
 /** Match one light against the others: its white (cooler to warmer) and what full brightness means
     for it. Changes show while you drag; "Show white" holds a plain white on this light while the
-    window is open, so you can put it next to the others. Closing puts the light back. */
+    window is open, so you can put it next to the others. "Test colors" shows red, green and blue in
+    turn, and two questions about what you saw set the light's color order. Closing puts the light back. */
 function openBalanceDialog(d) {
   const start = d.balance || { warmth: 0, max: 100 };
-  const cur = { warmth: start.warmth || 0, max: start.max ?? 100 };
+  const cur = { warmth: start.warmth || 0, max: start.max ?? 100, order: start.order || "RGB" };
   const warmthText = v => v === 0 ? "As it comes" : v > 0 ? `Warmer ${v}` : `Cooler ${-v}`;
   const warmth = h("input", { type: "range", min: "-50", max: "50", step: "1", value: String(cur.warmth), "aria-label": `White balance of ${d.name}` });
   const warmthVal = h("span", { class: "num muted balance-val" });
   const top = h("input", { type: "range", min: "20", max: "100", step: "1", value: String(cur.max), "aria-label": `Brightness at 100% of ${d.name}` });
   const topVal = h("span", { class: "num muted balance-val" });
+  const orderVal = h("span", { class: "num muted balance-val" });
   const sync = () => {
     warmthVal.textContent = warmthText(cur.warmth);
     warmth.setAttribute("aria-valuetext", warmthText(cur.warmth));
     topVal.textContent = `${cur.max}%`;
+    orderVal.textContent = cur.order === "RGB" ? "As it comes" : `${cur.order} order`;
+    resetOrder.hidden = cur.order === "RGB";
   };
   const save = () => callRaw("set_balance", d.id, cur.warmth, cur.max);
   const saveSoon = throttle(save, 90);          // (a few times a second while dragging, the last value always)
@@ -148,6 +166,55 @@ function openBalanceDialog(d) {
       if (!r || r.ok === false) { box.checked = !box.checked; toast((r && r.error) || "That didn't work", true); return; }
       white = box.checked;
     } });
+
+  // ---- the color test and the color order
+  const COLOR_NAMES = { R: "Red", G: "Green", B: "Blue" };
+  const orderChoice = label => {
+    const sel = h("select", { "aria-label": label },
+      h("option", { value: "", text: "Pick one" }),
+      Object.entries(COLOR_NAMES).map(([v, t]) => h("option", { value: v, text: t })));
+    sel.addEventListener("change", applyOrder);
+    return sel;
+  };
+  const seenRed = orderChoice("What this light shows when Glowstage shows red");
+  const seenGreen = orderChoice("What this light shows when Glowstage shows green");
+  const orderNote = h("p", { class: "control-hint", role: "status" });
+  const setOrder = async order => {
+    const r = await callRaw("set_color_order", d.id, order);
+    if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return false; }
+    cur.order = order; seenRed.value = ""; seenGreen.value = ""; sync();
+    return true;
+  };
+  async function applyOrder() {
+    if (!seenRed.value || !seenGreen.value) { orderNote.textContent = ""; return; }
+    const next = orderFromSightings(cur.order, seenRed.value, seenGreen.value);
+    if (!next) { orderNote.textContent = "Red and green can't look the same. Run the test again and look closely."; return; }
+    if (next === cur.order) { orderNote.textContent = "Those colors already match."; seenRed.value = ""; seenGreen.value = ""; return; }
+    if (await setOrder(next)) orderNote.textContent = `Color order set to ${next}. Run Test colors again: red should look red.`;
+  }
+  const resetOrder = h("button", { class: "link-btn", type: "button", text: "Reset",
+    onclick: async () => { if (await setOrder("RGB")) orderNote.textContent = ""; } });
+  const nowText = h("span", { class: "balance-now", "aria-live": "polite" });
+  let testing = false, poll = null;
+  const testBtn = h("button", { class: "btn", type: "button", text: "Test colors", disabled: !d.online });
+  const testEnded = () => {
+    testing = false; clearInterval(poll); poll = null;
+    testBtn.textContent = "Test colors"; nowText.textContent = "";
+  };
+  const watchTest = async () => {
+    const r = await callRaw("color_test_step", d.id);
+    const step = r && r.ok !== false ? r.result : "";
+    if (!testing) return;
+    if (step) nowText.textContent = `Now: ${step}`; else testEnded();
+  };
+  testBtn.addEventListener("click", async () => {
+    if (testing) { testEnded(); await callRaw("color_test", d.id, false); return; }
+    const r = await callRaw("color_test", d.id, true);
+    if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return; }
+    showWhite.checked = false; white = false;   // (the test takes over from the white)
+    testing = true; testBtn.textContent = "Stop test"; nowText.textContent = "Now: red";
+    poll = setInterval(watchTest, 300);
+  });
   sync();
   openModal({
     title: `Balance ${d.name}`,
@@ -162,12 +229,23 @@ function openBalanceDialog(d) {
       h("label", { class: "check-row", for: "balance-white" },
         h("span", { class: "check-text" }, h("span", { class: "check-name", text: "Show white" }),
           h("span", { class: "muted", text: d.online ? "A plain white on this light while this window is open." : "This light isn't answering." })),
-        showWhite)),
+        showWhite),
+      h("div", { class: "control-head" }, h("span", { class: "control-title", text: "Color order" }), orderVal),
+      h("div", { class: "control-hint" }, h("span", { text: "Pick red and the strip shows green? Its colors are wired in another order. " }), resetOrder),
+      h("div", { class: "balance-row" }, testBtn, nowText),
+      h("p", { class: "balance-ask", text: "Colors look mixed up?" }),
+      h("label", { class: "balance-row" }, h("span", { text: "When Glowstage shows red, this light shows" }), seenRed),
+      h("label", { class: "balance-row" }, h("span", { text: "When it shows green, it shows" }), seenGreen),
+      orderNote,
+      h("div", { class: "control-hint", text: "Lights playing their own built-in effects keep those effects' own colors." })),
     ok: "Done",
     cancel: false,
     onOk: () => true,
     onClose: async () => {
       await save();                       // (the last value, and before the light goes back to what it showed)
+      const wasTesting = testing;
+      testEnded();
+      if (wasTesting) await callRaw("color_test", d.id, false);
       if (white) await callRaw("show_white", d.id, false);
       refresh(true);
     },
@@ -338,7 +416,7 @@ function gamesSection() {
         onclick: async () => { if (await call("games_connect") !== undefined) toast("Connected: start CS2 and play"); refresh(true); } }) : null,
       c.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
         onclick: async () => { await call("games_disconnect"); toast("CS2 is disconnected"); refresh(true); } }) : null),
-    leagueCard(), dotaCard());
+    leagueCard(), dotaCard(), rocketLeagueCard());
 }
 
 /* Setup → Games: League of Legends. Nothing to install: the game answers Riot's own live data API on this PC (lol.py). */
@@ -380,6 +458,27 @@ function dotaCard() {
         onclick: async () => { await call("games_dota_disconnect"); toast("Dota 2 is disconnected"); refresh(true); } }) : null));
 }
 
+/* Setup → Games: Rocket League. Psyonix's Stats API, switched on in one line of the game's own ini file (rocket_league.py); the game then sends what happens to this PC. */
+function rocketLeagueCard() {
+  const r = ((S.data.games || {}).rl) || {};
+  const status = !r.found ? "Not found on this PC"
+    : !r.connected ? "Found on this PC"
+    : r.inMatch ? `Playing along · ${r.team === "blue" ? "blue team" : r.team === "orange" ? "orange team" : "in a match"}${r.team ? ` · ${r.boost}% boost` : ""}`
+    : r.receiving ? "Connected · waiting for the match"
+    : "Connected · starts when a match begins";
+  return h("div", { class: "league-card", style: "margin-top:22px" },
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (r.connected ? " is-on" : "") }), h("strong", { text: "Rocket League" }), h("span", { class: "muted", text: " · " + status })),
+    h("p", { class: "hint", style: "margin-bottom:10px", text: "While you play, your room plays along: your team's color, your boost as a bar across the lights, a ripple while you're supersonic, a sweep when your team scores, a flash for your saves and demolitions, grey while your car is demolished, a slow pulse in overtime, and your color when you win." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: r.connected
+      ? "Restart Rocket League if it's open, so it reads its settings file again. The lights follow the car your camera follows: when you watch someone else, they play along with that player."
+      : "Uses Psyonix's own Stats API, the one stream overlays use: the game tells this PC what happens, nothing reads the game's memory. Connecting changes one line in one file of the game (PacketSendRate in TAGame/Config/DefaultStatsAPI.ini), and disconnecting puts it back." }),
+    h("div", { class: "form-actions", style: "margin:0" },
+      !r.connected ? h("button", { class: "btn btn-primary", type: "button", text: "Connect", disabled: !r.found,
+        onclick: async () => { if (await call("games_rl_connect") !== undefined) toast("Connected: restart Rocket League if it's open, then play"); refresh(true); } }) : null,
+      r.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
+        onclick: async () => { await call("games_rl_disconnect"); toast("Rocket League is disconnected: restart it if it's open"); refresh(true); } }) : null));
+}
+
 function automaticSection() {
   const s = S.data.settings;
   const looks = [["", "Nothing"], ["screen", "Follow the screen"], ["screen_sound", "Follow the screen, flash with the sound"],
@@ -408,10 +507,65 @@ function automaticSection() {
     pick("auto_call", "When your camera or microphone is on (a call)",
       [["", "Nothing"], ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])], s.auto_call || ""),
     h("p", { class: "hint", text: "Glowstage only looks whether they're in use, never at what they pick up. A game in full screen goes first, so voice chat while you play keeps your game's lighting." }),
+    obsLooks(pick),
     pick("auto_show", "When music plays", [["", "Nothing"], ["show", "Start the light show"]], s.auto_show ? "show" : ""),
     pick("away_lights", "When you step away: the PC is locked, its screen goes off or it sleeps",
       [["", "Nothing"], ["pc", "Switch the PC's lights off"], ["all", "Switch all lights off"]], s.away_lights || ""),
     appLooks());
+}
+
+/* On air with OBS Studio: a look while you stream or record (obs.py). The password goes to Glowstage and never comes back: only "Saved" shows. */
+function obsLooks(pick) {
+  const o = S.data.obs || {};
+  const s = S.data.settings;
+  const apply = async (on, port, when) => {
+    const r = await callRaw("obs_set", on, port, when);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const port = h("input", { class: "text-input mono", type: "number", min: 1, max: 65535, value: o.port || 4455,
+    style: "width:90px", "aria-label": "OBS WebSocket port", onchange: () => apply(!!o.on, port.value, o.when || "both") });
+  const secret = h("input", { class: "text-input", type: "password", autocomplete: "off", placeholder: "OBS WebSocket password",
+    style: "width:200px", "aria-label": "OBS WebSocket password" });
+  const keep = async () => {
+    const r = await callRaw("obs_set_password", secret.value);
+    secret.value = "";
+    if (!r || r.ok === false) { toast((r && r.error) || "Couldn't save that", true); return; }
+    S.obsChange = false;
+    S.settingsSig = "";
+    refresh(true);
+  };
+  secret.addEventListener("keydown", e => { if (e.key === "Enter") keep(); });
+  const forget = async () => {
+    await call("obs_clear_password");
+    S.obsChange = false;
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const changing = !o.hasPassword || S.obsChange;
+  const lines = ["Connected", "Live now"].some(t => (o.text || "").startsWith(t));
+  return h("div", { class: "obs-looks" },
+    h("h4", { text: "When you stream or record in OBS" }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Connect to OBS Studio on this PC" }),
+      h("input", { type: "checkbox", checked: !!o.on, "aria-label": "Connect to OBS Studio",
+        onchange: e => apply(e.target.checked, o.port || 4455, o.when || "both") })),
+    o.on ? h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (lines ? " is-on" : "") }), h("span", { class: "muted", text: o.text || "" })) : null,
+    h("div", { class: "toggle-row", style: "cursor:default" }, h("span", { text: "Port of OBS's WebSocket server" }), port),
+    h("div", { class: "toggle-row", style: "cursor:default" }, h("span", { text: "Password (if OBS has one)" }),
+      changing
+        ? h("div", { class: "form-actions", style: "margin:0" }, secret,
+            h("button", { class: "btn", type: "button", text: "Save", onclick: keep }),
+            o.hasPassword ? h("button", { class: "btn btn-quiet", type: "button", text: "Cancel", onclick: () => { S.obsChange = false; S.settingsSig = ""; refresh(true); } }) : null)
+        : h("div", { class: "form-actions", style: "margin:0" }, h("span", { class: "muted", text: "Saved" }),
+            h("button", { class: "btn", type: "button", text: "Change", onclick: () => { S.obsChange = true; S.settingsSig = ""; refresh(true); } }),
+            h("button", { class: "btn btn-quiet", type: "button", text: "Remove", onclick: forget }))),
+    h("label", { class: "toggle-row" }, h("span", { text: "It counts when you" }),
+      h("select", { class: "auto-look", "aria-label": "What counts as on air", onchange: e => apply(!!o.on, o.port || 4455, e.target.value) },
+        [["both", "Stream or record"], ["stream", "Stream"], ["record", "Record"]].map(([v, t]) => h("option", { value: v, text: t, selected: v === (o.when || "both") })))),
+    pick("auto_live", "Your lights while you're on air",
+      [["", "Nothing"], ...(S.data.presets || []).map(p => ["preset:" + p.name, p.name])], s.auto_live || ""),
+    h("p", { class: "hint", text: "Make a preset that sets just one light, a red one say, and it works as an ON AIR sign: presets only change the lights they hold, the others stay as they are. In OBS, switch the WebSocket server on under Tools, WebSocket Server Settings. Glowstage only talks to OBS on this PC, and the password stays protected by Windows." }));
 }
 
 /* A look while an app is open: Focus while Photoshop is, the light show while a DJ app is. */
@@ -525,7 +679,32 @@ function scheduleSection() {
           const late = (S.data.presets || []).find(p => /late night/i.test(p.name));
           items.push({ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: late ? "preset:" + late.name : "off", enabled: true });
           save();
-        } })));
+        } })),
+    nightPart());
+}
+
+/* Setup → Schedule → Night limit: from the evening to the morning no light goes above a brightness (night.py). */
+function nightPart() {
+  const n = S.data.night || { on: false, from: "23:00", to: "07:00", max: 30, choices: [5, 10, 15, 20, 30, 40, 50, 60, 75] };
+  const fields = { on: n.on, from: n.from, to: n.to, max: n.max };
+  const save = async () => {
+    const r = await callRaw("set_night_limit", fields.on, fields.from, fields.to, fields.max);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save the night limit", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const time = key => h("input", { type: "time", class: "text-input night-time", value: fields[key], "aria-label": key === "from" ? "From" : "Until",
+    onchange: e => { if (e.target.value) { fields[key] = e.target.value; save(); } } });
+  return h("div", { class: "night-part" },
+    h("h4", { text: "Night limit" }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Keep my lights dim at night" }),
+      h("input", { type: "checkbox", checked: !!n.on, onchange: e => { fields.on = e.target.checked; save(); } })),
+    h("div", { class: "night-row" + (n.on ? "" : " is-off") },
+      h("span", { text: "From" }), time("from"), h("span", { text: "until" }), time("to"),
+      h("span", { text: "no light above" }),
+      h("select", { class: "night-max", "aria-label": "Highest brightness at night", onchange: e => { fields.max = +e.target.value; save(); } },
+        (n.choices || []).map(v => h("option", { value: v, text: `${v}%`, selected: v === n.max })))),
+    h("p", { class: "hint", text: "Whatever switches a light on, a preset, a game, the light show or your phone, it stays at or below this. The brightness you set isn't changed, and a wake-up light still comes up to full." }));
 }
 
 /* Setup → Phone remote: the lights from your phone, on the same Wi-Fi (remote.py). */

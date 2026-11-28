@@ -425,13 +425,14 @@ class TheSwitch(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self._find, self._find_dota = games.find_cs2, games.find_dota2
         games.find_cs2 = games.find_dota2 = lambda: None
+        self._find_rl, games.find_rocket_league = games.find_rocket_league, lambda: None
         self.calls = []
         self.g = games.Games(Config(Path(self.tmp.name) / "config.json"), lambda: None)
         self.g.lol.fetch = lambda: self.calls.append(1) or match()
 
     def tearDown(self):
         self.g.stop()
-        games.find_cs2, games.find_dota2 = self._find, self._find_dota
+        games.find_cs2, games.find_dota2, games.find_rocket_league = self._find, self._find_dota, self._find_rl
         self.tmp.cleanup()
 
     def test_off_until_switched_on(self):
@@ -492,7 +493,7 @@ class Automatic(unittest.TestCase):
 
     def test_the_rule_is_there_right_after_cs2_and_only_with_the_switch_on(self):
         self.assertEqual(self.a.rules()["lol"], "game:lol")
-        self.assertEqual(list(self.a.rules())[:2], ["cs2", "lol"])
+        self.assertEqual(list(self.a.rules())[:3], ["live", "cs2", "lol"])
         self.m.games.settings["lol"] = False
         self.assertEqual(self.a.rules()["lol"], "")
 

@@ -14,6 +14,7 @@ from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
 from .games import DOTA_LENGTH
 from .lol import LENGTH
+from .rocket_league import BLUE as _RL_BLUE_RGB, LENGTH as RL_LENGTH, ORANGE as _RL_ORANGE_RGB
 from .state import LightState
 
 
@@ -1270,6 +1271,92 @@ class Dota2(Effect):
         return _rgb(out)
 
 
+_RL_BLUE = np.array(_RL_BLUE_RGB, dtype=float)       # Rocket League: the game says the team colors; these are the fallback and the idle drift
+_RL_ORANGE = np.array(_RL_ORANGE_RGB, dtype=float)
+_DEMO = np.array([255.0, 50.0, 190.0])                # your demolition: hot pink, which shows on both sides' colors
+_SAVE = np.array([170.0, 225.0, 255.0])               # a save: ice white
+
+
+class RocketLeague(Effect):
+    """Rocket League, as the game tells it (rocket_league.RocketLeagueState): the room in your
+    team's color (the game's own team colors, made vivid) with your boost as a bar across the stage,
+    a slow shimmer along the bar while you're supersonic, a big sweep in your color when your team
+    scores (with gold on top when it was you), a short dim in their color when they score, a short
+    flash for your saves and demolitions, dim grey while your car is demolished until it's back, a
+    slow pulse in overtime, your color held for a win and dim for a loss.
+
+    Safety: rocket_league.py only starts a flash when the one before is over (and never closer than
+    0.34 s), so there are never more than three flashes in any second, like League, Dota and Storm.
+    The shimmer moves along the bar at 2.5 Hz and only changes the bar by a third: a slow ripple, not
+    a flash. Slow lights (ctx["fps"] <= SLOW_FPS) get each flash held, not decayed, for at least 0.35 s."""
+    id, name = "game_rl", "Rocket League"
+    group = "game"
+    uses = ()
+    HOLD = 0.35
+    DIM = 1.5
+    RESULT_HOLD, RESULT_FADE = 5.0, 1.5
+    FLASHES = (("demo", _DEMO, 0.8), ("save", _SAVE, 0.8), ("epic_save", _WHITE, 1.0))
+
+    def render(self, t, n, st, mem, ctx):
+        g = ctx.get("rl") or {}
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        x = start + (end - start) * (np.arange(n) + 0.5) / n      # where each pixel sits: 0 left .. 1 right
+        ago = g.get("ago") or {}
+        slow = (ctx.get("fps") or 100) <= show.SLOW_FPS
+        result = next((k for k in ("win", "lose") if ago.get(k, 99) < self.RESULT_HOLD + self.RESULT_FADE), None)
+        if not g.get("inMatch") and result is None:   # no match: both teams' colors drift slowly across the room
+            u = (0.5 + 0.5 * np.sin(2 * np.pi * (x * 0.8 - t * 0.05)))[:, None]
+            return _rgb((_RL_BLUE * u + _RL_ORANGE * (1 - u)) * (0.35 + 0.08 * math.sin(t * 0.8)))
+        team = np.array(g.get("color") or _NEUTRAL, dtype=float)
+        other = np.array(g.get("other") or _NEUTRAL, dtype=float)
+        if g.get("demolished"):               # your car is gone: dim grey until it's back
+            out = np.tile(_COLD * (0.10 + 0.02 * math.sin(t * 1.5)), (n, 1))
+        else:
+            boost = max(0.0, min(1.0, g.get("boost") or 0.0))
+            if n == 1:
+                out = np.tile(team * (0.2 + 0.8 * boost), (1, 1))
+                if g.get("supersonic"):
+                    out = _mix(out, _WHITE, 0.2 * (0.5 + 0.5 * math.sin(2 * math.pi * t * 1.5)))
+            else:
+                lit = np.clip((boost - x) / 0.04 + 0.5, 0.0, 1.0)
+                out = team[None, :] * (0.12 + 0.88 * lit[:, None])
+                if g.get("supersonic"):       # a ripple running along the bar, only where the bar is lit
+                    out = _mix(out, _WHITE, 0.35 * (0.5 + 0.5 * np.sin(2 * np.pi * (x * 8 - t * 2.5))) * lit)
+        if g.get("overtime"):                 # overtime: the room slowly breathes (easing in over the first seconds)
+            ease = min(1.0, ago.get("overtime", 99) / 2.0)
+            out = out * (1 - 0.35 * ease * (0.5 - 0.5 * math.sin(2 * math.pi * t * 0.4)))
+        a = ago.get("goal_against", 99)
+        if a < self.DIM:                      # they scored: a short dim in their color (a dip, not a flash)
+            k = 0.7 if slow else 0.7 * math.sin(math.pi * a / self.DIM)
+            out = _mix(out * (1 - 0.5 * k), other * 0.3, 0.45 * k)
+        for kind, color, power in self.FLASHES:
+            a, length = ago.get(kind, 99), RL_LENGTH[kind]
+            if a < length:
+                level = power if slow and a < max(length, self.HOLD) else power * (1 - a / length)
+                out = _mix(out, color, level)
+        for kind in ("goal_for", "my_goal"):
+            a, length = ago.get(kind, 99), RL_LENGTH[kind]
+            if a >= length:
+                continue
+            sweep = team * 0.6 + _WHITE * 0.4
+            if n == 1 or slow:                # one light, or one that is too slow to show a sweep: a held flash
+                out = _mix(out, sweep, 0.85 if slow else 0.85 * (1 - a / length))
+            else:                             # a bright band running across the stage, the room lifted behind it
+                p = a / length
+                band = np.maximum(0.95 * np.exp(-((x - (p * 1.5 - 0.25)) / 0.2) ** 2), 0.35 * (1 - p))
+                out = _mix(out, sweep, band)
+            if kind == "my_goal":             # you scored: gold on top
+                out = _mix(out, _GOLD, 0.6 if slow and a < max(length, self.HOLD) else 0.6 * (1 - a / length))
+        if result:                            # the end: your color held for a win, dim for a loss
+            a = ago[result]
+            level = max(0.0, 1.0 if a < self.RESULT_HOLD else 1 - (a - self.RESULT_HOLD) / self.RESULT_FADE)
+            if result == "win":
+                out = _mix(out, team * 0.85 + _WHITE * 0.15, level * 0.9)
+            else:
+                out = _mix(out, _COLD * 0.12, level * 0.85)
+        return _rgb(out)
+
+
 def _rgb(arr: np.ndarray) -> list[RGB]:
     a = np.clip(arr, 0, 255).astype(int)
     return [(int(r), int(g), int(b)) for r, g, b in a]
@@ -1279,7 +1366,7 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in (
     Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Snow(), StringLights(), CandyCane(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
-    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(),
+    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(), RocketLeague(),
 )}
 MUSIC_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "music"}
 HEARING_EFFECTS = MUSIC_EFFECTS | {"screen_sound"}        # ask the audio analysis for its picture

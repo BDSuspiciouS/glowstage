@@ -183,9 +183,9 @@ class Saved(unittest.TestCase):
         try:
             fresh = Recorder()
             again._register(fresh)
-            self.assertEqual(again.balance("desk"), {"warmth": 20, "max": 70})
+            self.assertEqual(again.balance("desk"), {"warmth": 20, "max": 70, "order": "RGB"})
             self.assertEqual(fresh.gains, self.dev.gains)
-            self.assertEqual(again.snapshot()["devices"][0]["balance"], {"warmth": 20, "max": 70})
+            self.assertEqual(again.snapshot()["devices"][0]["balance"], {"warmth": 20, "max": 70, "order": "RGB"})
         finally:
             again._stop.set()
 
@@ -197,7 +197,7 @@ class Saved(unittest.TestCase):
 
     def test_values_are_kept_in_range(self):
         self.m.set_balance("desk", 900, 3)
-        self.assertEqual(self.m.balance("desk"), {"warmth": 50, "max": 20})
+        self.assertEqual(self.m.balance("desk"), {"warmth": 50, "max": 20, "order": "RGB"})
 
     def test_a_light_showing_a_color_shows_it_again_at_once(self):
         self.dev.seen.clear()
@@ -214,7 +214,7 @@ class Saved(unittest.TestCase):
     def test_a_removed_light_does_not_break_anything(self):
         self.m.config.data["balance"]["gone"] = {"warmth": 30, "max": 60}
         self.m.config.data["balance"]["odd"] = {"warmth": "warm", "max": None}
-        self.assertEqual(self.m.balance("odd"), {"warmth": 0, "max": 100})
+        self.assertEqual(self.m.balance("odd"), {"warmth": 0, "max": 100, "order": "RGB"})
         self.m._register(Recorder("odd"))                    # (a hand-edited entry is read as neutral)
         self.assertIsNone(self.m.devices["odd"].gains)
         with self.assertRaisesRegex(ValueError, "isn't there any more"):

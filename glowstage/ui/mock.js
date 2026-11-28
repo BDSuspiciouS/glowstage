@@ -122,16 +122,18 @@
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: /[?&]mycolors/.test(location.search) ? "" : "Am in C", mine: /[?&]mycolors/.test(location.search) },
     autoPaused: /[?&]paused/.test(location.search) ? Date.now() / 1000 + 50 * 60 : 0,
-    auto: (location.search.match(/[?&]auto=(cs2|lol|dota|call|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
+    night: { on: /[?&]night/.test(location.search), from: "23:00", to: "07:00", max: 30, choices: [5, 10, 15, 20, 30, 40, 50, 60, 75],
+      active: /[?&]night/.test(location.search), until: (() => { const d = new Date(); d.setDate(d.getDate() + (d.getHours() >= 7 ? 1 : 0)); d.setHours(7, 0, 0, 0); return d.getTime() / 1000; })() },
+    auto: (location.search.match(/[?&]auto=(cs2|lol|dota|rl|call|live|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
     whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
       { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Candle, Ocean, Lava lamp and Thunderstorm for any evening." },
       { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors." },
       { title: "The light show in your colors", go: "show:colors", text: "Pick 2 to 5 colors and the show keeps all of its moves, but in your colors only." },
       { title: "Focus timer", go: "focus", text: "Work for a while, then a short break: your room turns soft green, so you see it's time to get up." },
-      { title: "League of Legends and Dota 2", go: "setup:games", text: "Your side's color, your health across the lights, a flash for every kill, and Dota's day and night in your room." },
-      { title: "Balance your lights", go: "setup:lights", text: "Make a strip's bluish white match your bulbs, or tame a light that's brighter than the rest." },
-      { title: "Soften flashes", go: "setup:app", text: "For people who are sensitive to flashing light: every flash becomes a soft swell." }] } : null,
+      { title: "League of Legends, Dota 2, Rocket League", go: "setup:games", text: "Your side's color, your health or boost across the lights, a flash for every kill or goal." },
+      { title: "On air with OBS", go: "setup:automatic", text: "While you stream or record, your lights take a preset: one light red like an ON AIR sign." },
+      { title: "A night limit, and softer flashes", go: "setup:schedule", text: "Keep every light dim at night, whatever switches it on, or turn every flash into a soft swell." }] } : null,
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
       api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
@@ -143,13 +145,17 @@
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
     updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
     recovered: /[?&]recovered\b/.test(location.search) ? "2026-11-26" : "",
+    obs: { on: /[?&]obs/.test(location.search) || /[?&]auto=live/.test(location.search), port: 4455, when: "both", hasPassword: /[?&]obs/.test(location.search),
+      status: "off", version: "", streaming: /[?&]auto=live/.test(location.search), recording: false, live: false, text: "" },
     games: { cs2: { found: true, connected: /[?&]cs2\b/.test(location.search), fileThere: true, receiving: /[?&]cs2\b/.test(location.search),
       inMatch: /[?&]cs2\b/.test(location.search), team: "CT", health: 87 },
       lol: { on: /[?&]lol\b/.test(location.search), receiving: /[?&]lol\b/.test(location.search),
         inMatch: /[?&]lol\b/.test(location.search), team: "ORDER", health: 72 },
       dota: { found: true, connected: /[?&]dota\b/.test(location.search), fileThere: true, receiving: /[?&]dota\b/.test(location.search),
-        inMatch: /[?&]dota\b/.test(location.search), team: "radiant", health: 64 } },
-    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, show_colors: /[?&]mycolors/.test(location.search) ? ["#ff3ca0", "#00d9ff", "#ffd000"] : [], soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "",
+        inMatch: /[?&]dota\b/.test(location.search), team: "radiant", health: 64 },
+      rl: { found: true, connected: /[?&]rl\b/.test(location.search), fileThere: true, receiving: /[?&]rl\b/.test(location.search),
+        inMatch: /[?&]rl\b/.test(location.search), team: "orange", boost: 64 } },
+    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, show_colors: /[?&]mycolors/.test(location.search) ? ["#ff3ca0", "#00d9ff", "#ffd000"] : [], soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "", auto_live: /[?&](auto=live|obs)/.test(location.search) ? "preset:Focus" : "",
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
   };
@@ -157,6 +163,18 @@
     "Fireworks", "Lake", "Meteor", "Noise 1", "Pacifica", "Plasma", "Rainbow", "Ripple", "Sinelon", "Twinkle", "Wipe"]
     .map((name, i) => ({ id: String(i + 1), name }));
   const ok = result => Promise.resolve({ ok: true, result });
+  const colorTests = {};   // lights that run the color test: id -> when it started
+  // OBS: what the status line says for the switch, by flag (?obs connected, ?obswrong refused, ?obsdown not running; ?auto=live streaming).
+  const obsFake = () => {
+    const o = data.obs, q = location.search;
+    const status = !o.on ? "off" : /[?&]obswrong/.test(q) ? "password" : /[?&]obsdown/.test(q) ? "waiting" : "connected";
+    const live = status === "connected" && (o.streaming || o.recording) && (o.when === "both" || (o.when === "stream" ? o.streaming : o.recording));
+    Object.assign(o, { status, version: status === "connected" ? "30.2" : "", live,
+      text: status === "connected" ? (live ? "Live now" : "Connected to OBS 30.2")
+        : status === "password" ? "OBS didn't accept the password"
+        : status === "waiting" ? "OBS isn't running, or its WebSocket server is off" : "" });
+  };
+  obsFake();
   // A made-up 128 BPM show: a block chasing across the front, the back wall pumping on the beat.
   const live = () => {
     const t = performance.now() / 1000, beat = t / (60 / 128), pal = [[0, 229, 255], [255, 0, 200], [42, 75, 255]];
@@ -260,9 +278,22 @@
     apply_preset: name => { data.activePreset = name; data.revision++; return ok(); }, save_preset: (name, ids) => ok(), delete_preset: () => ok(),
     pair_nanoleaf: () => Promise.resolve({ ok: false, error: "The panels aren't in pairing mode." }),
     add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), identify: () => ok(), resize_zone: () => ok(),
-    get_balance: id => { const d = data.devices.find(x => x.id === id); return ok(d && d.balance || { warmth: 0, max: 100 }); },
+    get_balance: id => { const d = data.devices.find(x => x.id === id); return ok(d && d.balance || { warmth: 0, max: 100, order: "RGB" }); },
     set_balance: (id, warmth, max) => { const d = data.devices.find(x => x.id === id);
-      if (d) { d.balance = { warmth: Math.round(Math.max(-50, Math.min(50, warmth))), max: Math.round(Math.max(20, Math.min(100, max))) }; data.revision++; } return ok(); },
+      if (d) { d.balance = { warmth: Math.round(Math.max(-50, Math.min(50, warmth))), max: Math.round(Math.max(20, Math.min(100, max))),
+        order: d.balance && d.balance.order || "RGB" }; data.revision++; } return ok(); },
+    set_color_order: (id, order) => { const d = data.devices.find(x => x.id === id);
+      order = String(order).toUpperCase();
+      if (!["RGB", "RBG", "GRB", "GBR", "BRG", "BGR"].includes(order)) return Promise.resolve({ ok: false, error: `'${order}' isn't a color order` });
+      if (d) { d.balance = { warmth: 0, max: 100, ...(d.balance || {}), order }; data.revision++; } return ok(); },
+    // red, green, blue, 1.5 s each, then the light is "back as it was"
+    color_test: (id, on) => { const d = data.devices.find(x => x.id === id);
+      if (on && d && !d.online) return Promise.resolve({ ok: false, error: `${d.name} isn't answering` });
+      if (on) colorTests[id] = Date.now(); else delete colorTests[id];
+      console.info(`[mock] ${d ? d.name : id}: ${on ? "color test" : "back as it was"}`); return ok(); },
+    color_test_step: id => { const t = colorTests[id], i = t ? Math.floor((Date.now() - t) / 1500) : 3;
+      if (i >= 3) delete colorTests[id];
+      return ok(i >= 3 ? "" : ["red", "green", "blue"][i]); },
     show_white: (id, on) => { const d = data.devices.find(x => x.id === id);
       if (on && d && !d.online) return Promise.resolve({ ok: false, error: `${d.name} isn't answering` });
       console.info(`[mock] ${d ? d.name : id}: ${on ? "plain white" : "back as it was"}`); return ok(); },
@@ -279,6 +310,8 @@
       if (minutes === "tomorrow") { d.setDate(d.getDate() + (d.getHours() >= 6 ? 1 : 0)); d.setHours(6, 0, 0, 0); }
       data.autoPaused = minutes === "tomorrow" ? d.getTime() / 1000 : now + minutes * 60; data.auto = null; data.revision++; return ok(data.autoPaused); },
     resume_automatic: () => { data.autoPaused = 0; data.revision++; return ok(); },
+    set_night_limit: (on, from, to, max) => { Object.assign(data.night, { on, from, to, max }); data.revision++; return ok(); },
+    skip_night_limit: () => { data.night.active = false; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
     start_cycle: (names, minutes, shuffle) => { if (names.length < 2) return Promise.resolve({ ok: false, error: "Choose at least two presets" });
@@ -343,10 +376,18 @@
         : { state: "installing", progress: 1, message: "Installing: Glowstage restarts in a moment…" }); if (p < 1) setTimeout(tick, 400); };
       tick(); return ok();
     },
+    obs_set: (on, port, when) => { port = Number(port);
+      if (!(port >= 1 && port <= 65535)) return Promise.resolve({ ok: false, error: "The port is a number from 1 to 65535" });
+      Object.assign(data.obs, { on: !!on, port, when }); obsFake(); data.revision++; return ok(); },
+    obs_set_password: pw => { if (!pw) return Promise.resolve({ ok: false, error: "Type the password OBS has" });
+      data.obs.hasPassword = true; obsFake(); data.revision++; return ok(); },
+    obs_clear_password: () => { data.obs.hasPassword = false; obsFake(); data.revision++; return ok(); },
     games_connect: () => { Object.assign(data.games.cs2, { connected: true }); data.revision++; return ok(); },
     games_lol: on => { Object.assign(data.games.lol, { on: !!on, receiving: !!on && /[?&]lol\b/.test(location.search), inMatch: !!on && /[?&]lol\b/.test(location.search) }); data.revision++; return ok(); },
     games_dota_connect: () => { Object.assign(data.games.dota, { connected: true }); data.revision++; return ok(); },
     games_dota_disconnect: () => { Object.assign(data.games.dota, { connected: false, receiving: false, inMatch: false }); data.revision++; return ok(); },
+    games_rl_connect: () => { Object.assign(data.games.rl, { connected: true, fileThere: true }); data.revision++; return ok(); },
+    games_rl_disconnect: () => { Object.assign(data.games.rl, { connected: false, fileThere: false, receiving: false, inMatch: false }); data.revision++; return ok(); },
     games_disconnect: () => { Object.assign(data.games.cs2, { connected: false, receiving: false, inMatch: false }); data.revision++; return ok(); },
     hide_window: () => ok(),
     get_live: () => ok(live()),

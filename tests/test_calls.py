@@ -166,7 +166,7 @@ class WithAManager(unittest.TestCase):
 
     def test_the_loop_tells_step_about_the_call(self):
         seen = self.loop()
-        self.assertTrue(seen and all(args[-3] is True for args in seen))   # (call is the one before lol and dota)
+        self.assertTrue(seen and all(args[6] is True for args in seen))   # (the seventh: now, rules, kind, peak, cs2, apps, call)
 
     def test_nothing_runs_while_away(self):
         self.m.away.reasons.add("locked")
@@ -177,7 +177,7 @@ class WithAManager(unittest.TestCase):
         self.m.config["settings"]["auto_game"] = "screen"
         with mock.patch.object(automations, "full_screen", return_value=(None, "")):
             seen = self.loop()
-        self.assertTrue(seen and all(args[-1] is False for args in seen))
+        self.assertTrue(seen and all(args[-2] is False for args in seen))
 
     def test_renaming_a_preset_updates_the_call_look(self):
         old = self.m.preset_names()[0]

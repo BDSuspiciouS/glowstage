@@ -17,12 +17,14 @@ from .automations import Automations, clean_app_looks
 from .away import Away
 from .cycle import PresetCycle
 from .focus import FocusTimer
+from .night import NightLimit
 from . import hotkeys, wallpaper as wallpaper_look
 from .wallpaper import WallpaperFollow
 from .timer import SleepTimer
 from .wake import WakeUp, wake_minutes
 from .games import Games
-from .devices.base import MAX_FLOOR, WARMTH_RANGE, Device
+from .obs import ObsWatcher
+from .devices.base import COLOR_ORDERS, MAX_FLOOR, WARMTH_RANGE, Device
 from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
 from .devices.openrgb_dev import OpenRGBProvider
@@ -102,7 +104,7 @@ class DeviceWorker:
                 if not self.device.online:   # (an offline one gets its state again when it reconnects)
                     self._shown = None
                     continue
-                target = solid(state)
+                target = solid(state, self.device.cap)
                 if not instant and getattr(self.device, "fades", False) and self._shown is not None \
                         and target is not None and target != self._shown:
                     if not self._glide(self._shown, target, state):
@@ -135,13 +137,15 @@ class DeviceWorker:
         return True
 
 
-def solid(state: LightState) -> RGB | None:
-    """What a light in this state shows on every LED (off is black), or None for an effect."""
+def solid(state: LightState, cap: int | None = None) -> RGB | None:
+    """What a light in this state shows on every LED (off is black), or None for an effect.
+    `cap`: the night limit's ceiling (night.py), which Device.apply keeps to as well."""
     if not state.on:
         return (0, 0, 0)
     if state.mode != "color":
         return None
-    return scale(hex_to_rgb(state.color), state.brightness / 100)
+    brightness = state.brightness if cap is None else min(state.brightness, cap)
+    return scale(hex_to_rgb(state.color), brightness / 100)
 
 
 class DeviceManager:
@@ -157,7 +161,9 @@ class DeviceManager:
         self._applied: set[str] = set()      # devices we have pushed a state to this session
         self._touches: dict[str, int] = {}   # how often each light was changed (away.py)
         self._identifying: set[str] = set()  # lights that are flashing so you can find them
-        self._white: dict[str, LightState] = {}   # lights showing a plain white while their Balance window is open
+        self._white: dict[str, LightState] = {}   # lights showing a plain white (or a test color) while their Balance window is open
+        self._tests: dict[str, threading.Event] = {}   # lights running the color test (set: stop it)
+        self._test_step: dict[str, str] = {}      # which color of the test each of them shows right now
         self._undo: tuple[dict, str] | None = None   # the lights before the last big change by hand
         self._connecting: set[str] = set()
         self.force_on = False                # set when started with Windows: lights come on
@@ -167,6 +173,7 @@ class DeviceManager:
         self.discovery = Discovery(self._on_discovered)
         self.engine = EffectEngine(self)
         self.games = Games(config, self._changed)
+        self.obs = ObsWatcher(config, self._changed)
         self.automations = Automations(self)
         self.away = Away(self)
         self.sleep = SleepTimer(self)
@@ -174,6 +181,7 @@ class DeviceManager:
         self.cycle = PresetCycle(self)
         self.focus = FocusTimer(self)
         self.wallpaper = WallpaperFollow(self)
+        self.night = NightLimit(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -184,7 +192,9 @@ class DeviceManager:
         self.discovery.start()
         self.engine.start()
         self.games.start()
+        self.obs.start()
         self.automations.start()
+        self.night.start()
         threading.Thread(target=self._monitor, name="monitor", daemon=True).start()
         threading.Thread(target=self._scheduler, name="schedule", daemon=True).start()
         threading.Thread(target=self._discover_direct, name="direct-discovery", daemon=True).start()
@@ -209,7 +219,9 @@ class DeviceManager:
         self.cycle.stop()
         self.focus.stop()
         self.wallpaper.stop()
+        self.night.stop()
         self.games.stop()
+        self.obs.stop()
         self.engine.stop()
         self.discovery.stop()
         self.openrgb.stop()
@@ -235,6 +247,7 @@ class DeviceManager:
             self.workers.setdefault(dev.id, DeviceWorker(dev, self.report_error))
             dev.name = self.config["names"].get(dev.id) or dev.name
             self._balance_device(dev)
+            self.night.fit(dev)
 
     def _add_entry(self, dev_id: str, entry: dict) -> Device | Hub | None:
         """Make the light (or hub) for a config entry and connect it in the background."""
@@ -746,30 +759,50 @@ class DeviceManager:
 
     def _balance_device(self, dev: Device) -> None:
         b = self.balance(dev.id)
-        dev.set_balance(b["warmth"], b["max"])
+        dev.set_balance(b["warmth"], b["max"], b["order"])
 
     def balance(self, dev_id: str) -> dict:
-        """What is set for this light: {"warmth": -50..50, "max": 20..100} (0 and 100 when nothing is)."""
+        """What is set for this light: {"warmth": -50..50, "max": 20..100, "order": "RGB"} (0, 100
+        and RGB when nothing is)."""
         b = self.config.data.get("balance", {}).get(dev_id)
         try:
-            return {"warmth": max(-WARMTH_RANGE, min(WARMTH_RANGE, int(b["warmth"]))),
-                    "max": max(MAX_FLOOR, min(100, int(b["max"])))}
+            out = {"warmth": max(-WARMTH_RANGE, min(WARMTH_RANGE, int(b["warmth"]))),
+                   "max": max(MAX_FLOOR, min(100, int(b["max"])))}
         except (TypeError, KeyError, ValueError):   # (nothing set, or a file edited by hand)
-            return {"warmth": 0, "max": 100}
+            out = {"warmth": 0, "max": 100}
+        order = str(b.get("order", "RGB")).upper() if isinstance(b, dict) else "RGB"
+        out["order"] = order if order in COLOR_ORDERS else "RGB"
+        return out
 
     def set_balance(self, dev_id: str, warmth, top) -> None:
-        """Save a light's balance and use it from the next color on. A neutral one is not kept."""
+        """Save a light's balance and use it from the next color on. A neutral one is not kept.
+        Its color order stays as it is."""
+        self._save_balance(dev_id, warmth, top, None)
+
+    def set_color_order(self, dev_id: str, order) -> None:
+        """Save which order a light's colors are wired in (RGB, GRB, ...). Its balance stays as it is."""
+        order = str(order).strip().upper()
+        if order not in COLOR_ORDERS:
+            raise ValueError(f"'{order}' isn't a color order")
+        self._save_balance(dev_id, None, None, order)
+
+    def _save_balance(self, dev_id: str, warmth, top, order) -> None:
+        """What is None is left as it was."""
         with self.lock:
             dev = self.devices.get(dev_id)
             if dev is None:
                 raise ValueError("That light isn't there any more")
-            warmth = max(-WARMTH_RANGE, min(WARMTH_RANGE, int(round(float(warmth)))))
-            top = max(MAX_FLOOR, min(100, int(round(float(top)))))
+            now = self.balance(dev_id)
+            warmth = now["warmth"] if warmth is None else max(-WARMTH_RANGE, min(WARMTH_RANGE, int(round(float(warmth)))))
+            top = now["max"] if top is None else max(MAX_FLOOR, min(100, int(round(float(top)))))
+            order = now["order"] if order is None else order
             table = self.config.data.setdefault("balance", {})
-            if warmth == 0 and top == 100:
+            if warmth == 0 and top == 100 and order == "RGB":
                 table.pop(dev_id, None)
             else:
                 table[dev_id] = {"warmth": warmth, "max": top}
+                if order != "RGB":
+                    table[dev_id]["order"] = order
             self._balance_device(dev)
             shown = self._white.get(dev_id) or self.states.get(dev_id)
             worker = self.workers.get(dev_id)
@@ -783,6 +816,7 @@ class DeviceManager:
     def show_white(self, dev_id: str, on: bool) -> None:
         """While a light's Balance window is open: a plain white at its current brightness, to hold
         it against the other lights. Nothing is saved; off puts the light back as it was."""
+        self._stop_color_test(dev_id, restore=not on)   # (a running test ends: white takes over, or it's all off)
         with self.lock:
             dev = self.devices.get(dev_id)
             if dev is None:
@@ -799,6 +833,66 @@ class DeviceManager:
                 white = state
         if worker is not None and white is not None:
             worker.submit(white, instant=True)   # (a change made meanwhile is in self.states: that wins)
+
+    # ---- the color test: red, green, blue, one after the other, to see how a light is wired -----
+
+    TEST_STEP = 1.5    # seconds each color of the test stays on
+    TEST_COLORS = (("red", "#ff0000"), ("green", "#00ff00"), ("blue", "#0000ff"))
+
+    def color_test(self, dev_id: str, on: bool) -> None:
+        """While a light's Balance window is open: red, then green, then blue (TEST_STEP each) at the
+        light's current brightness, then the light goes back as it was. Nothing is saved. Off stops
+        it early. It goes through the light's color order, so you can check what you picked."""
+        if not on:
+            self._stop_color_test(dev_id, restore=True)
+            return
+        with self.lock:
+            dev = self.devices.get(dev_id)
+            if dev is None:
+                raise ValueError("That light isn't there any more")
+            if not dev.online:
+                raise ValueError(f"{dev.name} isn't answering")
+            if dev_id in self._tests:
+                return   # already running
+            stop = self._tests[dev_id] = threading.Event()
+            self._test_step[dev_id] = self.TEST_COLORS[0][0]   # (so the window never sees "not running" before the first color)
+        threading.Thread(target=self._run_color_test, args=(dev_id, stop), name=f"colortest:{dev_id}", daemon=True).start()
+
+    def color_test_step(self, dev_id: str) -> str:
+        """"red", "green" or "blue" while the test shows that color on this light; "" when it isn't running."""
+        return self._test_step.get(dev_id, "")
+
+    def _run_color_test(self, dev_id: str, stop: threading.Event) -> None:
+        try:
+            for name, color in self.TEST_COLORS:
+                with self.lock:
+                    state, worker = self.states.get(dev_id), self.workers.get(dev_id)
+                    if stop.is_set() or state is None or worker is None or dev_id not in self.devices:
+                        return
+                    shown = self._white[dev_id] = state.patched({"on": True, "mode": "color", "color": color})
+                    self._test_step[dev_id] = name
+                worker.submit(shown, instant=True)
+                if stop.wait(self.TEST_STEP):
+                    return
+        except Exception:
+            log.exception("color test failed")
+        finally:
+            with self.lock:
+                mine = self._tests.get(dev_id) is stop
+            if mine:        # (not when it was stopped: whoever stopped it has put the light back)
+                self._stop_color_test(dev_id, restore=True)
+
+    def _stop_color_test(self, dev_id: str, restore: bool) -> None:
+        with self.lock:
+            stop = self._tests.pop(dev_id, None)
+            if stop is None:
+                return
+            stop.set()
+            self._test_step.pop(dev_id, None)
+            self._white.pop(dev_id, None)
+            worker, state = self.workers.get(dev_id), self.states.get(dev_id)
+        if restore and worker is not None and state is not None:
+            worker.submit(state, instant=True)
 
     def set_hidden(self, dev_id: str, hidden: bool) -> None:
         ids = [i for i in self.config["hidden"] if i != dev_id]
@@ -1039,7 +1133,7 @@ class DeviceManager:
             s = self.config["settings"]
             if s.get("active_preset") == old:
                 s["active_preset"] = new
-            for key in ("auto_game", "auto_video", "auto_call"):
+            for key in ("auto_game", "auto_video", "auto_call", "auto_live"):
                 if s.get(key) == f"preset:{old}":
                     s[key] = f"preset:{new}"
             for item in [*(self.config.data.get("schedules") or []), *(self.config.data.get("app_looks") or [])]:
@@ -1129,6 +1223,7 @@ class DeviceManager:
             "auto": self.automations.active,
             "autoPaused": self.automations.paused_until(),
             "games": self.games.describe(),
+            "obs": self.obs.describe(),
         }
 
     # ---- stage layout (where each light sits for the light show) ------------------------------

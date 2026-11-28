@@ -11,6 +11,23 @@ from ..state import LightState
 WARMTH_RANGE = 50        # the white balance slider goes from -50 (cooler) to +50 (warmer)
 MAX_FLOOR = 20           # "brightness at 100%" can't go below this (percent)
 KEEP_MIN = 0.4           # white balance never takes a channel below 40% of what it was
+COLOR_ORDERS = ("RGB", "RBG", "GRB", "GBR", "BRG", "BGR")   # RGB: as it comes (the default)
+
+
+def order_swap(order: str = "RGB") -> tuple[int, int, int] | None:
+    """For a light whose red, green and blue are wired in another order: which of Glowstage's
+    (r, g, b) goes into each of the three values it is sent. None for RGB, so that nothing is done.
+
+    The name is the order the LIGHT uses, the way WLED, FastLED and most controller apps name it:
+    a "GRB" strip takes its green first, then red, then blue. So to show red on it, Glowstage must
+    send (0, 255, 0): the first value is the green one. Value i of what is sent is the channel
+    that the letter at position i names, so GRB gives (g, r, b) and BRG gives (b, r, g)."""
+    order = str(order).upper()
+    if order not in COLOR_ORDERS:
+        raise ValueError(f"'{order}' isn't a color order")
+    if order == "RGB":
+        return None
+    return tuple("RGB".index(c) for c in order)
 
 
 def balance_gains(warmth: int = 0, top: int = 100) -> tuple[float, float, float] | None:
@@ -38,6 +55,8 @@ class Device:
     fades = False                # True: a new color glides in (local, quick lights; manager.DeviceWorker)
     fixture: dict | None = None  # its shape, for the light show: {"ring": 8} fans, {"geometry": [...]} keys
     gains: tuple[float, float, float] | None = None   # the light's balance (set_balance); None: as it comes
+    swap: tuple[int, int, int] | None = None          # its color order (order_swap); None: RGB, as it comes
+    cap: int | None = None       # the night limit (night.py): no brightness above this now; None: none
 
     def __init__(self, dev_id: str, name: str):
         self.id = dev_id
@@ -50,23 +69,31 @@ class Device:
 
     # ---- balance: what the light is sent, so that it looks like the others -------------------
 
-    def set_balance(self, warmth: int = 0, top: int = 100) -> None:
+    def set_balance(self, warmth: int = 0, top: int = 100, order: str = "RGB") -> None:
         self.gains = balance_gains(warmth, top)
+        self.swap = order_swap(order)
 
     def balanced(self, rgb: RGB) -> RGB:
         """One color, corrected for this light. Exactly the same color when the light isn't balanced."""
         g = self.gains
-        if g is None:
-            return rgb
-        return (min(255, int(rgb[0] * g[0] + 0.5)), min(255, int(rgb[1] * g[1] + 0.5)), min(255, int(rgb[2] * g[2] + 0.5)))
+        if g is not None:
+            rgb = (min(255, int(rgb[0] * g[0] + 0.5)), min(255, int(rgb[1] * g[1] + 0.5)), min(255, int(rgb[2] * g[2] + 0.5)))
+        # The color order is the very last step: it only moves values around.
+        s = self.swap
+        return rgb if s is None else (rgb[s[0]], rgb[s[1]], rgb[s[2]])
 
     def balanced_frame(self, colors: list[RGB]) -> list[RGB]:
         """A whole frame, corrected. The very same list when the light isn't balanced (nearly always)."""
         g = self.gains
-        if g is None:
+        if g is not None:
+            gr, gg, gb = g
+            colors = [(min(255, int(r * gr + 0.5)), min(255, int(gc * gg + 0.5)), min(255, int(b * gb + 0.5))) for r, gc, b in colors]
+        # The color order is the very last step: it only moves values around.
+        s = self.swap
+        if s is None:
             return colors
-        gr, gg, gb = g
-        return [(min(255, int(r * gr + 0.5)), min(255, int(gc * gg + 0.5)), min(255, int(b * gb + 0.5))) for r, gc, b in colors]
+        i, j, k = s
+        return [(c[i], c[j], c[k]) for c in colors]
 
     # ---- implemented by subclasses -------------------------------------------------
 
@@ -108,6 +135,8 @@ class Device:
 
     def apply(self, state: LightState) -> None:
         """Apply a full desired state. Runs on the device's worker thread."""
+        if self.cap is not None and state.on and state.brightness > self.cap:
+            state = state.patched({"brightness": self.cap})     # (the night limit: night.py)
         with self.lock:
             if not state.on:
                 self._stop_stream()

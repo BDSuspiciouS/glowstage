@@ -517,6 +517,8 @@ class Connecting(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.lib = steam(self.tmp.name, dota=True, cs2=True)
         self.patch = mock.patch.object(games, "steam_libraries", return_value=[self.lib])
+        self.no_rl = mock.patch.object(games, "find_rocket_league", return_value=None)
+        self.no_rl.start()
         self.patch.start()
         self.changed = []
         self.g = games.Games(Config(Path(self.tmp.name) / "config.json"), lambda: self.changed.append(1))
@@ -526,6 +528,7 @@ class Connecting(unittest.TestCase):
     def tearDown(self):
         self.g.stop()
         self.patch.stop()
+        self.no_rl.stop()
         self.tmp.cleanup()
 
     def post(self, data, token=None):
@@ -612,9 +615,9 @@ class Connecting(unittest.TestCase):
         self.post(data)
         self.assertTrue(self.g.cs2.in_match)
 
-    def test_the_describe_has_all_three_games(self):
+    def test_the_describe_has_all_the_games(self):
         d = self.g.describe()
-        self.assertEqual(set(d), {"cs2", "lol", "dota"})
+        self.assertEqual(set(d), {"cs2", "lol", "dota", "rl"})
         self.assertEqual(set(d["dota"]), {"found", "connected", "fileThere", "receiving", "inMatch", "team", "health"})
 
     def test_describe_follows_the_match(self):
@@ -641,10 +644,11 @@ class SlowDisk(unittest.TestCase):
         self._find, self._find_cs2 = games.find_dota2, games.find_cs2
         games.find_dota2 = self.slow_find
         games.find_cs2 = lambda: None
+        self._find_rl, games.find_rocket_league = games.find_rocket_league, lambda: None
         self.g = games.Games(Config(Path(self.tmp.name) / "config.json"), lambda: None)
 
     def tearDown(self):
-        games.find_dota2, games.find_cs2 = self._find, self._find_cs2
+        games.find_dota2, games.find_cs2, games.find_rocket_league = self._find, self._find_cs2, self._find_rl
         self.tmp.cleanup()
 
     def slow_find(self):
@@ -715,7 +719,7 @@ class Automatic(unittest.TestCase):
 
     def test_the_rule_is_there_right_after_league_and_only_when_connected(self):
         self.assertEqual(self.a.rules()["dota"], "game:dota")
-        self.assertEqual(list(self.a.rules())[:3], ["cs2", "lol", "dota"])
+        self.assertEqual(list(self.a.rules())[:4], ["live", "cs2", "lol", "dota"])
         self.m.games.settings["dota"] = False
         self.assertEqual(self.a.rules()["dota"], "")
 
@@ -783,7 +787,7 @@ class Automatic(unittest.TestCase):
         self.a._stop = Stop(2)
         with mock.patch.object(Automations, "step", lambda s, *args: seen.append(args)):
             self.a._run()
-        self.assertTrue(seen and all(args[-1] is True for args in seen))
+        self.assertTrue(seen and all(args[8] is True for args in seen))   # (the ninth: now, rules, kind, peak, cs2, apps, call, lol, dota)
 
 
 if __name__ == "__main__":

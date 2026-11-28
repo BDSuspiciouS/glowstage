@@ -91,8 +91,10 @@ DEFAULTS = {
     "online": {},         # what online.py last heard from GitHub (latest version, support links)
     "schedules": [],      # [{"time": "23:00" | "sunrise" | "sunset", "offset": minutes (-180..180, sun times only),
                           #   "days": [0..6] (Monday = 0), "action": "off" | "on" | "show" | "preset:<name>", "enabled": true}]
-    "games": {"cs2": False, "lol": False, "dota": False, "port": 0, "token": ""},   # game lighting (games.py): CS2 and Dota 2 connected, League switched on, where CS2 and Dota send to
+    "games": {"cs2": False, "lol": False, "dota": False, "rl": False, "port": 0, "token": "",   # game lighting (games.py): CS2, Dota 2 and Rocket League connected, League switched on, where CS2 and Dota send to
+              "rl_port": 49123, "rl_original": None},   # Rocket League's Stats API: the port its ini names, and what PacketSendRate and Port held before we switched it on (put back when disconnecting)
     "remote": {"on": False, "port": 0, "token": ""},   # the phone remote (remote.py)
+    "obs": {"on": False, "port": 4455, "password": "", "when": "both"},   # OBS Studio (obs.py): "when" is stream, record or both; the password is kept protected by Windows, never as text
     "app_looks": [],      # [{"exe": "photoshop.exe", "name": "Adobe Photoshop", "action": "preset:Focus"}]: while open
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
@@ -106,10 +108,13 @@ DEFAULTS = {
                  "check_updates": True,  # ask GitHub once a day for a new version and the support links
                  "auto_show": False,     # start the light show by itself when music plays (automations.py)
                  "auto_paused_until": 0,  # time.time() until which no automatic look runs (0: none)
+                 "night_limit": {"on": False, "from": "23:00", "to": "07:00", "max": 30},   # night.py
+                 "night_skip_until": 0,  # "Not tonight": no night limit until then (time.time())
                  "auto_game": "",        # a game in full screen: "", "screen" or "preset:<name>"
                  "auto_video": "",       # a video in full screen: the same
                  "screen_display": "",   # the display Screen sync follows: "" main, "auto" (where a full-screen window is) or a device name (screen.py)
                  "auto_call": "",        # the camera or microphone in use (a call): "" or "preset:<name>"
+                 "auto_live": "",        # streaming or recording in OBS (obs.py): "" or "preset:<name>"
                  "away_lights": "",      # locked, screen off or asleep: "" nothing, "pc" or "all" off (away.py)
                  "flow": False,          # animations run from light to light along the stage (effects._places)
                  "first_run": "",        # the day Glowstage first ran (YYYY-MM-DD)

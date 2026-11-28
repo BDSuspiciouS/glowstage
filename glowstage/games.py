@@ -17,7 +17,11 @@ the launch option -gamestateintegration in Steam (Glowstage never changes Steam'
 "game_dota" effect plays along: your side's color, the day and night of the map, your health.
 
 League of Legends needs no file: Riot's own Live Client Data API answers on this PC while a match
-runs, and lol.py asks it once a switch in Setup → Games is on."""
+runs, and lol.py asks it once a switch in Setup → Games is on.
+
+Rocket League has its own Stats API (rocket_league.py): connecting switches it on in one line of the
+game's DefaultStatsAPI.ini (disconnecting puts the line back), and the game then sends its state to
+whoever connects to it on this PC, which is what the reader there does while a match runs."""
 
 from __future__ import annotations
 
@@ -31,7 +35,9 @@ import winreg
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import rocket_league
 from .lol import ABSORB, END_LINGER, MIN_GAP, PAUSE, STALE, LolPoller
+from .rocket_league import RocketLeagueReader
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +102,12 @@ def find_cs2() -> Path | None:
         if cfg.is_dir():
             return cfg
     return None
+
+
+def find_rocket_league() -> Path | None:
+    """Rocket League's install folder (the one with TAGame in it), from Steam or the Epic Games
+    Launcher, or None."""
+    return rocket_league.find_in_steam(steam_libraries()) or rocket_league.find_in_epic()
 
 
 def cfg_text(port: int, token: str) -> str:
@@ -415,6 +427,10 @@ class Games:
         self._found_dota: tuple[float, Path | None] = (-1e9, None)
         self._dota_file_there = False
         self._looking_dota = threading.Lock()
+        self.rl = RocketLeagueReader(on_change=self._rl_noticed)
+        self._found_rl: tuple[float, Path | None] = (-1e9, None)
+        self._rl_file_there = False        # the game's ini asks for the Stats API now
+        self._looking_rl = threading.Lock()
 
     def folder(self, fresh: bool = False) -> Path | None:
         """CS2's cfg folder. Fresh: looked up now (you're connecting). Otherwise the last answer,
@@ -446,6 +462,20 @@ class Games:
             self._dota_file_there = bool(folder and (folder / CFG_NAME).is_file())
             self._found_dota = (time.monotonic(), folder)
 
+    def rl_folder(self, fresh: bool = False) -> Path | None:
+        """Rocket League's install folder, the same way: never makes the window wait."""
+        if fresh:
+            self._look_rl()
+        elif time.monotonic() - self._found_rl[0] > 60 and not self._looking_rl.locked():
+            threading.Thread(target=self._look_rl, name="find-rl", daemon=True).start()
+        return self._found_rl[1]
+
+    def _look_rl(self) -> None:
+        with self._looking_rl:
+            folder = find_rocket_league()
+            self._rl_file_there = bool(folder and rocket_league.is_on(rocket_league.ini_path(folder)))
+            self._found_rl = (time.monotonic(), folder)
+
     @property
     def settings(self) -> dict:
         return self.config.data.setdefault("games", {})
@@ -455,13 +485,17 @@ class Games:
     def start(self) -> None:
         threading.Thread(target=self._look, name="find-cs2", daemon=True).start()
         threading.Thread(target=self._look_dota, name="find-dota2", daemon=True).start()
+        threading.Thread(target=self._look_rl, name="find-rl", daemon=True).start()
         if self.settings.get("cs2") or self.settings.get("dota"):
             self._listen()
         if self.settings.get("lol"):
             self.lol.start()
+        if self.settings.get("rl"):
+            self._start_rl()
 
     def stop(self) -> None:
         self.lol.stop()
+        self.rl.stop()
         self._unlisten()
 
     def _unlisten(self) -> None:
@@ -625,6 +659,58 @@ class Games:
             self.lol.stop()
         self.on_change()
 
+    # -- Rocket League --
+
+    def _start_rl(self) -> None:
+        self.rl.port = int(self.settings.get("rl_port") or rocket_league.DEFAULT_PORT)
+        self.rl.start()
+
+    def connect_rl(self) -> None:
+        """Switches the Stats API on in the game's ini (the one file we touch) and starts listening
+        for it. The game reads the file when it starts, so a running Rocket League has to restart."""
+        folder = self.rl_folder(fresh=True)
+        if folder is None:
+            raise ValueError("Rocket League isn't installed on this PC (or Steam and Epic can't say where)")
+        path = rocket_league.ini_path(folder)
+        try:
+            before, port = rocket_league.switch_on(path)
+        except PermissionError:
+            raise ValueError("Glowstage isn't allowed to change Rocket League's settings file. "
+                             "Close Glowstage and start it as administrator once, or give your account write access to " + str(path)) from None
+        if self.settings.get("rl_original") is None:     # (connecting twice must not keep our own 30 as "the original")
+            self.settings["rl_original"] = before
+        self.settings.update(rl=True, rl_port=port)
+        self.config.save_soon()
+        self._rl_file_there = True
+        self._start_rl()
+        log.info("Game lighting: connected to Rocket League (%s)", path)
+        self.on_change()
+
+    def disconnect_rl(self) -> None:
+        """Puts the send rate back as it was (off, unless something else had it on) and stops listening."""
+        folder = self.rl_folder(fresh=True)
+        if folder is not None:
+            path = rocket_league.ini_path(folder)
+            try:
+                rocket_league.switch_off(path, self.settings.get("rl_original"))
+                self._rl_file_there = rocket_league.is_on(path)
+            except OSError as e:
+                log.warning("Couldn't put Rocket League's settings file back: %s", e)
+                raise ValueError("Glowstage couldn't change Rocket League's settings file back. Try again, or set "
+                                 "PacketSendRate to 0 in " + str(path)) from None
+        self.settings.update(rl=False, rl_original=None)
+        self.config.save_soon()
+        self.rl.stop()
+        self.on_change()
+
+    def _rl_noticed(self) -> None:
+        """A match starts or ends: tell the window (the rest it reads every second)."""
+        self.on_change()
+
+    def rl_active(self, now: float) -> bool:
+        """You're in a Rocket League match and the game is sending."""
+        return bool(self.settings.get("rl")) and self.rl.in_match(now)
+
     def _lol_noticed(self) -> None:
         """A match starts or ends: tell the window (the rest it reads every second)."""
         self.on_change()
@@ -643,7 +729,15 @@ class Games:
         dota_folder = self.dota_folder()
         dota_on = bool(self.settings.get("dota"))
         dota = self.dota.snapshot(now)
-        return {"dota": {
+        rl_folder = self.rl_folder()
+        rl_on = bool(self.settings.get("rl"))
+        rl = self.rl.snapshot(now)
+        return {"rl": {
+            "found": rl_folder is not None, "connected": rl_on and rl_folder is not None,
+            "fileThere": bool(rl_folder) and self._rl_file_there,
+            "receiving": rl_on and self.rl.receiving(now), "inMatch": rl_on and rl["inMatch"],
+            "team": {0: "blue", 1: "orange"}.get(rl["team"]), "boost": round(rl["boost"] * 100),
+        }, "dota": {
             "found": dota_folder is not None, "connected": dota_on and dota_folder is not None,
             "fileThere": bool(dota_folder) and self._dota_file_there,
             "receiving": dota_on and self.dota.alive_now(now), "inMatch": dota_on and dota["inMatch"],

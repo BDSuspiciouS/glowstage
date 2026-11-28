@@ -81,6 +81,7 @@ class Api:
                  "wake": self._m.wake.describe(),
                  "cycle": self._m.cycle.describe(),
                  "focus": self._m.focus.describe(),
+                 "night": self._m.night.describe(),
                  "wallpaper": self._m.wallpaper.describe(),
                  "askSupport": self._ask_support(),
                  "whatsNew": whatsnew.card(self._app.config["settings"]),
@@ -139,6 +140,16 @@ class Api:
     @_safe
     def resume_automatic(self):
         self._m.automations.resume()
+
+    @_safe
+    def set_night_limit(self, on, start, end, top):
+        """The night limit: from `start` to `end` no light above `top` percent (night.py)."""
+        self._m.night.configure(on, start, end, top)
+
+    @_safe
+    def skip_night_limit(self):
+        """"Not tonight": no night limit until the morning."""
+        self._m.night.skip_tonight()
 
     @_safe
     def skip_focus(self):
@@ -429,6 +440,21 @@ class Api:
         self._m.set_balance(dev_id, warmth, top)
 
     @_safe
+    def set_color_order(self, dev_id, order):
+        """Which order a light's colors are wired in: RGB, RBG, GRB, GBR, BRG or BGR."""
+        self._m.set_color_order(dev_id, order)
+
+    @_safe
+    def color_test(self, dev_id, on):
+        """Red, green, blue on one light while its Balance window is open (off: back as it was)."""
+        self._m.color_test(dev_id, bool(on))
+
+    @_safe
+    def color_test_step(self, dev_id):
+        """Which color of the test the light shows right now: "red", "green", "blue" or "" (not running)."""
+        return self._m.color_test_step(dev_id)
+
+    @_safe
     def show_white(self, dev_id, on):
         """A plain white on one light while its Balance window is open (off: back as it was)."""
         self._m.show_white(dev_id, bool(on))
@@ -496,7 +522,7 @@ class Api:
             value = str(value or "")
             if value not in ("", "auto") and not re.fullmatch(r"\\\\\.\\DISPLAY\d{1,3}", value):
                 raise ValueError("Choose a display from the list")
-        if key == "auto_call":   # "" or "preset:<name>"
+        if key in ("auto_call", "auto_live"):   # "" or "preset:<name>"
             value = str(value or "")
             if value and not (value.startswith("preset:") and value[7:] in self._app.manager.preset_names()):
                 raise ValueError("Choose a look from the list")
@@ -594,9 +620,33 @@ class Api:
         self._app.manager.games.disconnect_dota()
 
     @_safe
+    def games_rl_connect(self):
+        """Game lighting: switch Rocket League's Stats API on in its ini file and start listening."""
+        self._app.manager.games.connect_rl()
+
+    @_safe
+    def games_rl_disconnect(self):
+        self._app.manager.games.disconnect_rl()
+
+    @_safe
     def games_lol(self, on):
         """League of Legends: switch asking the game's own live data on or off (nothing is installed)."""
         self._app.manager.games.set_lol(bool(on))
+
+    @_safe
+    def obs_set(self, on, port, when):
+        """Setup → Automatic → OBS: connect to OBS on this PC (or not), the port of its WebSocket
+        server, and whether a stream, a recording or either counts."""
+        self._app.manager.obs.set_options(on, port, when)
+
+    @_safe
+    def obs_set_password(self, password):
+        """OBS's password: kept protected for this Windows user, never given back to the window."""
+        self._app.manager.obs.set_password(password)
+
+    @_safe
+    def obs_clear_password(self):
+        self._app.manager.obs.clear_password()
 
     @_safe
     def stop_automation(self):

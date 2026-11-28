@@ -250,10 +250,12 @@ const dismissedUpdate = () => { try { return localStorage.getItem("glowstage.upd
 
 /* Notes at the top of Home: a new version is out; once in a while, the support card. */
 const AUTO_NOTES = {
+  live: { icon: "spark", title: "You're live", text: "Your lights changed for it by themselves and go back when you stop." },
   call: { icon: "spark", title: "You're on a call", text: "Your lights changed for it by themselves and go back when the call ends." },
   cs2: { icon: "spark", title: "Counter-Strike 2 is on", text: "Your lights play along with the match and go back when you leave it." },
   lol: { icon: "spark", title: "League of Legends is on", text: "Your lights play along with the match and go back when you leave it." },
   dota: { icon: "spark", title: "Dota 2 is on", text: "Your lights play along with the match and go back when you leave it." },
+  rl: { icon: "spark", title: "Rocket League is on", text: "Your lights play along with the match and go back when you leave it." },
   game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
   video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
   music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
@@ -334,9 +336,10 @@ function renderHomeNotes() {
   const cycle = S.data.cycle;
   const focus = S.data.focus;
   const paused = S.data.autoPaused;
+  const night = S.data.night && S.data.night.active ? S.data.night : null;
   const news = !S.newsClosed && S.data.whatsNew;
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
-    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, paused, news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
+    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, paused, night && [night.max, night.until], news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
@@ -380,6 +383,13 @@ function renderHomeNotes() {
           await call("stop_automation"); refresh(true); } }),
         h("button", { class: "btn", type: "button", text: "Pause for an hour", title: "No automatic looks for an hour: games, videos, calls, apps and music leave your lights alone",
           onclick: () => pauseAutomatic(60) }))) : null,
+    night ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("moon")),
+      h("div", { class: "note-text" }, h("strong", { text: `Night limit: lights at most ${night.max}% until ${clockTime(night.until)}` }),
+        h("span", { class: "muted", text: "Whatever switches a light on stays at or below that. Your own brightness is back in the morning." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Not tonight", onclick: async () => {
+          await call("skip_night_limit"); toast("No night limit tonight: your lights are at their own brightness"); refresh(true); } }))) : null,
     paused ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("spark")),
       h("div", { class: "note-text" }, h("strong", { text: `Automatic looks paused until ${pausedUntil(paused)}` }),

@@ -56,6 +56,10 @@ def report(app) -> str:
                 for b in [m.balance(i)]]
     if balanced:
         out.append("Balanced lights: " + ", ".join(balanced))
+    ordered = [f"{m.devices[i].name} ({m.balance(i)['order']})"
+               for i in sorted(shown) if i in m.devices and m.balance(i)["order"] != "RGB"]
+    if ordered:
+        out.append("Lights with a color order: " + ", ".join(ordered))
     o = m.openrgb.describe()
     out.append(f"OpenRGB: {o.get('status') or '?'}" + (f" ({o['message']})" if o.get("message") else "")
                + (", as administrator" if o.get("elevated") else ""))
@@ -65,12 +69,14 @@ def report(app) -> str:
         f"music {'on' if s.get('auto_show') else 'off'}", f"calls {s.get('auto_call') or 'off'}", f"away {s.get('away_lights') or 'off'}",
         f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}",
         f"League of Legends {'on' if m.games.settings.get('lol') else 'off'}",
-        f"Dota 2 {'connected' if m.games.settings.get('dota') else 'off'}"]))
+        f"Dota 2 {'connected' if m.games.settings.get('dota') else 'off'}",
+        f"Rocket League {'connected' if m.games.settings.get('rl') else 'off'}", f"OBS {m.obs.summary()}",
+        f"OBS look {s.get('auto_live') or 'off'}"]))
     keys = getattr(app, "hotkeys", None)      # (the keys another program already has: which actions)
     taken = [f"{keys.label(a)} {k}" for a, k in keys.taken.items()] if keys else []
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
-        f"hotkeys {hotkeys.summary(s, m.preset_names(), taken)}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"automatic looks {'paused' if m.automations.paused_until() else 'on'}", f"schedules {len(app.config.data.get('schedules') or [])}",
+        f"hotkeys {hotkeys.summary(s, m.preset_names(), taken)}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"automatic looks {'paused' if m.automations.paused_until() else 'on'}", f"night limit {m.night.describe()['max']}% now" if m.night.applied is not None else f"night limit {'on' if m.night.settings['on'] else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
         f"sound {m.engine.audio.device or 'not listening now'}"]))
     problems = recent_problems()
     out.append("Last warnings in the log:" if problems else "No warnings in the log.")

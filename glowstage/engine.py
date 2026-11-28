@@ -121,6 +121,8 @@ class EffectEngine:
             ctx["lol"] = self.manager.games.lol.snapshot(now)
         if any(st.effect == "game_dota" for _, st in targets):
             ctx["dota"] = self.manager.games.dota.snapshot(now)
+        if any(st.effect == "game_rl" for _, st in targets):
+            ctx["rl"] = self.manager.games.rl.snapshot(now)
         if any(st.effect == "typing" for _, st in targets):
             ctx["keys"] = self.keys.recent(now)
         if any(st.effect == "pc_load" for _, st in targets):
@@ -154,8 +156,9 @@ class EffectEngine:
             ctx["fps"] = dev.max_fps    # for looks that hold a flash longer on slow lights (Thunderstorm)
             effect = EFFECTS.get(st.effect) or EFFECTS["rainbow"]
             colors = effect.render(t, dev.pixel_count, st, self._mem.setdefault((dev.id, effect.id), {}), ctx)
-            if not dev.hardware_brightness and st.brightness < 100:
-                f = st.brightness / 100
+            brightness = st.brightness if dev.cap is None else min(st.brightness, dev.cap)   # (the night limit)
+            if not dev.hardware_brightness and brightness < 100:
+                f = brightness / 100
                 colors = [scale(c, f) for c in colors]
             if soft:
                 colors = self._soft.apply(dev.id, colors, now)
