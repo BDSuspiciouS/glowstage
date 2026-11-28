@@ -133,6 +133,7 @@ class EffectEngine:
                 settings = self.manager.config["settings"]
                 intensity = sum(st.speed for st in show) / len(show) / 100
                 strobe = settings.get("show_strobe", True) and not soft    # (softened flashes: no strobes either)
+                self.show.set_colors(settings.get("show_colors"))   # (your own colors, or none: the music picks)
                 ctx["show"] = self.show.update(heard, now, intensity, strobe, sync)
         flow = bool(self.manager.config["settings"].get("flow")) and any(
             getattr(EFFECTS.get(st.effect), "flows", False) for _, st in targets)

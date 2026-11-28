@@ -165,6 +165,15 @@ class Tray:
             yield MenuItem("Start focus timer", self._focus_start)
         if m.wallpaper.active:
             yield MenuItem("Stop following my wallpaper", lambda: m.wallpaper.cancel())
+        until = m.automations.paused_until()
+        if until:
+            yield MenuItem(f"Automatic looks paused until {time.strftime('%H:%M', time.localtime(until))}: resume",
+                           lambda: m.automations.resume())
+        else:
+            yield MenuItem("Pause automatic looks", Menu(
+                MenuItem("For an hour", lambda: m.automations.pause(60)),
+                MenuItem("For 3 hours", lambda: m.automations.pause(180)),
+                MenuItem("Until tomorrow", lambda: m.automations.pause("tomorrow"))))
         yield MenuItem("Undo", lambda: m.undo(), enabled=lambda item: m.can_undo())
         yield Menu.SEPARATOR
         yield MenuItem(f"Restart {APP_NAME}", lambda: self.app.restart())

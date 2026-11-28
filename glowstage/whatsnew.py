@@ -14,14 +14,18 @@ from .paths import VERSION
 # go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups, games, lights, app),
 # "effect:<id>" (the effects panel, at that look), "sleep" (the sleep timer), "focus" (the focus
 # timer), "search" (the quick search), "presets:<button>" (the Presets page, at that button:
-# picture, turns).
-GOES = ("sleep", "focus", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups",
+# picture, turns), "show:colors" (the Light show page, at its colors).
+GOES = ("sleep", "focus", "search", "show:colors", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups",
         "setup:games", "setup:lights", "setup:app", "presets:picture", "presets:turns")
 
 NOTES: dict[str, list[dict]] = {
     "0.9.8": [
+        {"title": "Snowfall, Holiday lights, Candy cane", "go": "effect:snow",
+         "text": "Three looks for December, and Candle, Ocean, Lava lamp and Thunderstorm for any evening."},
         {"title": "Colors from a picture", "go": "presets:picture",
          "text": "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors."},
+        {"title": "The light show in your colors", "go": "show:colors",
+         "text": "Pick 2 to 5 colors and the show keeps all of its moves, but in your colors only."},
         {"title": "Focus timer", "go": "focus",
          "text": "Work for a while, then a short break: your room turns soft green, so you see it's time to get up."},
         {"title": "League of Legends and Dota 2", "go": "setup:games",
@@ -30,10 +34,6 @@ NOTES: dict[str, list[dict]] = {
          "text": "Make a strip's bluish white match your bulbs, or tame a light that's brighter than the rest."},
         {"title": "Soften flashes", "go": "setup:app",
          "text": "For people who are sensitive to flashing light: every flash becomes a soft swell."},
-        {"title": "Presets in turn", "go": "presets:turns",
-         "text": "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes."},
-        {"title": "Candle, Ocean, Lava lamp, Thunderstorm", "go": "effect:storm",
-         "text": "Four calm looks for the evening, and PC load and Gradient besides."},
     ],
     "0.9.7": [
         {"title": "Quick search", "go": "search",

@@ -8,7 +8,8 @@ from glowstage.effects import EFFECTS
 from glowstage.manager import DeviceManager
 from glowstage.state import LightState
 
-FLOWING = ("rainbow", "spectrum", "breathing", "wave", "comet", "aurora", "ocean", "lava", "storm")
+FLOWING = ("rainbow", "spectrum", "breathing", "wave", "comet", "aurora", "ocean", "lava", "storm",
+           "snow", "string_lights", "candy_cane")
 ST = LightState().patched({"color": "#ff0000", "color2": "#0000ff", "speed": 50})
 
 

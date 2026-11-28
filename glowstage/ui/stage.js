@@ -348,7 +348,7 @@ function renderStage() {
   $("#plot-empty").hidden = !empty;
   const hud = $("#plot-hud");
   const show = S.data.show;
-  const sig = show ? JSON.stringify([show.style, show.section, show.bpm, show.half, show.chord, show.ai, show.genres, show.mood]) : "";
+  const sig = show ? JSON.stringify([show.style, show.section, show.bpm, show.half, show.chord, show.ai, show.genres, show.mood, show.mine]) : "";
   hud.hidden = !show || !!S.arrange;
   if (sig !== ST.hudSig) {
     ST.hudSig = sig;
@@ -362,7 +362,7 @@ function renderStage() {
         cell("Right now", SECTION_NAMES[show.section] || show.section || "…",
           show.section === "drop" ? "Everything goes" : show.section === "build" ? "Tension rising" : "", show.section === "drop" ? "is-hot" : ""),
         cell("Tempo", show.bpm ? `${show.bpm} BPM` : "Finding the beat", show.half ? "Half time" : ""),
-        cell("Harmony", show.chord || "…", show.chord ? "Colors follow the chords" : ""));
+        cell("Harmony", show.chord || "…", show.mine ? "In your colors" : show.chord ? "Colors follow the chords" : ""));
     }
   }
   renderInspector();

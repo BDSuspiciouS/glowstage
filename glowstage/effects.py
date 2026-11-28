@@ -408,6 +408,158 @@ class Storm(Effect):
         return _rgb(base + (BOLT - base) * k)
 
 
+# ---- looks for the holidays --------------------------------------------------------------------
+
+HOLIDAY_SEED = random.getrandbits(24)   # one per run, shared by every light: the whole room sees the same snow
+SNOW_NIGHT = np.array((7.0, 16.0, 52.0))      # deep winter-night blue
+SNOW_ICY = np.array((38.0, 78.0, 150.0))      # what a bulb shows between flakes
+SNOW_FLAKE = np.array((206.0, 226.0, 255.0))  # a flake: icy white
+SNOW_GLINT = np.array((255.0, 255.0, 255.0))  # a flake that catches the light
+SNOW_FLAKES = 8
+
+
+def _places_mid(n: int, ctx: dict) -> np.ndarray:
+    """Where each LED sits, 0..1, at the middle of its slot (_places puts a light's first LED at its start)."""
+    if ctx.get("flow"):
+        return np.array(_places(n, ctx))
+    return (np.arange(n) + 0.5) / n
+
+
+def _spacing(n: int, ctx: dict) -> float:
+    """How far apart the LEDs are in those units (a lone bulb: a small share of the light)."""
+    if ctx.get("flow"):
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        return max(end - start, 0.01) / n
+    return 1.0 / n if n > 1 else 0.1
+
+
+class Snow(Effect):
+    """Snowfall: a deep winter-night blue with soft white flakes drifting down. Each flake is a
+    soft spot that moves slowly along the light, towards its start: strips are normally wired
+    from the bottom up, so the start is the bottom (a flat strip just sees flakes drift to the
+    left). The flakes have a depth: the bigger and brighter ones are nearer and fall a little
+    faster. Now and then a flake catches the light and glints, slowly (about a second), never a flash.
+    A bulb stays an icy blue and brightens softly as a flake passes.
+    Speed: how fast it snows. A flake's place is a plain sum of time and its seed (no state), so
+    every light with the seed sees the same snow, and with Flow the flakes cross from light to light."""
+    id, name = "snow", "Snowfall"
+    flows = True
+
+    def _flakes(self, mem: dict) -> dict:
+        seed = mem.setdefault("seed", HOLIDAY_SEED)
+        flakes = mem.get("flakes")
+        if flakes is None or flakes["seed"] != seed:
+            k = np.arange(SNOW_FLAKES)
+            depth = _hash_np(k, seed + 2)
+            flakes = mem["flakes"] = {
+                "seed": seed, "start": _hash_np(k, seed + 1),
+                "fall": 0.025 + 0.035 * depth,                  # of the light's length per second at speed 50
+                "sigma": 0.008 + 0.014 * depth, "amp": 0.5 + 0.45 * depth,
+                "glints": _hash_np(k, seed + 5) < 0.6, "period": 7.0 + 8.0 * _hash_np(k, seed + 6),
+                "offset": _hash_np(k, seed + 7)}
+        return flakes
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        f = self._flakes(mem)
+        u = _places_mid(n, ctx)
+        bulb = n == 1
+        few = slice(0, 6) if bulb and not ctx.get("flow") else slice(None)   # (a bulb sees a flake now and then, not a blizzard)
+        speed = (rate(st.speed) / 0.3) ** 0.3        # 0.5 .. 2 times: a gentle range, so the fastest snow is still no flicker
+        pos = (f["start"][few] - f["fall"][few] * speed * t) % 1.0      # (towards the start; wraps round)
+        sigma = np.maximum(f["sigma"][few], 0.8 * _spacing(n, ctx))     # (never thinner than the LEDs: a flake between two would blink)
+        d = (u[:, None] - pos[None, :] + 0.5) % 1.0 - 0.5
+        spot = np.exp(-0.5 * (d / sigma) ** 2)
+        phase = (t / f["period"][few] + f["offset"][few]) % 1.0
+        glint = f["glints"][few] * np.sin(np.pi * np.clip(phase / 0.07, 0.0, 1.0)) ** 2     # ~0.5 to 1 s up and down
+        amp = f["amp"][few] + (1 - f["amp"][few]) * glint
+        lit = 1 - np.prod(1 - amp * spot, axis=1)                        # flakes on top of each other don't add past full
+        shine = np.clip((glint * spot).sum(axis=1), 0.0, 1.0) * 0.55
+        sky = (SNOW_ICY if bulb else SNOW_NIGHT) * (0.85 + 0.3 * _noise_np(u * 2.2 + t * 0.03, 51))[:, None]
+        out = sky + (SNOW_FLAKE - sky) * lit[:, None]
+        return _rgb(out + (SNOW_GLINT - out) * shine[:, None])
+
+
+BULBS = np.array(((240.0, 24.0, 16.0), (24.0, 190.0, 52.0), (255.0, 160.0, 24.0), (24.0, 70.0, 255.0)))   # red, green, gold, blue
+
+
+class StringLights(Effect):
+    """A string of colored bulbs: LEDs in groups of two to four lit in turn red, green, gold and
+    blue, with a dark gap between the bulbs (on a light of 10 LEDs or more; a short one is a bulb
+    per LED). Each bulb dims and brightens on its own, slowly, never off and never a flash.
+    With Flow the bulbs are placed along the whole stage, so the string runs on from light to
+    light. A bulb light cycles through the four colors, fading from one to the next.
+    Speed: how lively the twinkle is (and how fast a bulb light changes color)."""
+    id, name = "string_lights", "Holiday lights"
+    flows = True
+    STAGE_PITCH = 0.035         # with Flow: a bulb every 3.5 % of the stage
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        seed = mem.setdefault("seed", HOLIDAY_SEED)
+        speed = (rate(st.speed) / 0.3) ** 0.5       # 0.3 .. 3.2 times
+        depth = 0.15 + 0.35 * st.speed / 100        # how far a bulb dims: a sixth .. half
+        if n == 1:      # a bulb: the four colors in turn, a fade after a rest on each
+            u = float(_places_mid(1, ctx)[0]) if ctx.get("flow") else 0.0
+            pos = t * rate(st.speed) * 0.5 - (4 * u if ctx.get("flow") else 0.0)    # (with Flow each bulb of the room a step ahead)
+            i = math.floor(pos)
+            mix = float(_smooth(0.55, 1.0, np.array([pos - i]))[0])
+            color = blend(tuple(BULBS[i % 4]), tuple(BULBS[(i + 1) % 4]), [mix])[0]
+            wave = math.sin(2 * math.pi * (t * (0.08 + 0.2 * _hash01(0, seed + 1)) * speed + _hash01(0, seed + 2)))
+            return _rgb((color * (1 - depth * (0.5 + 0.5 * wave) * 0.6))[None, :])
+        if ctx.get("flow"):
+            x = _places_mid(n, ctx) / self.STAGE_PITCH
+            plain = False
+        else:
+            pitch = 6 if n >= 24 else 3 if n >= 10 else 1      # LEDs per bulb and gap
+            x = (np.arange(n) + 0.5) / pitch
+            plain = pitch == 1
+        bulb = np.floor(x).astype(np.int64)
+        frac = x - bulb
+        if plain:    # a short light: every LED a bulb, no gaps
+            shape = np.ones(n)
+        else:           # lit for the first two thirds of the slot, soft at both ends, dark for the rest
+            shape = _smooth(0.0, 0.14, frac) * (1 - _smooth(0.54, 0.68, frac))
+        freq = (0.08 + 0.2 * _hash_np(bulb, seed + 1)) * speed
+        wave = np.sin(2 * math.pi * (t * freq + _hash_np(bulb, seed + 2)))
+        return _rgb(BULBS[bulb % 4] * (shape * (1 - depth * (0.5 + 0.5 * wave)))[:, None])
+
+
+# What the candy cane is when the colors are still the app's usual violet and cyan: red and white.
+APP_COLORS = (LightState().color.lower(), LightState().color2.lower())
+CANE_RED, CANE_WHITE = (222, 18, 36), (255, 246, 238)
+
+
+class CandyCane(Effect):
+    """Stripes of the first color and the second moving slowly along the light, with soft edges,
+    like a candy cane or a barber pole. While the colors are still the app's usual violet and
+    cyan it is red and white; pick two colors for green and white, or anything else. A bulb fades
+    between the two. With Flow the stripes run on across the whole stage. Speed: how fast they move.
+    Nothing here is random, so every light shows the same stripes at the same time."""
+    id, name = "candy_cane", "Candy cane"
+    uses = ("speed", "color", "color2")
+    flows = True
+    STAGE_PAIRS = 8         # with Flow: a pair of stripes is an eighth of the stage
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        if (st.color.lower(), st.color2.lower()) == APP_COLORS:
+            a, b = np.array(CANE_RED, float), np.array(CANE_WHITE, float)
+        else:
+            a, b = np.array(hex_to_rgb(st.color), float), np.array(hex_to_rgb(st.color2), float)
+        pairs = self.STAGE_PAIRS if ctx.get("flow") else min(max(n / 16, 1.0), 24.0)    # about 8 LEDs a stripe
+        x = _places_mid(n, ctx) * pairs - t * rate(st.speed) * 0.35
+        wave = np.cos(2 * math.pi * x)
+        if n == 1:      # a bulb: a plain fade
+            m = 0.5 + 0.5 * wave
+        else:           # stripes: a flattened wave, so the colors hold and the edges are soft
+            m = _smooth(0.0, 1.0, 0.5 + 0.5 * np.clip(1.8 * wave, -1.0, 1.0))
+        return _rgb(a + (b - a) * m[:, None])
+
+
 class Typing(Effect):
     """Every key you press lights up and sends a ripple across the keyboard (where its LEDs are
     known: fixture "geometry"); every other light glows where the key sits on the board, left to
@@ -1124,7 +1276,7 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Typing(), PcLoad(), Daylight(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Snow(), StringLights(), CandyCane(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(),

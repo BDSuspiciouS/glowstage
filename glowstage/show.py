@@ -14,6 +14,7 @@ and decides what all lights do together, the way a festival lighting jockey woul
 - Looks ("scenes") change on phrase boundaries and section changes, with a white hit on the
   first beat of a phrase. Each style has its own color pairs (a main color and an accent) and
   hardness: techno gets red and white with strobes, chill music slow washes and no flashes.
+  Or the person's own colors: 2 to 5 of them take the place of every color pair (set_colors).
 
 The lights in front of you form one stage from left to right (stage_spans): chases run from
 the left of the monitor over the keyboard to the PC. Lights behind you (the Nanoleaf on the
@@ -24,10 +25,12 @@ from __future__ import annotations
 
 import cmath
 import collections
+import colorsys
 import copy
 import logging
 import math
 import random
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -45,6 +48,53 @@ WHITE = np.ones(3, dtype=np.float32)
 
 def _c(h: str) -> np.ndarray:
     return np.array(hex_to_rgb(h), dtype=np.float32) / 255
+
+
+# ---- the person's own colors ---------------------------------------------------------------------
+
+MIN_SHOW_COLORS, MAX_SHOW_COLORS = 2, 5
+DARKEST_PEAK = 0.65     # the brightest channel of a color is lifted to at least this (as in palette.py)
+WHITE_BELOW = 0.12      # saturation under this is a grey or a white, not a color (as in palette.py)
+WARM_WHITE = (255, 214, 170)   # what a grey becomes
+
+
+def clean_show_colors(colors) -> list[str]:
+    """The colors a person picked for the show, checked: none (follow the music) or 2 to 5 different
+    #rrggbb colors, lower case. Anything else is refused."""
+    if colors is None or (isinstance(colors, (list, tuple)) and not colors):
+        return []
+    if not isinstance(colors, (list, tuple)):
+        raise ValueError("Pick colors from the list")
+    out: list[str] = []
+    for c in colors:
+        c = str(c).strip().lower()
+        if not re.fullmatch(r"#[0-9a-f]{6}", c):
+            raise ValueError("Use hex colors like #ff8800")
+        if c not in out:
+            out.append(c)
+    if len(out) < MIN_SHOW_COLORS:
+        raise ValueError(f"Pick at least {MIN_SHOW_COLORS} different colors")
+    if len(out) > MAX_SHOW_COLORS:
+        raise ValueError(f"Pick up to {MAX_SHOW_COLORS} colors")
+    return out
+
+
+def led_color(h: str) -> np.ndarray:
+    """A picked color made for LEDs, keeping what the person chose as far as it can: a grey
+    can't be shown (a grey LED is a dim white), so it becomes a soft warm white, and a dark
+    color is brightened until its brightest channel is at a good level. The hue stays."""
+    r, g, b = (float(x) for x in _c(h))
+    _, s, v = colorsys.rgb_to_hsv(r, g, b)
+    if s < WHITE_BELOW:
+        if v >= 0.85:
+            return WHITE.copy()
+        return np.array(WARM_WHITE, dtype=np.float32) / 255 * max(v, 0.6)
+    rgb = np.array([r, g, b], dtype=np.float32)
+    return rgb * (DARKEST_PEAK / v) if v < DARKEST_PEAK else rgb
+
+
+def _luma(c: np.ndarray) -> float:
+    return float(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2])
 
 
 @dataclass(frozen=True)
@@ -156,6 +206,7 @@ class Frame:
     blackout: bool = False     # the held breath on the last half beat before a drop
     flash: float = 0.0         # blinder, fading
     flash_color: np.ndarray = field(default_factory=lambda: WHITE)
+    white: np.ndarray = field(default_factory=lambda: WHITE)   # the "white" of the riser and the glitter: the lightest of your colors with those
     strobe: bool = False       # this frame is a white strobe flash (build-ups only)
     master: float = 1.0        # the master fader: verses dimmer, choruses and drops full
     prev_scene: str = "idle"   # the look being wiped away ...
@@ -226,6 +277,11 @@ class ShowDirector:
         self._pair_i = 0
         self._prev_pair = STYLES["edm"].pair(0)
         self._pair_changed = -99.0
+        # The person's own colors (None: the colors follow the music) and the lightest of them.
+        self._mine: list[np.ndarray] | None = None
+        self._mine_raw: tuple = ()
+        self._lightest = WHITE
+        self._strobe = True        # the strobe setting of the last frame (a blinder is white only then)
         self._ai: dict = {}
         self._l_fast = self._l_slow = self._l_mid = self._l_mid_peak = 1e-6
         self._bass_env = self._bass_peak = self._bass_max = 1e-6
@@ -305,7 +361,39 @@ class ShowDirector:
             "bpm": round(self.bpm) if self.section != "silent" else 0,
             "half": self.frame.half,
             "chord": self._chord_text if self._t is not None and self._t < self._harmony_until else "",
+            "mine": self._mine is not None,
         }
+
+    def set_colors(self, hexes) -> None:
+        """Use these colors (2 to 5 as #rrggbb) for everything the show lights up, or none to let
+        the music pick them. Cheap to call every frame; a change glides in over a beat."""
+        try:
+            raw = tuple(hexes or ())
+        except TypeError:
+            raw = ()
+        if raw == self._mine_raw:
+            return
+        self._mine_raw = raw
+        try:
+            colors = clean_show_colors(list(raw))
+        except ValueError:
+            colors = []              # (a damaged setting: follow the music)
+        self._mine = [led_color(c) for c in colors] or None
+        self._lightest = max(self._mine, key=_luma) if self._mine else WHITE
+        if self.frame.flash < 0.01:    # (nothing is flashing: the next flash starts in the right color)
+            self.frame.flash_color = self._lightest
+        if self._t is not None:
+            self._set_pair(self._pair_i)
+
+    def _pair(self, style: Style, i: int) -> tuple[np.ndarray, np.ndarray]:
+        """The (main, accent) pair of phrase i. Of your colors each phrase takes the next as its main
+        color and, as its accent, another one that moves on once all have had a turn as main (with
+        two colors they simply swap); otherwise the style's own pair."""
+        mine = self._mine
+        if not mine:
+            return style.pair(i)
+        n = len(mine)
+        return mine[i % n], mine[(i % n + 1 + (i // n) % (n - 1)) % n]
 
     # ---- one frame -------------------------------------------------------------------------
 
@@ -327,6 +415,7 @@ class ShowDirector:
     def _update(self, a: dict, now: float, intensity: float, strobe: bool) -> Frame:
         dt = 0.02 if self._t is None else max(0.0, min(0.1, now - self._t))
         self._t = now
+        self._strobe = strobe
         self._ai = self.genre.request()
         self._follow_style(a)
         self._clock(a, now, dt)
@@ -498,6 +587,8 @@ class ShowDirector:
         if self.section not in ("groove", "drop", "break", "calm"):
             return
         self._chord_downbeat(self._beat - a.get("chord_ago", 0.0) * self.bpm / 60)
+        if self._mine:                           # (the chords still find the "one", but your colors stay)
+            return
         degree = (chord[0] - key[0]) % 12
         pair = {0: 0, 5: 1, 7: 2, 9: 3, 2: 1, 4: 3, 11: 2, 10: 2, 8: 3, 3: 1, 1: 0, 6: 1}[degree]
         self._harmony_until = now + 8.0
@@ -519,11 +610,12 @@ class ShowDirector:
 
     def _colors(self, f: Frame, style: Style) -> None:
         """The phrase's color pair, crossfading from the last one over one beat."""
-        main, accent = style.pair(self._pair_i)
+        main, accent = self._pair(style, self._pair_i)
         k = min(1.0, max(0.0, (self._beat - self._pair_changed) / 1.0))
         pm, pa = self._prev_pair
         f.main, f.accent = pm * (1 - k) + main * k, pa * (1 - k) + accent * k
-        f.colors = style.colors
+        f.colors = self._mine or style.colors
+        f.white = self._lightest
 
     def _set_pair(self, i: int) -> None:
         self._prev_pair = (self.frame.main.copy(), self.frame.accent.copy())
@@ -891,7 +983,10 @@ class ShowDirector:
             style = STYLES[self.style_id]
             blinder = style.drops and (on_count or self._beat - self._blinder_beat >= 16)
             self.frame.flash = 1.0 if blinder else 0.7 if not style.drops else 0.6
-            self.frame.flash_color = WHITE if blinder else style.pair(self._pair_i + 1)[0]
+            if self._mine:     # your colors: the blinder is white only when strobes are wanted
+                self.frame.flash_color = WHITE if blinder and self._strobe else self._lightest
+            else:
+                self.frame.flash_color = WHITE if blinder else style.pair(self._pair_i + 1)[0]
             if blinder:
                 self._blinder_beat = self._beat
             if on_count:
@@ -919,7 +1014,7 @@ class ShowDirector:
             style = STYLES[self.style_id]
             if self.section in ("groove", "drop") and style.pump != "none":  # hit the new phrase's downbeat
                 f = self.frame
-                f.flash, f.flash_color = max(f.flash, 0.4 + 0.3 * f.hard), style.pair(self._pair_i)[0]
+                f.flash, f.flash_color = max(f.flash, 0.4 + 0.3 * f.hard), self._pair(style, self._pair_i)[0]
 
     def _next_scene(self, entry: bool = False, cut: bool = False) -> None:
         """The next look: from the song's cue list when this part was heard before (so a second
@@ -1121,14 +1216,14 @@ def _sparkle(f: Frame, x, mem):
         mem["rng"] = np.random.default_rng()
     spark *= 0.8
     spark[mem["rng"].random(n) < 0.01 + 0.15 * f.treble * f.treble + 0.12 * f.hat + 0.2 * f.hit] = 1.0
-    return _fill(n, f.main, 0.06) + spark[:, None] * (WHITE * 0.6 + f.accent * 0.4)[None, :]
+    return _fill(n, f.main, 0.06) + spark[:, None] * (f.white * 0.6 + f.accent * 0.4)[None, :]
 
 
 def _riser(f: Frame, x, mem):
     """Build-up: the light closes in from both ends and turns white; snare hits flash it all."""
     d = np.abs(x - 0.5) * 2
     filled = (d >= 1 - max(0.06, f.build)).astype(np.float32)[:, None]
-    color = f.main * (1 - 0.45 * f.build) + WHITE * 0.45 * f.build
+    color = f.main * (1 - 0.45 * f.build) + f.white * 0.45 * f.build
     out = filled * (color * (0.35 + 0.65 * max(f.build, f.hit)))[None, :] + (1 - filled) * (f.accent * 0.04)[None, :]
     return out + (color * 0.7 * f.hit * f.build)[None, :]
 
@@ -1228,7 +1323,7 @@ def _back(f: Frame, n: int, mem, slow: bool = False) -> np.ndarray:
     if sec == "gap":
         return np.zeros((n, 3), dtype=np.float32)
     if sec == "build":
-        color = f.main * (1 - 0.45 * f.build) + WHITE * 0.45 * f.build
+        color = f.main * (1 - 0.45 * f.build) + f.white * 0.45 * f.build
         return _fill(n, color, 0.15 + 0.85 * max(f.hit, f.build * f.pump))
     if sec in ("groove", "drop"):
         if f.scene in ("flow", "breathe", "drift"):        # chill music: the back wall just glows along

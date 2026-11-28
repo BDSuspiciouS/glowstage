@@ -27,7 +27,7 @@ function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label, x.balance]),
     d.hubs, d.openrgb, d.genreAi, d.settings, d.games, (d.drivers || []).length, d.stage, d.schedules,
-    (d.presets || []).map(p => p.name), d.hotkeysTaken, d.remote, d.appLooks]);
+    (d.presets || []).map(p => p.name), d.hotkeysTaken, d.hotkeyKeys, d.remote, d.appLooks]);
 }
 
 function renderSettings(force = false) {
@@ -396,6 +396,13 @@ function automaticSection() {
   return h("section", { class: "set-section", id: "set-automatic" },
     h("h3", { text: "Automatic" }),
     h("p", { class: "hint", text: "Your lights change by themselves and go back to how they were afterwards. Change anything yourself and Glowstage leaves them alone until it's over." }),
+    S.data.autoPaused
+      ? h("div", { class: "toggle-row" }, h("span", { text: `All of these are paused until ${pausedUntil(S.data.autoPaused)}` }),
+          h("button", { class: "btn", type: "button", text: "Resume", onclick: resumeAutomatic }))
+      : h("div", { class: "toggle-row" }, h("span", { text: "Pause all of these for a while" }),
+          h("div", { class: "form-actions", style: "margin:0" },
+            h("button", { class: "btn", type: "button", text: "For an hour", onclick: () => pauseAutomatic(60) }),
+            h("button", { class: "btn", type: "button", text: "Until tomorrow", onclick: () => pauseAutomatic("tomorrow") }))),
     pick("auto_game", "When a game is full screen", looks, s.auto_game || ""),
     pick("auto_video", "When a video is full screen (a browser or video player)", looks, s.auto_video || ""),
     pick("auto_call", "When your camera or microphone is on (a call)",
@@ -574,7 +581,9 @@ function linksPart(r) {
     ...[["rainbow", "Rainbow wave"], ["fire", "Fire"], ["candle", "Candle"], ["aurora", "Aurora"], ["ocean", "Ocean"],
       ["screen", "Screen sync"]].map(([id, name]) => ["effect/" + id, `Look: ${name}`]),
     ["show/start", "Start the light show"], ["show/stop", "Stop the light show"],
-    ["sleep/30", "Sleep timer 30 min"], ["sleep/cancel", "Cancel the sleep timer"], ["undo", "Undo"]];
+    ["sleep/30", "Sleep timer 30 min"], ["sleep/cancel", "Cancel the sleep timer"],
+    ["pause/60", "Pause automatic looks for an hour"], ["pause/tomorrow", "Pause automatic looks until tomorrow"],
+    ["resume", "Resume automatic looks"], ["undo", "Undo"]];
   if (!actions.some(([v]) => v === linkPick)) linkPick = "on";
   const linkFor = v => `${r.api}/${v}?k=${r.key}`;
   const field = h("input", { class: "phone-link", type: "text", readonly: true, id: "phone-link", value: linkFor(linkPick) });
@@ -675,9 +684,12 @@ function appSection() {
     row("soft_flashes", "Soften flashes: no look flashes, every light brightens and dims softly"),
     s.soft_flashes ? h("p", { class: "hint", text: "For people who are sensitive to flashing light. Lightning, kills in games and the beats of the light show swell softly instead, and the light show leaves out its strobes." }) : null,
     row("check_updates", "Check once a day for a new version (asks GitHub; sends nothing about you)"),
-    row("hotkeys", "Hotkeys from any program: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets, +↑/↓ brightness, +N the sleep timer, +Z undo"),
-    (S.data.hotkeysTaken || []).length && s.hotkeys
-      ? h("p", { class: "hint", text: `Another program already uses ${S.data.hotkeysTaken.join(", ")}: those don't work here.` }) : null,
+    row("hotkeys", "Hotkeys from any program: your lights, presets and timers from a key, also in a game"),
+    h("p", { class: "hint", text: keySummary() }),
+    s.hotkeys && (S.data.hotkeysTaken || []).length
+      ? h("p", { class: "hint", text: `Another program already uses ${S.data.hotkeysTaken.map(t => `${t.key} (${t.label})`).join(", ")}: that doesn't work here. Choose another key under Change keys.` }) : null,
+    h("div", { class: "form-actions" },
+      h("button", { class: "btn", type: "button", text: "Change keys", onclick: openHotkeys })),
     h("div", { class: "form-actions", style: "margin-top:14px" },
       h("button", { class: "btn", type: "button", text: "Show the welcome tour", onclick: () => { closeSettings(); openWizard(); } }),
       h("button", { class: "btn", type: "button", text: "Restart Glowstage",
@@ -691,6 +703,150 @@ function appSection() {
       about.repo ? h("button", { class: "btn", type: "button", text: "Project page", onclick: () => call("open_link", about.repo) }) : null,
       about.repo ? h("button", { class: "btn btn-quiet", type: "button", text: "Check for updates",
         onclick: () => call("open_link", about.repo + "/releases") }) : null));
+}
+
+/* "Change keys": every hotkey action with its key (hotkeys.py keeps and checks them). Click a key, or
+   press Enter on it, then press the new combination: it shows while you press, Escape cancels,
+   Backspace or Delete clears it. Glowstage's own hotkeys are paused while this window is open: they
+   would take the keys before the window sees them. */
+const HK_CODES = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Home: "Home", End: "End",
+  PageUp: "PageUp", PageDown: "PageDown", Insert: "Insert", Delete: "Delete", Space: "Space",
+  NumpadMultiply: "Num*", NumpadAdd: "Num+", NumpadSubtract: "Num-", NumpadDecimal: "Num.", NumpadDivide: "Num/" };
+
+/** The name hotkeys.py knows for a physical key (by its code, so Shift+1 is still the 1 key), or "". */
+function hotkeyName(code) {
+  let m = /^Key([A-Z])$/.exec(code) || /^Digit(\d)$/.exec(code);
+  if (m) return m[1];
+  m = /^F(\d{1,2})$/.exec(code);
+  if (m) return +m[1] >= 1 && +m[1] <= 24 ? code : "";
+  m = /^Numpad(\d)$/.exec(code);
+  return m ? "Num" + m[1] : (HK_CODES[code] || "");
+}
+
+async function openHotkeys() {
+  let st = await call("get_hotkeys");
+  if (!st) return;
+  const msgs = {};              // what went wrong with an action's key, in words
+  let capturing = null;         // the key button that is waiting for a combination
+  let focusAction = null;       // the key to put the focus back on after a redraw
+  const wrap = h("div", { class: "hk" });
+  const change = async (fn, ...args) => {
+    const r = await callRaw(fn, ...args);
+    if (r && r.ok !== false) { st = r.result; return ""; }
+    return (r && r.error) || "That didn't work";
+  };
+  const modsOf = e => [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+
+  const keyButton = a => {
+    const btn = h("button", { class: "hk-key" + (a.key ? "" : " is-empty"), type: "button", "data-action": a.id,
+      "aria-label": `${a.label}: ${a.key || "no key"}. Press Enter to change it.`, text: a.key || "No key" });
+    const stop = () => { capturing = null; btn.classList.remove("is-capturing"); btn.textContent = a.key || "No key"; };
+    const start = () => {
+      if (capturing === btn) return;
+      capturing = btn;
+      delete msgs[a.id];
+      btn.classList.add("is-capturing");
+      btn.textContent = "Press the new keys…";
+    };
+    const redraw = () => { focusAction = a.id; draw(); };
+    btn.addEventListener("click", e => { if (e.detail > 0) start(); });      // (the mouse; the keyboard starts below)
+    btn.addEventListener("blur", () => { if (capturing === btn) stop(); });
+    btn.addEventListener("keyup", e => {
+      if (capturing !== btn) return;
+      e.preventDefault(); e.stopPropagation();
+      const mods = modsOf(e);
+      btn.textContent = mods.length ? mods.join("+") + "+…" : "Press the new keys…";
+    });
+    btn.addEventListener("keydown", async e => {
+      if (capturing !== btn) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); start(); }
+        return;
+      }
+      const mods = modsOf(e);
+      if (e.key === "Tab" && !mods.length) { stop(); return; }              // (on to the next field)
+      e.preventDefault(); e.stopPropagation();                              // (the keys are for the combination)
+      if (e.key === "Escape") { stop(); return; }
+      if (!mods.length && (e.key === "Backspace" || e.key === "Delete")) {
+        stop();
+        const err = await change("clear_hotkey", a.id);
+        if (err) msgs[a.id] = err;
+        redraw();
+        return;
+      }
+      if (/^(Control|Alt|Shift|Meta|OS)$/.test(e.key)) { btn.textContent = mods.join("+") + "+…"; return; }
+      const key = hotkeyName(e.code);
+      if (!key) { btn.textContent = [...mods, "…"].join("+") + " (that key can't be used)"; return; }
+      const combo = [...mods, key].join("+");
+      btn.textContent = combo;
+      stop();
+      const err = await change("set_hotkey", a.id, combo);
+      if (err) msgs[a.id] = err;
+      redraw();
+    });
+    return btn;
+  };
+
+  const row = a => h("div", { class: "hk-row" },
+    h("div", { class: "hk-what" }, h("span", { text: a.label }), a.detail ? h("span", { class: "hk-detail", text: a.detail }) : null),
+    h("div", { class: "hk-keycell" },
+      keyButton(a),
+      a.key ? h("button", { class: "btn btn-quiet btn-sm hk-clear", type: "button", text: "Clear", "aria-label": `Clear the key for ${a.label}`,
+        onclick: async () => { const err = await change("clear_hotkey", a.id); if (err) msgs[a.id] = err; focusAction = a.id; draw(); } }) : h("span", { class: "hk-gap" }),
+      a.section === "named" ? h("button", { class: "btn btn-quiet btn-sm", type: "button", text: "Remove", "aria-label": `Remove the row for ${a.label}`,
+        onclick: async () => { const err = await change("remove_preset_hotkey", a.label); if (err) toast(err, true); draw(); } }) : null),
+    msgs[a.id] || (a.taken && a.key)
+      ? h("p", { class: "hk-msg", role: msgs[a.id] ? "alert" : null,
+          text: msgs[a.id] || "Another program already has this key, so it doesn't work here. Choose another." }) : null);
+
+  const section = (title, items, extra) => h("div", {}, h("h3", { class: "keys-head", text: title }), items.map(row), extra);
+
+  function draw() {
+    const of = name => st.actions.filter(a => a.section === name);
+    const free = st.presets.filter(n => !st.actions.some(a => a.id === "preset:" + n));
+    fill(wrap,
+      h("p", { class: "hint", text: "Click a key, or press Enter on it, then press the new combination. Escape cancels; Backspace or Delete clears it." }),
+      h("p", { class: "hint", text: "Use Ctrl, Alt, Shift or Win with a letter, a digit, F1 to F24, an arrow, Home, End, Page Up, Page Down, Insert, Delete, Space or a numpad key. F13 to F24 need no modifier: macro keys on a keyboard or mouse often send them. Glowstage's own hotkeys are paused while this window is open." }),
+      !st.enabled ? h("p", { class: "hint", text: "The hotkeys are off now: switch them on in Setup → App." }) : null,
+      section("Lights and timers", of("actions")),
+      section("Presets by place in the list", of("positions")),
+      section("Presets by name", of("named"), h("div", { class: "hk-add" },
+        free.length ? h("select", { class: "text-input", "aria-label": "Add a key for a preset",
+          onchange: async e => {
+            const name = e.target.value;
+            if (!name) return;
+            const err = await change("add_preset_hotkey", name);
+            if (err) toast(err, true); else focusAction = "preset:" + name;
+            draw();
+          } },
+          h("option", { value: "", text: "Add a key for a preset…" }), free.map(n => h("option", { value: n, text: n }))) : null,
+        h("p", { class: "hint", text: "A preset keeps its key when you rename it, and loses it when you delete it." }))),
+      h("div", { class: "form-actions", style: "margin-top:16px" },
+        h("button", { class: "btn", type: "button", text: "Reset all", onclick: async () => {
+          Object.keys(msgs).forEach(k => delete msgs[k]);
+          const err = await change("reset_hotkeys");
+          if (err) toast(err, true);
+          draw();
+        } }),
+        h("span", { class: "hint", text: "Puts every key back as it came, and removes the keys for presets by name." })));
+    if (focusAction) {
+      const btn = [...wrap.querySelectorAll(".hk-key")].find(b => b.dataset.action === focusAction);
+      focusAction = null;
+      if (btn) btn.focus();
+    }
+  }
+  draw();
+
+  const paused = await callRaw("pause_hotkeys");
+  if (!paused || paused.ok === false) { toast((paused && paused.error) || "Couldn't pause the hotkeys", true); return; }
+  const beat = setInterval(() => callRaw("pause_hotkeys"), 30000);    // (they come back by themselves if this window vanishes)
+  const finish = async () => { clearInterval(beat); await callRaw("resume_hotkeys"); refresh(true); };
+  try {
+    openModal({ title: "Change keys", wide: true, cancel: false, body: wrap, ok: "Done", onOk: () => true, onClose: finish });
+  } catch (e) {
+    finish();
+    throw e;
+  }
+  setTimeout(() => { const first = wrap.querySelector(".hk-key"); if (first) first.focus(); }, 40);
 }
 
 /* Report a problem: what goes with it, to read first, then a GitHub issue with it filled in. */

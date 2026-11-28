@@ -12,7 +12,7 @@ from pathlib import Path
 
 import webview
 
-from . import automations, backups, diagnostics, genre_install, online, palette, screen, wallpaper, webfix, whatsnew, winutil
+from . import automations, backups, diagnostics, genre_install, online, palette, screen, show, wallpaper, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -65,7 +65,10 @@ class Api:
         changed since, only the parts that change all the time: a small answer every second
         instead of every light, preset and effect."""
         extra = {"settings": {**self._app.config["settings"], "autostart": winutil.autostart_enabled()},
-                 "hotkeysTaken": list(self._app.hotkeys.failed),
+                 "hotkeysTaken": [{"id": a, "label": self._app.hotkeys.label(a), "key": k}
+                                  for a, k in self._app.hotkeys.taken.items()],
+                 "hotkeyKeys": [{"id": a["id"], "label": a["label"], "key": a["key"]}
+                                for a in self._app.hotkeys.actions() if a["key"]],
                  "about": {"name": APP_NAME, "version": VERSION, "repo": f"https://github.com/{REPO}",
                            "donate": self._app.online.donate_links()},
                  "update": self._app.online.update(),
@@ -129,6 +132,15 @@ class Api:
         self._m.focus.start(work, rest, rounds, look)
 
     @_safe
+    def pause_automatic(self, minutes):
+        """No automatic look for an hour, three, or until tomorrow ("tomorrow"): when it's over."""
+        return self._m.automations.pause(minutes)
+
+    @_safe
+    def resume_automatic(self):
+        self._m.automations.resume()
+
+    @_safe
     def skip_focus(self):
         self._m.focus.skip()
 
@@ -153,6 +165,12 @@ class Api:
     @_safe
     def set_show_excluded(self, ids):
         self._m.set_show_excluded(ids)
+
+    @_safe
+    def set_show_colors(self, colors):
+        """The light show in your own colors: 2 to 5 as #rrggbb, or none to let the music pick them."""
+        self._app.config["settings"]["show_colors"] = show.clean_show_colors(colors)
+        self._app.config.save_soon()
 
     @_safe
     def set_show_sync(self, ms):
@@ -330,10 +348,7 @@ class Api:
     def colors_from_wallpaper(self):
         """The colors of the desktop wallpaper, now on the lights (Undo like a preset): the same
         answer as colors_from_picture."""
-        colors, img = wallpaper.look()
-        self._m.remember()
-        if not self._m.light_from_colors(colors):
-            raise ValueError("Switch a light on first, then try again")
+        colors, img = self._m.light_from_wallpaper()
         return {"colors": colors, "name": wallpaper.NAME, "thumb": palette.thumbnail_url(img)}
 
     @_safe
@@ -470,7 +485,7 @@ class Api:
         if key == "autostart":
             winutil.set_autostart(bool(value))
             return
-        if key not in self._app.config["settings"]:
+        if key not in self._app.config["settings"] or key == "hotkey_keys":   # (the keys have calls of their own)
             raise ValueError(f"Unknown setting {key}")
         if key in ("auto_game", "auto_video"):   # "", "screen", "screen_sound" or "preset:<name>"
             value = str(value or "")
@@ -491,6 +506,54 @@ class Api:
         self._app.config.save_soon()
         if key == "hotkeys":
             self._app.hotkeys.set_enabled(bool(value))
+
+    # ---- the keys for the hotkeys (Setup → App → Change keys; hotkeys.py) ----------------------
+
+    def _hotkey_list(self):
+        hk = self._app.hotkeys
+        return {"enabled": bool(self._app.config["settings"].get("hotkeys")), "actions": hk.actions(),
+                "presets": self._m.preset_names()}
+
+    @_safe
+    def get_hotkeys(self):
+        """Every action with its key and whether another program has it, and the presets (for the
+        picker that gives a preset a key of its own)."""
+        return self._hotkey_list()
+
+    @_safe
+    def set_hotkey(self, action, key):
+        """A new key for one action: refused with the reason when it can't be one (hotkeys.py)."""
+        self._app.hotkeys.set_key(str(action), str(key))
+        return self._hotkey_list()
+
+    @_safe
+    def clear_hotkey(self, action):
+        self._app.hotkeys.clear_key(str(action))
+        return self._hotkey_list()
+
+    @_safe
+    def add_preset_hotkey(self, name):
+        self._app.hotkeys.add_preset(str(name))
+        return self._hotkey_list()
+
+    @_safe
+    def remove_preset_hotkey(self, name):
+        self._app.hotkeys.remove_preset(str(name))
+        return self._hotkey_list()
+
+    @_safe
+    def reset_hotkeys(self):
+        self._app.hotkeys.reset()
+        return self._hotkey_list()
+
+    @_safe
+    def pause_hotkeys(self):
+        """While the key dialog is open: Glowstage's own hotkeys would take the keys before the window sees them."""
+        self._app.hotkeys.pause()
+
+    @_safe
+    def resume_hotkeys(self):
+        self._app.hotkeys.resume()
 
     @_safe
     def list_displays(self):

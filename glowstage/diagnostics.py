@@ -13,6 +13,7 @@ import re
 import sys
 from urllib.parse import urlencode
 
+from . import hotkeys
 from .paths import APP_DIR, FROZEN, REPO, VERSION
 
 LOG = APP_DIR / "glowstage.log"
@@ -65,9 +66,11 @@ def report(app) -> str:
         f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}",
         f"League of Legends {'on' if m.games.settings.get('lol') else 'off'}",
         f"Dota 2 {'connected' if m.games.settings.get('dota') else 'off'}"]))
+    keys = getattr(app, "hotkeys", None)      # (the keys another program already has: which actions)
+    taken = [f"{keys.label(a)} {k}" for a, k in keys.taken.items()] if keys else []
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
-        f"hotkeys {'on' if s.get('hotkeys') else 'off'}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
+        f"hotkeys {hotkeys.summary(s, m.preset_names(), taken)}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"automatic looks {'paused' if m.automations.paused_until() else 'on'}", f"schedules {len(app.config.data.get('schedules') or [])}",
         f"sound {m.engine.audio.device or 'not listening now'}"]))
     problems = recent_problems()
     out.append("Last warnings in the log:" if problems else "No warnings in the log.")

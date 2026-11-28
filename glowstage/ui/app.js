@@ -333,9 +333,10 @@ function renderHomeNotes() {
   const wake = S.data.wake;
   const cycle = S.data.cycle;
   const focus = S.data.focus;
+  const paused = S.data.autoPaused;
   const news = !S.newsClosed && S.data.whatsNew;
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
-    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
+    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, paused, news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
@@ -376,7 +377,15 @@ function renderHomeNotes() {
       h("div", { class: "note-text" }, h("strong", { text: auto.title }), h("span", { class: "muted", text: auto.text })),
       h("div", { class: "note-actions" },
         h("button", { class: "btn", type: "button", text: "Put my lights back", onclick: async () => {
-          await call("stop_automation"); refresh(true); } }))) : null,
+          await call("stop_automation"); refresh(true); } }),
+        h("button", { class: "btn", type: "button", text: "Pause for an hour", title: "No automatic looks for an hour: games, videos, calls, apps and music leave your lights alone",
+          onclick: () => pauseAutomatic(60) }))) : null,
+    paused ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("spark")),
+      h("div", { class: "note-text" }, h("strong", { text: `Automatic looks paused until ${pausedUntil(paused)}` }),
+        h("span", { class: "muted", text: "Games, videos, calls, apps and music leave your lights alone until then." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Resume", onclick: resumeAutomatic }))) : null,
     news ? h("div", { class: "note card note-new", role: "status" },
       h("span", { class: "note-icon" }, icon("spark")),
       h("div", { class: "note-text" }, h("strong", { text: news.since ? `New since Glowstage ${news.since}` : `New in Glowstage ${news.version}` }),
@@ -423,6 +432,13 @@ function renderHomeNotes() {
 function showNew(where) {
   if (where === "sleep") return openSleepTimer();
   if (where === "focus") return openFocus();
+  if (where === "show:colors") {         // the Light show page, at its Colors choice
+    go("show");
+    const pick = $("#show-colors-mine");
+    setTimeout(() => { pick.scrollIntoView({ block: "center", behavior: "smooth" }); pick.focus({ preventScroll: true });
+      pick.classList.add("btn-pulse"); setTimeout(() => pick.classList.remove("btn-pulse"), 1600); }, 200);   // (after the page is shown)
+    return;
+  }
   if (where === "search") return openSearch();
   if (where.startsWith("setup:")) {
     go("setup");
@@ -530,6 +546,24 @@ async function stopWallpaperFollow() {
   await call("stop_wallpaper_follow"); toast("No longer following your wallpaper: your lights stay as they are"); refresh(true);
 }
 
+/** Pause the automatic looks: 60 or 180 minutes, or "tomorrow" (until 6 in the morning). */
+async function pauseAutomatic(minutes) {
+  const r = await callRaw("pause_automatic", minutes);
+  if (!r || r.ok === false) { toast((r && r.error) || "Couldn't pause them", true); return; }
+  toast(`Automatic looks paused until ${pausedUntil(r.result)}`, false, { label: "Resume", run: resumeAutomatic });
+  refresh(true);
+}
+
+async function resumeAutomatic() {
+  await call("resume_automatic"); toast("Automatic looks are back on"); refresh(true);
+}
+
+/** "21:30", or "tomorrow 06:00" when the pause runs past midnight. */
+function pausedUntil(epoch) {
+  const at = new Date(epoch * 1000), today = new Date();
+  return (at.toDateString() === today.toDateString() ? "" : "tomorrow ") + clockTime(epoch);
+}
+
 async function stopCycle() {
   await call("stop_cycle"); toast("Presets in turn stopped: your lights stay as they are"); refresh(true);
 }
@@ -602,6 +636,9 @@ const FX_LOOK = {
   ocean: "linear-gradient(90deg, #00125a, #0046a0, #0096a5, #d2f6fa 52%, #0096a5, #00125a)",
   lava: "linear-gradient(90deg, #1a0406, #aa0818, #ff6908 35%, #e11478 62%, #aa0818 80%, #1a0406)",
   storm: "linear-gradient(90deg, #1a2236, #3a4663, #1a2236 55%, #f2f6ff 62%, #3a4663 70%, #1a2236)",
+  snow: "linear-gradient(90deg, #07103a, #07103a 20%, #dbe8ff 26%, #07103a 33%, #101e50 55%, #c4d6ff 62%, #07103a 70%, #07103a)",
+  string_lights: "linear-gradient(90deg, #f01810, #f01810 12%, #0b0b0b 17%, #18be34 22%, #18be34 33%, #0b0b0b 38%, #ffa018 43%, #ffa018 54%, #0b0b0b 59%, #1846ff 64%, #1846ff 75%, #0b0b0b 80%, #f01810 85%)",
+  candy_cane: "repeating-linear-gradient(115deg, #de1224 0 10px, #fff6ee 10px 20px)",
   typing: "linear-gradient(90deg, #1b1430, #00e5ff 28%, #1b1430 48%, #7c4dff 72%, #1b1430)",
   pc_load: "linear-gradient(90deg, #2bff6a 0%, #ffd23a 35%, #ff3a2a 70%, #1b2a20 70%)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
@@ -986,7 +1023,7 @@ function openPresetMenu(p) {
     return true;
   };
   const place = `Number ${at + 1} of ${names.length}: the tray menu and Home show presets in this order (drag a card to move it)`
-    + (at < 9 ? `, and Ctrl+Alt+Shift+${at + 1} switches it on${hotkeys ? "" : " (with hotkeys on, in Setup → App)"}.` : ".");
+    + (presetKey(p.name, at) ? `, and ${presetKey(p.name, at)} switches it on${hotkeys ? "" : " (with hotkeys on, in Setup → App)"}.` : ".");
   openModal({
     title: p.name,
     body: h("div", { class: "preset-menu" },
@@ -1485,6 +1522,56 @@ const PREVIEW = {
       return lerp(cloud.map(v => v * (0.3 + 0.7 * c)), bolt, level * w);
     });
   },
+  snow: (t, n, st) => {   /* the same flakes as effects.py's Snow, from a fixed seed */
+    const seed = 7, night = [7, 16, 52], icy = [38, 78, 150], flake = [206, 226, 255], sp = Math.pow(rate(st.speed) / 0.3, 0.3);
+    const bulb = n === 1, space = n > 1 ? 1 / n : 0.1;
+    const fl = Array.from({ length: bulb ? 6 : 8 }, (_, k) => {
+      const depth = hash01(k, seed + 2), phase = (t / (7 + 8 * hash01(k, seed + 6)) + hash01(k, seed + 7)) % 1;
+      const glint = hash01(k, seed + 5) < 0.6 ? Math.sin(Math.PI * clamp(phase / 0.07, 0, 1)) ** 2 : 0;
+      const amp = 0.5 + 0.45 * depth;
+      return { pos: ((hash01(k, seed + 1) - (0.025 + 0.035 * depth) * sp * t) % 1 + 1) % 1,
+        sigma: Math.max(0.008 + 0.014 * depth, 0.8 * space), amp: amp + (1 - amp) * glint, glint };
+    });
+    return Array.from({ length: n }, (_, i) => {
+      const u = (i + 0.5) / n;
+      let clear = 1, shine = 0;
+      for (const f of fl) {
+        const d = ((u - f.pos + 0.5) % 1 + 1) % 1 - 0.5, g = Math.exp(-0.5 * (d / f.sigma) ** 2);
+        clear *= 1 - f.amp * g;
+        shine += f.glint * g;
+      }
+      const sky = scaleRgb(bulb ? icy : night, 0.85 + 0.3 * noise(u * 2.2 + t * 0.03, 51));
+      return lerp(lerp(sky, flake, 1 - clear), [255, 255, 255], Math.min(1, shine) * 0.55);
+    });
+  },
+  string_lights: (t, n, st) => {   /* red, green, gold and blue bulbs, each dimming and brightening on its own */
+    const bulbs = [[240, 24, 16], [24, 190, 52], [255, 160, 24], [24, 70, 255]], seed = 7;
+    const sp = Math.pow(rate(st.speed) / 0.3, 0.5), depth = 0.15 + 0.35 * st.speed / 100;
+    if (n === 1) {
+      const pos = t * rate(st.speed) * 0.5, i = Math.floor(pos), k = clamp((pos - i - 0.55) / 0.45, 0, 1);
+      const wave = Math.sin(2 * Math.PI * (t * (0.08 + 0.2 * hash01(0, seed + 1)) * sp + hash01(0, seed + 2)));
+      return [scaleRgb(lerp(bulbs[i % 4], bulbs[(i + 1) % 4], k * k * (3 - 2 * k)), 1 - depth * (0.5 + 0.5 * wave) * 0.6)];
+    }
+    const pitch = n >= 24 ? 6 : n >= 10 ? 3 : 1;
+    const ss = (lo, hi, x) => { const k = clamp((x - lo) / (hi - lo), 0, 1); return k * k * (3 - 2 * k); };
+    return Array.from({ length: n }, (_, i) => {
+      const x = (i + 0.5) / pitch, bulb = Math.floor(x), f = x - bulb;
+      const shape = pitch === 1 ? 1 : ss(0, 0.14, f) * (1 - ss(0.54, 0.68, f));
+      const wave = Math.sin(2 * Math.PI * (t * (0.08 + 0.2 * hash01(bulb, seed + 1)) * sp + hash01(bulb, seed + 2)));
+      return scaleRgb(bulbs[bulb % 4], shape * (1 - depth * (0.5 + 0.5 * wave)));
+    });
+  },
+  candy_cane: (t, n, st) => {   /* stripes of the two colors (red and white while they are still the app's violet and cyan) */
+    const stock = st.color.toLowerCase() === "#7c4dff" && st.color2.toLowerCase() === "#00e5ff";
+    const a = stock ? [222, 18, 36] : hexToRgb(st.color), b = stock ? [255, 246, 238] : hexToRgb(st.color2);
+    const pairs = clamp(n / 16, 1, 24);
+    return Array.from({ length: n }, (_, i) => {
+      const w = Math.cos(2 * Math.PI * ((i + 0.5) / n * pairs - t * rate(st.speed) * 0.35));
+      let m = 0.5 + 0.5 * (n === 1 ? w : clamp(1.8 * w, -1, 1));
+      if (n > 1) m = m * m * (3 - 2 * m);
+      return lerp(a, b, m);
+    });
+  },
   typing: (t, n, st) => {   /* someone typing: a key every 0.17 s, with pauses between words */
     const c = hexToRgb(st.color), bg = scaleRgb(hexToRgb(st.color2), 0.08), tau = 1.6 * Math.pow(0.12, st.speed / 100);
     const level = new Array(n).fill(0), step = 0.17, last = Math.floor(t / step);
@@ -1701,6 +1788,9 @@ function renderEffects() {
     : fx.id === "ocean" ? "Slow waves of deep blue and teal roll along your lights, with a little foam on the crests. With Flow on, the waves roll across your whole setup."
     : fx.id === "lava" ? "Warm blobs of red, orange and magenta drift, merge and part on a dark background. It uses its own colors. With Flow on, the blobs wander across your whole setup."
     : fx.id === "storm" ? "Clouds drift over your lights and now and then lightning strikes, never more than three flashes a second. Speed sets how often it strikes. With Flow on, a strike lights up one part of your setup most. Lights that update slowly hold the flash a little longer."
+    : fx.id === "snow" ? "Soft white flakes drift down through a winter-night blue, now and then one catching the light. Flakes move towards the start of a strip, and a bulb brightens softly as one passes. Speed sets how fast it snows. With Flow on, the flakes drift across your whole setup."
+    : fx.id === "string_lights" ? "A string of red, green, gold and blue bulbs, each one dimming and brightening slowly on its own, with a dark gap between them. A bulb takes the four colors in turn. Speed sets how lively the twinkle is. With Flow on, the string runs on across your whole setup."
+    : fx.id === "candy_cane" ? "Red and white stripes with soft edges move slowly along your lights, like a candy cane. Pick two other colors for green and white, or anything you like. A bulb fades between the two. With Flow on, the stripes run across your whole setup."
     : fx.id === "pc_load" ? "Your lights fill up as your PC gets busy, from the first color when it's idle to the second when it's working hard. The graphics card shows its own load. Glowstage asks Windows twice a second while this runs and keeps nothing."
     : fx.id === "music_show" ? showNote(S.data.show, audio)
     : fx.group === "music" ? `Listening to ${audio.device || "your PC's sound output"}. Speed sets how punchy it is; when the music stops, the lights glow softly.`
@@ -1764,7 +1854,8 @@ function showNote(show, audio) {
     : show.aiError ? `${show.aiError}; style from the tempo: ${show.style}` : `Style: ${show.style} (the AI is still listening)`;
   const tempo = show.bpm ? ` · ${show.bpm} BPM${show.half ? " (half time)" : ""}` : "";
   const chord = show.chord ? ` · colors follow the chords (${show.chord})` : "";
-  return `${genre} · ${SHOW_SECTIONS[show.section] || show.section}${tempo}${chord}. Speed sets how wild it gets.`;
+  const mine = show.mine ? " · in your colors" : "";
+  return `${genre} · ${SHOW_SECTIONS[show.section] || show.section}${tempo}${chord}${mine}. Speed sets how wild it gets.`;
 }
 
 /* ---- light show page ---- */
@@ -1827,12 +1918,71 @@ function renderShow() {
   $("#show-strobe").disabled = soft;
   $("#show-strobe").closest(".switch-row").querySelector(".muted").textContent = soft ? "Off: flashes are softened (Setup → App)" : "On the big moments";
   $("#show-auto").checked = !!S.data.settings.auto_show;
+  renderShowColors();
   const g = S.data.genreAi;
   $("#show-how").textContent = g && g.installed
     ? "Listens to what your PC plays (no microphone), hears which of 400 music styles it is with the enhanced genre AI on this PC, and follows the beat, build-ups and drops."
     : "Listens to what your PC plays (no microphone), hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.";
   $("#show-ai-get").hidden = !g || g.installed;
   renderSync(audio);
+}
+
+/* Colors of the show: "Follow the music" (none saved) or "My colors" (2 to 5 of your own). */
+const SHOW_COLORS_MIN = 2, SHOW_COLORS_MAX = 5;
+const showColors = () => (S.data.settings.show_colors || []).filter(c => hexToRgb(c));
+
+function renderShowColors() {
+  const list = showColors(), mine = list.length >= SHOW_COLORS_MIN;
+  $("#show-colors-music").setAttribute("aria-checked", String(!mine));
+  $("#show-colors-mine").setAttribute("aria-checked", String(mine));
+  $("#show-colors-sub").textContent = mine
+    ? "Every color of the show comes from yours; the moves stay the same. Dark and grey picks are brightened for LEDs."
+    : "The music picks them: each style has its own, and they follow the chords.";
+  $("#show-colors-box").hidden = !mine;
+  if (!mine) { $("#show-colors-tray").hidden = true; return; }
+  const chips = list.map((c, i) => h("span", { style: "position:relative;display:inline-block" },
+    h("span", { class: "chip", role: "img", "aria-label": `Color ${i + 1}: ${c}`, title: c, style: `background:${c};display:block` }),
+    list.length > SHOW_COLORS_MIN ? h("button", { class: "chip-x", type: "button", "aria-label": `Remove ${c}`, title: "Remove", text: "×",
+      onclick: () => setShowColors(list.filter((_, j) => j !== i)) }) : null));
+  const add = list.length < SHOW_COLORS_MAX
+    ? h("button", { class: "chip-add", type: "button", text: "Add a color", "aria-expanded": String(!$("#show-colors-tray").hidden),
+        onclick: () => { const t = $("#show-colors-tray"); t.hidden = !t.hidden; renderShowColors(); } })
+    : h("span", { class: "muted", text: `That's ${SHOW_COLORS_MAX}, the most the show uses` });
+  fill($("#show-colors"), chips, add);
+  if (list.length >= SHOW_COLORS_MAX) $("#show-colors-tray").hidden = true;
+  const recent = ((S.data.settings.recent_colors) || []).filter(c => !list.includes(c));
+  const box = $("#show-colors-recent");
+  const key = recent.join(",");
+  if (box.dataset.key !== key) {
+    box.dataset.key = key;
+    fill(box, ...recent.map(c => h("button", {
+      class: "swatch", type: "button", title: c, "aria-label": `Add ${c}`, style: `background:${c}`, onclick: () => addShowColor(c),
+    })));
+  }
+  box.hidden = !recent.length;
+}
+
+async function setShowColors(list) {
+  const r = await callRaw("set_show_colors", list);
+  if (!r || r.ok === false) { toast((r && r.error) || "Something went wrong", true); return; }
+  S.data.settings.show_colors = list;     // (shown at once; the next refresh confirms it)
+  renderShowColors();
+  refresh(true);
+}
+
+function addShowColor(c) {
+  c = c.toLowerCase();
+  const list = showColors();
+  if (list.includes(c)) { toast("That color is in the show already"); return; }
+  if (list.length >= SHOW_COLORS_MAX) return;
+  setShowColors([...list, c]);
+}
+
+/** "My colors" starts from your recent colors (or two festival ones) so the show has something to use at once. */
+function startMyColors() {
+  const recent = ((S.data.settings.recent_colors) || []).slice(0, SHOW_COLORS_MIN);
+  const seed = [...recent, "#ff8800", "#2d9cff"].filter((c, i, a) => a.indexOf(c) === i).slice(0, SHOW_COLORS_MIN);
+  setShowColors(seed);
 }
 
 /* Sync: the slider runs from 100 ms earlier to 400 ms later, in steps of 5 ms (0 sits at 20%). */
@@ -2093,6 +2243,9 @@ function bindStatic() {
     send(running.length ? running.map(d => d.id) : null, { speed: v }, "speed:show");
   }, 1);
   $("#show-strobe").addEventListener("change", async e => { await call("set_setting", "show_strobe", e.target.checked); refresh(true); });
+  $("#show-colors-music").addEventListener("click", () => { if (showColors().length) setShowColors([]); });
+  $("#show-colors-mine").addEventListener("click", () => { if (showColors().length < SHOW_COLORS_MIN) startMyColors(); });
+  $("#show-colors-pick").addEventListener("change", e => { addShowColor(e.target.value); rememberColor(e.target.value); });
   $("#show-auto").addEventListener("change", async e => {
     await call("set_setting", "auto_show", e.target.checked);
     if (e.target.checked) toast("The show starts by itself when music plays");
@@ -2160,6 +2313,11 @@ function searchItems() {
   if (d.cycle) add(0, "Stop presets in turn", stopCycle);
   add(0, "Start a focus timer", openFocus);
   if (d.focus) add(0, "Stop the focus timer", stopFocus);
+  if (d.autoPaused) add(0, "Resume automatic looks", resumeAutomatic);
+  else {
+    add(0, "Pause automatic looks for an hour", () => pauseAutomatic(60));
+    add(0, "Pause automatic looks until tomorrow", () => pauseAutomatic("tomorrow"));
+  }
   if (d.wallpaper) add(0, "Stop following my wallpaper", stopWallpaperFollow);
   add(0, "Colors from a picture", fromPicture);
   add(0, "Colors from my wallpaper", fromWallpaper);
@@ -2319,14 +2477,30 @@ const WINDOW_KEYS = [
   ["Esc", "Close a window or the color panel"],
   ["?", "This list"],
 ];
-const ANYWHERE_KEYS = [
-  ["Ctrl+Alt+Shift+L", "All lights on or off"],
-  ["Ctrl+Alt+Shift+S", "Start or stop the light show"],
-  ["Ctrl+Alt+Shift+1 – 9", "Your first nine presets"],
-  ["Ctrl+Alt+Shift+↑ ↓", "Brighter or darker (hold to keep going)"],
-  ["Ctrl+Alt+Shift+N", "Sleep timer: fade out in 30 minutes, or cancel it"],
-  ["Ctrl+Alt+Shift+Z", "Undo"],
-];
+/** The keys that work from any program as they are set now (Setup → App → Change keys), as
+    [key, what it does] pairs. Presets 1 to 9 on one shared start ("Ctrl+Alt+Shift+" and 1 to 9) are one line. */
+function anywhereKeys() {
+  const keys = (S.data && S.data.hotkeyKeys) || [];
+  const spots = keys.filter(k => /^preset_\d$/.test(k.id));
+  const shared = spots.length === 9 && spots.every(k => k.key.slice(0, -1) === spots[0].key.slice(0, -1)
+    && k.key.slice(-1) === k.id.slice(-1));
+  return keys.filter(k => !shared || !/^preset_\d$/.test(k.id)).map(k => [k.key, k.label])
+    .concat(shared ? [[spots[0].key.slice(0, -1) + "1 – 9", "Your first nine presets"]] : []);
+}
+
+/** The same in one sentence, for the line under the switch in Setup. */
+function keySummary() {
+  const list = anywhereKeys();
+  return list.length ? "Now: " + list.map(([k, text]) => `${k} ${text.split(/ \(|: /)[0].replace(/^./, c => c.toLowerCase())}`).join("; ") + "."
+    : "No keys are set: choose some under Change keys.";
+}
+
+/** The key that switches a preset on from any program, if it has one: by name first, then by its place. */
+function presetKey(name, at) {
+  const keys = (S.data && S.data.hotkeyKeys) || [];
+  const found = keys.find(k => k.id === "preset:" + name) || keys.find(k => k.id === `preset_${at + 1}`);
+  return found ? found.key : "";
+}
 
 const typingIn = el => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
@@ -2371,7 +2545,8 @@ function openKeys() {
       h("h3", { class: "keys-head", text: "From any program" }),
       h("p", { class: "hint", text: hot ? "On: they work while you're in a game or another program."
         : "Off now: switch them on in Setup → App → Hotkeys." }),
-      rows(ANYWHERE_KEYS)),
+      anywhereKeys().length ? rows(anywhereKeys()) : h("p", { class: "hint", text: "No keys are set: choose some under Change keys." }),
+      h("p", { class: "hint", text: "Change them in Setup → App → Change keys." })),
     ok: "Close",
     onOk: () => true,
   });

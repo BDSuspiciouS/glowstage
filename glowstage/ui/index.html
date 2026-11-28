@@ -166,6 +166,22 @@
             <input type="checkbox" id="show-auto" class="switch">
           </label>
         </div>
+        <div class="card control control-colors">
+          <div class="colors-head">
+            <span class="control-text"><span class="control-title">Colors</span><span id="show-colors-sub" class="muted"></span></span>
+            <div class="seg" role="radiogroup" aria-label="Colors of the show">
+              <button id="show-colors-music" type="button" role="radio" aria-checked="true">Follow the music</button>
+              <button id="show-colors-mine" type="button" role="radio" aria-checked="false">My colors</button>
+            </div>
+          </div>
+          <div id="show-colors-box" class="colors-box" hidden>
+            <div id="show-colors" class="chips"></div>
+            <div id="show-colors-tray" class="colors-tray" hidden>
+              <div id="show-colors-recent" class="swatches"></div>
+              <label class="color-well"><input type="color" id="show-colors-pick" value="#ff8800"><span>Pick another</span></label>
+            </div>
+          </div>
+        </div>
         <div class="card control control-note">
           <span class="control-title">How it works</span>
           <span id="show-how" class="muted">Listens to what your PC plays (no microphone), hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.</span>

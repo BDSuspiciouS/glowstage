@@ -17,6 +17,7 @@ from .automations import Automations, clean_app_looks
 from .away import Away
 from .cycle import PresetCycle
 from .focus import FocusTimer
+from . import hotkeys, wallpaper as wallpaper_look
 from .wallpaper import WallpaperFollow
 from .timer import SleepTimer
 from .wake import WakeUp, wake_minutes
@@ -482,6 +483,12 @@ class DeviceManager:
             ids = [i for i in self.visible_ids() if (self.devices[i].group == "pc") == (group == "pc")]
         if ids:
             self.update(ids, {"on": on})
+
+    def group_any_on(self, group: str) -> bool:
+        """Is any light of the PC ("pc") or of the room (the others) on? (What a hotkey flips.)"""
+        with self.lock:
+            return any(self.states[i].on for i in self.visible_ids()
+                       if self.devices[i].online and (self.devices[i].group == "pc") == (group == "pc"))
 
     def set_power_all(self, on: bool) -> None:
         self.update(None, {"on": on})
@@ -960,6 +967,26 @@ class DeviceManager:
         self._apply(patches, preset="")
         return len(patches)
 
+    def light_from_wallpaper(self):
+        """The desktop wallpaper's colors on the lights (Undo like a preset): the colors and a small
+        picture of it for the window. The hotkey and the window both come here."""
+        colors, img = wallpaper_look.look()
+        self.remember()
+        if not self.light_from_colors(colors):
+            raise ValueError("Switch a light on first, then try again")
+        return colors, img
+
+    def step_preset(self, step: int) -> None:
+        """The next (+1) or previous (-1) preset in the list's order, from the one that's on, round
+        the corner at the ends. With none on, next is the first and previous the last."""
+        names = self.preset_names()
+        if not names:
+            return
+        now = self.config["settings"].get("active_preset", "")
+        at = names.index(now) + step if now in names else (0 if step > 0 else -1)
+        self.remember()
+        self.apply_preset(names[at % len(names)])
+
     def save_preset(self, name: str, ids: list[str] | None = None) -> None:
         """Save the lights as they are now. ids = only those lights (None = every visible light; an
         existing preset that holds only some lights keeps its own set)."""
@@ -1002,6 +1029,7 @@ class DeviceManager:
             raise ValueError("There's no such preset")
         if new != old and new in names:
             raise ValueError(f"There's already a preset called {new}")
+        hotkeys.rename_preset_key(self.config["settings"], old, new)
         self.cycle.rename(old, new)     # (before the settings change: it accepts both names for a moment)
         self.focus.rename(old, new)
         with self.lock:
@@ -1055,6 +1083,7 @@ class DeviceManager:
         self.config.data["presets"] = [p for p in self.config["presets"] if p["name"] != name]
         self.cycle.forget(name)
         self.focus.forget(name)
+        hotkeys.forget_preset_key(self.config["settings"], name)
         self.config.save_soon()
         self._changed()
 
@@ -1098,6 +1127,7 @@ class DeviceManager:
                       "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
             "show": self.engine.show.info() if self.engine.show_active else None,
             "auto": self.automations.active,
+            "autoPaused": self.automations.paused_until(),
             "games": self.games.describe(),
         }
 

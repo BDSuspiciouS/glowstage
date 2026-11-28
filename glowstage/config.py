@@ -97,12 +97,15 @@ DEFAULTS = {
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
                  "room_lights_off_at_shutdown": True, "show_strobe": True,
+                 "show_colors": [],      # the light show in your own colors: 2-5 as #rrggbb, [] = the colors follow the music
                  "soft_flashes": False,  # no light jumps: every look brightens and dims softly (soft.py)
                  "setup_done": False,    # the welcome tour ran (or was skipped)
                  "active_preset": "",    # the preset the lights show now ("" once changed by hand)
                  "hotkeys": False,       # Ctrl+Alt+Shift+L/S/1-9 from any program (see hotkeys.py)
+                 "hotkey_keys": {},      # the keys changed from those defaults: {action: "Ctrl+Alt+L", "" = none}
                  "check_updates": True,  # ask GitHub once a day for a new version and the support links
                  "auto_show": False,     # start the light show by itself when music plays (automations.py)
+                 "auto_paused_until": 0,  # time.time() until which no automatic look runs (0: none)
                  "auto_game": "",        # a game in full screen: "", "screen" or "preset:<name>"
                  "auto_video": "",       # a video in full screen: the same
                  "screen_display": "",   # the display Screen sync follows: "" main, "auto" (where a full-screen window is) or a device name (screen.py)

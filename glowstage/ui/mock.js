@@ -9,7 +9,8 @@
     ["gradient", "Gradient", ["color", "color2"]],
     ["comet", "Comet", ["speed", "color", "color2"]], ["twinkle", "Starlight", ["speed", "color", "color2"]],
     ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["candle", "Candle", ["speed"]], ["ocean", "Ocean", ["speed"]],
-    ["lava", "Lava lamp", ["speed"]], ["storm", "Thunderstorm", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
+    ["lava", "Lava lamp", ["speed"]], ["storm", "Thunderstorm", ["speed"]],
+    ["snow", "Snowfall", ["speed"]], ["string_lights", "Holiday lights", ["speed"]], ["candy_cane", "Candy cane", ["speed", "color", "color2"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
     ["music_show", "Light show", ["speed"], "music"],
     ["music_party", "Party", ["speed"], "music"], ["music_ripple", "Bass ripple", ["speed"], "music"],
     ["music_spectrum", "Spectrum", ["speed"], "music"], ["music_pulse", "Beat pulse", ["speed", "color", "color2"], "music"],
@@ -19,7 +20,7 @@
     ["music_fire", "Music fire", ["speed"], "music"], ["music_aurora", "Northern lights", ["speed"], "music"],
     ["music_heart", "Heartbeat", ["speed", "color", "color2"], "music"]]
     .map(([id, name, uses, group]) => ({ id, name, uses, group: group || "animation",
-      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "ocean", "lava", "storm", "pc_load"].includes(id) }));
+      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "ocean", "lava", "storm", "snow", "string_lights", "candy_cane", "pc_load"].includes(id) }));
   const zones = [{ index: 0, name: "Pump", leds: 29, min: 29, max: 29, resizable: false, detected: -1 },
     ...[1, 2, 3, 4, 5, 6].map(i => ({ index: i, name: `Corsair Fan Header ${i}`, leds: i <= 3 ? 8 : 0, min: 0, max: 34,
       resizable: true, detected: i <= 3 ? 8 : null }))];
@@ -119,17 +120,18 @@
     effects,
     audio: { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", sync: { ms: 200, auto: true } },
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
-      mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
+      mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: /[?&]mycolors/.test(location.search) ? "" : "Am in C", mine: /[?&]mycolors/.test(location.search) },
+    autoPaused: /[?&]paused/.test(location.search) ? Date.now() / 1000 + 50 * 60 : 0,
     auto: (location.search.match(/[?&]auto=(cs2|lol|dota|call|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
     whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
+      { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Candle, Ocean, Lava lamp and Thunderstorm for any evening." },
       { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors." },
+      { title: "The light show in your colors", go: "show:colors", text: "Pick 2 to 5 colors and the show keeps all of its moves, but in your colors only." },
       { title: "Focus timer", go: "focus", text: "Work for a while, then a short break: your room turns soft green, so you see it's time to get up." },
       { title: "League of Legends and Dota 2", go: "setup:games", text: "Your side's color, your health across the lights, a flash for every kill, and Dota's day and night in your room." },
       { title: "Balance your lights", go: "setup:lights", text: "Make a strip's bluish white match your bulbs, or tame a light that's brighter than the rest." },
-      { title: "Soften flashes", go: "setup:app", text: "For people who are sensitive to flashing light: every flash becomes a soft swell." },
-      { title: "Presets in turn", go: "presets:turns", text: "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes." },
-      { title: "Candle, Ocean, Lava lamp, Thunderstorm", go: "effect:storm", text: "Four calm looks for the evening, and PC load and Gradient besides." }] } : null,
+      { title: "Soften flashes", go: "setup:app", text: "For people who are sensitive to flashing light: every flash becomes a soft swell." }] } : null,
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
       api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
@@ -147,7 +149,7 @@
         inMatch: /[?&]lol\b/.test(location.search), team: "ORDER", health: 72 },
       dota: { found: true, connected: /[?&]dota\b/.test(location.search), fileThere: true, receiving: /[?&]dota\b/.test(location.search),
         inMatch: /[?&]dota\b/.test(location.search), team: "radiant", health: 64 } },
-    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "",
+    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, show_colors: /[?&]mycolors/.test(location.search) ? ["#ff3ca0", "#00d9ff", "#ffd000"] : [], soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "",
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
   };
@@ -176,7 +178,71 @@
     }
     return out;
   };
+  // The keys for the hotkeys (hotkeys.py does this for real): the same rules in short, so the dialog works here.
+  const HK = {
+    acts: [["lights", "All lights on or off", "Ctrl+Alt+Shift+L"], ["pc_power", "The PC's lights on or off", ""], ["room_power", "The room's lights on or off", ""],
+      ["show", "The light show on or off", "Ctrl+Alt+Shift+S"], ["brighter", "Brighter (hold it to keep going)", "Ctrl+Alt+Shift+Up"],
+      ["darker", "Darker (hold it to keep going)", "Ctrl+Alt+Shift+Down"], ["sleep", "Sleep timer: fade out in 30 minutes, or cancel it", "Ctrl+Alt+Shift+N"],
+      ["undo", "Undo", "Ctrl+Alt+Shift+Z"], ["next_preset", "Next preset", ""], ["prev_preset", "Previous preset", ""],
+      ["focus", "Focus timer: start it, or stop it", ""], ["stop_cycle", "Stop presets in turn", ""], ["wallpaper", "Colors from my wallpaper", ""], ["pause_auto", "Automatic looks: pause for an hour, or resume", ""]],
+    over: {},
+    reserved: ["Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+Y", "Ctrl+A", "Ctrl+S", "Alt+F4", "Alt+Tab", "Alt+Space", "Ctrl+Alt+Delete", "Win+L", "Win+D", "Win+E", "Win+R", "Win+Tab", "Win+Space"],
+    keyNames: /^([A-Z0-9]|F([1-9]|1\d|2[0-4])|Up|Down|Left|Right|Home|End|PageUp|PageDown|Insert|Delete|Space|Tab|Num[0-9*+\-./])$/,
+    positions: () => [...Array(9)].map((_, n) => [`preset_${n + 1}`, `Preset ${n + 1}`, `Ctrl+Alt+Shift+${n + 1}`]),
+    keys() {
+      const out = {}, used = new Set(), names = data.presets.map(p => p.name);
+      const ids = [...this.acts, ...this.positions()].map(a => [a[0], a[2]])
+        .concat(Object.keys(this.over).filter(k => k.startsWith("preset:") && names.includes(k.slice(7))).map(k => [k, ""]));
+      for (const [id, def] of ids) {
+        const raw = id in this.over ? this.over[id] : def;
+        out[id] = raw && !used.has(raw) ? raw : "";
+        if (out[id]) used.add(raw);
+      }
+      return out;
+    },
+    list() {
+      const keys = this.keys(), names = data.presets.map(p => p.name);
+      const row = (id, label, def, section, more = {}) => ({ id, label, key: keys[id], default: def, taken: false, section, ...more });
+      return { enabled: !!data.settings.hotkeys, presets: names, actions: [
+        ...this.acts.map(([id, label, def]) => row(id, label, def, "actions")),
+        ...this.positions().map(([id, label, def], n) => row(id, label, def, "positions", { detail: names[n] || "" })),
+        ...Object.keys(keys).filter(k => k.startsWith("preset:")).map(k => row(k, k.slice(7), "", "named"))] };
+    },
+    publish() {
+      const keys = this.keys(), all = this.list().actions;
+      data.hotkeyKeys = all.filter(a => keys[a.id]).map(a => ({ id: a.id, label: a.label, key: keys[a.id] }));
+      data.revision++;
+    },
+    check(text) {   // the combination written the one way it's kept, or the reason it can't be a hotkey
+      const parts = String(text).split("+").map(p => p.trim()), key = parts.pop() || "";
+      const mods = ["Ctrl", "Alt", "Shift", "Win"].filter(m => parts.includes(m));
+      if (!HK.keyNames.test(key)) throw new Error(`Glowstage can't use the key ${key}`);
+      if (!mods.length && !/^F(1[3-9]|2[0-4])$/.test(key)) throw new Error("Add Ctrl, Alt, Shift or Windows: a key on its own would stop working in every program. (Only F13 to F24 can go without.)");
+      if (mods.join() === "Shift" && /^([A-Z0-9]|Space)$/.test(key)) throw new Error("Shift on its own would take capital letters from every program: add Ctrl, Alt or Windows too");
+      const combo = [...mods, key].join("+");
+      if (HK.reserved.includes(combo)) throw new Error(`${combo} is already used by Windows or nearly every program: choose another combination`);
+      return combo;
+    },
+    set(id, text) {
+      const combo = text === "" ? "" : this.check(text), list = this.list().actions, mine = list.find(a => a.id === id);
+      if (!mine) throw new Error("There's no such action");
+      const other = combo && list.find(a => a.id !== id && a.key === combo);
+      if (other) throw new Error(`${combo} is already the key for ${other.label}: clear that one first`);
+      if (combo === mine.default && !id.startsWith("preset:")) delete this.over[id]; else this.over[id] = combo;
+      this.publish();
+      return this.list();
+    },
+  };
+  HK.publish();
+  const hk = fn => { try { return ok(fn()); } catch (e) { return Promise.resolve({ ok: false, error: e.message }); } };
   window.pywebview = { api: {
+    get_hotkeys: () => ok(HK.list()),
+    set_hotkey: (id, key) => hk(() => HK.set(id, key)),
+    clear_hotkey: id => hk(() => HK.set(id, "")),
+    add_preset_hotkey: name => hk(() => { if (!data.presets.some(p => p.name === name)) throw new Error("There's no such preset"); HK.over["preset:" + name] ??= ""; HK.publish(); return HK.list(); }),
+    remove_preset_hotkey: name => hk(() => { delete HK.over["preset:" + name]; HK.publish(); return HK.list(); }),
+    reset_hotkeys: () => hk(() => { HK.over = {}; HK.publish(); return HK.list(); }),
+    pause_hotkeys: () => ok(), resume_hotkeys: () => ok(),
     get_state: () => { const state = JSON.parse(JSON.stringify(data)), f = state.focus;
       if (f) {   // (what focus.py's describe() says: the minutes left count down here too)
         const left = Math.max(1, Math.ceil((f.at - Date.now() / 1000) / 60));
@@ -209,6 +275,10 @@
       note: "" }); },
     set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
+    pause_automatic: minutes => { const now = Date.now() / 1000, d = new Date();
+      if (minutes === "tomorrow") { d.setDate(d.getDate() + (d.getHours() >= 6 ? 1 : 0)); d.setHours(6, 0, 0, 0); }
+      data.autoPaused = minutes === "tomorrow" ? d.getTime() / 1000 : now + minutes * 60; data.auto = null; data.revision++; return ok(data.autoPaused); },
+    resume_automatic: () => { data.autoPaused = 0; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
     start_cycle: (names, minutes, shuffle) => { if (names.length < 2) return Promise.resolve({ ok: false, error: "Choose at least two presets" });
@@ -235,7 +305,7 @@
       data.presets.splice(i + 1, 0, { ...data.presets[i], name: n }); data.revision++; return ok(n); },
     nudge_brightness: delta => { for (const d of data.devices) if (d.state.on) d.state.brightness = Math.max(1, Math.min(100, d.state.brightness + delta));
       data.revision++; return ok(); },
-    diagnostics: () => ok("Glowstage 0.9.8 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off, schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
+    diagnostics: () => ok("Glowstage 0.9.8 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off (16 keys set), schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
     report_problem: () => ok(),
     list_backups: () => ok(/[?&]nobackups\b/.test(location.search) ? [] : [
       { file: "config-2026-11-27-141203-before.json", saved: "2026-11-27T14:09", before: true, ok: true, presets: 39, lights: 13 },
@@ -291,6 +361,16 @@
     open_apps: () => ok([{ exe: "obs64.exe", name: "OBS Studio" }, { exe: "photoshop.exe", name: "Adobe Photoshop 2025" },
       { exe: "spotify.exe", name: "Spotify" }, { exe: "code.exe", name: "Visual Studio Code" }]),
     set_show_excluded: ids => { data.showExcluded = ids; data.revision++; return ok(); },
+    set_show_colors: list => {
+      const hex = /^#[0-9a-f]{6}$/i, clean = [...new Set((list || []).map(c => String(c).toLowerCase()))];
+      if (clean.length && !clean.every(c => hex.test(c))) return Promise.resolve({ ok: false, error: "Use hex colors like #ff8800" });
+      if (clean.length && clean.length < 2) return Promise.resolve({ ok: false, error: "Pick at least 2 different colors" });
+      if (clean.length > 5) return Promise.resolve({ ok: false, error: "Pick up to 5 colors" });
+      data.settings.show_colors = clean;
+      Object.assign(data.show, { mine: clean.length > 0, chord: clean.length ? "" : "Am in C" });
+      data.revision++;
+      return ok();
+    },
     set_show_sync: ms => { data.audio.sync = ms === null ? { ms: 200, auto: true } : { ms, auto: false }; return ok(); },
     reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),
     pair: () => Promise.resolve({ ok: false, error: "The bridge's link button wasn't pressed." }),

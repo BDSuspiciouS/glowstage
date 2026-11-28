@@ -134,6 +134,7 @@ class PhoneLooks(unittest.TestCase):
             self.assertEqual(effects.EFFECTS[i].group, "animation")
         self.assertFalse(ids & {"typing", "pc_load", "game_cs2", "game_lol", "music_show", "screen_sound", "spectrum"})
         for want in ("rainbow", "wave", "comet", "aurora", "fire", "candle", "ocean", "lava", "storm",
+                     "snow", "string_lights", "candy_cane",
                      "gradient", "breathing", "twinkle", "daylight", "screen"):
             self.assertIn(want, ids)
 

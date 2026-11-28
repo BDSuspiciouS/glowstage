@@ -17,6 +17,11 @@ game or video, then music. When you take over (change a light, pick a preset,
 switch off; from the window, the tray, a hotkey or a schedule) Glowstage keeps its hands off
 until whatever it reacted to is over.
 
+You can also pause all of them for a while (an hour, three, or until tomorrow morning: Home, the
+tray, Ctrl+K, a link): the look that's on ends and puts your lights back, and nothing changes by
+itself until the pause is over or you resume. The pause is kept in the settings, so it holds
+across a restart (until tomorrow is a long time).
+
 Full screen: Windows itself says when a program holds the whole screen (the same test it uses to
 hold back notifications). The program in front then says game or video: browsers and video
 players are videos, a few programs that go full screen but are neither (Remote Desktop, a slide
@@ -34,6 +39,7 @@ from __future__ import annotations
 
 import ctypes
 import functools
+import datetime
 import logging
 import os
 import struct
@@ -48,6 +54,8 @@ log = logging.getLogger(__name__)
 
 RULES = ("call", "cs2", "lol", "dota", "game", "video", "music")   # first wins; your apps ("app:<exe>") come after the games
 APP_LOOKS_MAX = 30
+PAUSE_CHOICES = (60, 180)    # minutes, as offered; or "tomorrow": until MORNING the next morning
+MORNING = 6                  # o'clock: when "until tomorrow" is over
 
 LEVEL = 1e-4         # the meter's peak above which something plays (0..1; silence is exactly 0).
                      # Low on purpose: players are often turned far down (peaks of 0.001).
@@ -373,6 +381,45 @@ class Automations:
                 "game": s.get("auto_game") or "", "call": s.get("auto_call") or "",
                 "video": s.get("auto_video") or "", "music": "show" if s.get("auto_show") else ""}
 
+    # ---- pausing ---------------------------------------------------------------------------
+
+    def paused_until(self, now: float | None = None) -> float:
+        """When the pause is over (time.time()), 0 when there is none."""
+        until = float(self.manager.config["settings"].get("auto_paused_until") or 0)
+        return until if until > (time.time() if now is None else now) else 0.0
+
+    def pause(self, minutes, now: float | None = None) -> float:
+        """No automatic look for `minutes` (60 or 180) or until tomorrow morning ("tomorrow").
+        The look that's on ends at the next look at the PC (about a second) and puts the lights
+        back. Gives when the pause is over."""
+        now = time.time() if now is None else now
+        if minutes == "tomorrow":
+            day = datetime.datetime.fromtimestamp(now)
+            morning = day.replace(hour=MORNING, minute=0, second=0, microsecond=0)
+            if morning <= day:
+                morning += datetime.timedelta(days=1)
+            until = morning.timestamp()
+        else:
+            try:
+                minutes = int(minutes)
+            except (TypeError, ValueError):
+                minutes = 0
+            if minutes not in PAUSE_CHOICES:
+                raise ValueError("Pause for an hour, three hours, or until tomorrow")
+            until = now + minutes * 60
+        self.manager.config["settings"]["auto_paused_until"] = until
+        self.manager.config.save_soon()
+        log.info("Automatic looks paused until %s", time.strftime("%a %H:%M", time.localtime(until)))
+        self.manager._changed()
+        return until
+
+    def resume(self) -> None:
+        if self.manager.config["settings"].get("auto_paused_until"):
+            self.manager.config["settings"]["auto_paused_until"] = 0
+            self.manager.config.save_soon()
+            log.info("Automatic looks: back on")
+            self.manager._changed()
+
     def start(self) -> None:
         threading.Thread(target=self._run, name="automations", daemon=True).start()
 
@@ -498,6 +545,8 @@ class Automations:
         holds = {"call": self._call, "cs2": self._cs2, "lol": self._lol, "dota": self._dota, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
                  **{r: r[4:] in self._apps for r in rules if r.startswith("app:")}}
         want = next((r for r in rules if rules[r] and holds.get(r)), None)
+        if want is not None and self.paused_until():
+            want = None         # paused: no automatic look now (the one that's on ends below)
         if self.active and self._set is not None and not _same(m.looks(), self._set):
             log.info("Automatic look (%s): taken over by hand", self.active)
             self.active, self._saved, self._set, self._hands_off = None, None, None, True

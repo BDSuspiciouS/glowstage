@@ -52,6 +52,9 @@ LOOKS = (
     ("ocean", ("#001255", "#0046a0", "#0096a5")),
     ("lava", ("#ff6908", "#aa0818", "#e11478")),
     ("storm", ("#1a2236", "#3a4a70", "#e1ebff")),
+    ("snow", ("#07103a", "#4a6aa8", "#e6f0ff")),
+    ("string_lights", ("#f01810", "#18be34", "#ffa018", "#1846ff")),
+    ("candy_cane", ("#de1224", "#fff6ee", "#de1224")),
     ("daylight", ("#ffe6cc", "#ff8a3a", "#ffc27a")),
     ("screen", ("#3a6bff", "#ff8a3a", "#2bd3c4")),
 )
@@ -430,6 +433,13 @@ class Remote:
             except ValueError as e:
                 return fail(409, str(e))
             args = [look]
+        elif action == "pause" and len(args) == 1:
+            try:
+                m.automations.pause("tomorrow" if args[0] == "tomorrow" else number(args[0]))
+            except ValueError as e:
+                return fail(400, str(e))
+        elif action == "resume" and not args:
+            m.automations.resume()
         elif action == "show" and len(args) == 1 and args[0] in ("start", "stop"):
             m.remember()
             m.start_show() if args[0] == "start" else m.stop_show()
