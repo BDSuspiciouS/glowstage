@@ -7,7 +7,9 @@ const hubOf = d => (S.data.hubs || []).find(hb => d.id.startsWith(hb.id + ":"));
 
 function kindTitle(d) {
   if (d.kind === "openrgb") return "PC · OpenRGB";
+  if (d.kind === "steelseries") return "PC · SteelSeries GG (beta)";
   if (d.kind === "qmk") return "Keyboard";
+  if (d.kind === "razer") return "PC · Razer Synapse";
   if (d.kind === "asrock_gpu") return "Graphics card";
   const dr = driverOf(d.kind);
   return dr ? dr.title : d.kind;
@@ -26,7 +28,7 @@ S.addForm = { kind: "wled", values: {} };
 function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label, x.balance]),
-    d.hubs, d.openrgb, d.genreAi, d.settings, d.games, d.obs, (d.drivers || []).length, d.stage, d.schedules,
+    d.hubs, d.openrgb, d.razer, d.steelseries, d.genreAi, d.settings, d.games, d.obs, (d.drivers || []).length, d.stage, d.schedules,
     (d.presets || []).map(p => p.name), d.hotkeysTaken, d.hotkeyKeys, d.remote, d.appLooks, d.groups]);
 }
 
@@ -37,7 +39,7 @@ function renderSettings(force = false) {
   if (!force && sig === S.settingsSig) return;
   S.settingsSig = sig;
   const scroll = body.scrollTop;
-  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), phoneSection(), backupSection(), appSection());
+  fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), razerSection(), steelseriesSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), phoneSection(), backupSection(), appSection());
   // (the page title is a level 1: the sections are level 2 and what's inside them level 3, whatever their size)
   for (const hd of body.querySelectorAll("h3")) hd.setAttribute("aria-level", "2");
   for (const hd of body.querySelectorAll("h4")) hd.setAttribute("aria-level", "3");
@@ -449,6 +451,61 @@ function openrgbSection() {
     o.path ? h("p", { class: "path mono", text: o.path }) : null);
 }
 
+/* Razer devices through Razer Synapse's Chroma SDK (devices/razer_chroma.py): its own small card under OpenRGB. */
+function razerSection() {
+  const r = S.data.razer || { types: [], kinds: [] };
+  const save = async (on, types) => {
+    const res = await callRaw("razer_set", on, types);
+    if (!res || res.ok === false) toast((res && res.error) || "Couldn't save that", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const toggleType = (id, yes) => save(!!r.on, r.kinds.map(k => k.id).filter(k => k === id ? yes : (r.types || []).includes(k)));
+  const ok = r.status === "connected";
+  return h("section", { class: "set-section", id: "set-razer" },
+    h("h3", { text: "Razer devices (Synapse, beta)" }),
+    h("p", { class: "hint", text: "Razer Synapse holds Razer keyboards, mice, headsets and mouse mats, so OpenRGB can't reach them. With this on, Glowstage lights them through Synapse's Chroma SDK. While it runs, Synapse's own lighting for these devices pauses. Switch it off, or quit Glowstage, and Synapse takes them back. It needs Razer Synapse running with its Chroma Connect module." }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Light my Razer devices through Synapse" }),
+      h("input", { type: "checkbox", checked: !!r.on, "aria-label": "Light my Razer devices through Synapse",
+        onchange: e => save(e.target.checked, r.types || []) })),
+    r.on ? h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (ok ? " is-on" : " is-warn") }),
+      h("span", { class: "muted", text: ok ? `${r.text} · ${r.lights} of ${(r.types || []).length} answering` : (r.text || "Starting...") })) : null,
+    h("p", { class: "hint", style: "margin-top:10px", text: "Synapse can't say which devices are connected: tick the ones you have." }),
+    h("div", { class: "check-list", role: "group", "aria-label": "Razer devices you have" },
+      (r.kinds || []).map(k => h("label", { class: "check-row" }, h("span", { text: k.name.replace(/^Razer /, "") }),
+        h("input", { type: "checkbox", checked: (r.types || []).includes(k.id), "aria-label": k.name,
+          onchange: e => toggleType(k.id, e.target.checked) })))));
+}
+
+/* SteelSeries keyboards, mice and headsets through SteelSeries GG (devices/steelseries.py). Off until
+   switched on, because the lights then replace GG's own effects on the devices that are ticked. */
+function steelseriesSection() {
+  const s = S.data.steelseries || { on: false, types: [], available: [], status: "off", message: "" };
+  const save = async (on, types) => {
+    const r = await callRaw("steelseries_set", on, types);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const ids = (s.available || []).map(x => x.id);
+  const ticks = (s.available || []).map(t => h("label", { class: "toggle-row" }, h("span", { text: t.title }),
+    h("input", { type: "checkbox", checked: s.types.includes(t.id), "aria-label": t.title,
+      onchange: e => save(true, ids.filter(id => id === t.id ? e.target.checked : s.types.includes(id))) })));
+  return h("section", { class: "set-section", id: "set-steelseries" },
+    h("h3", { text: "SteelSeries devices (beta)" }),
+    s.on ? h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (s.status === "connected" ? " is-on" : " is-warn") }), s.message || s.status) : null,
+    h("p", { class: "hint", style: "margin-bottom:12px",
+      text: "When SteelSeries GG is running it holds your SteelSeries keyboard, mouse and headset, and OpenRGB can't reach them. Glowstage can talk to GG instead, through the lighting connection SteelSeries made for apps like this. It only talks to GG on this PC." }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Light my SteelSeries devices through GG" }),
+      h("input", { type: "checkbox", checked: !!s.on, "aria-label": "Light my SteelSeries devices through GG",
+        onchange: e => save(e.target.checked, s.types) })),
+    s.on ? h("div", {}, ticks) : null,
+    h("p", { class: "hint", style: "font-size:12px;margin-top:8px",
+      text: "While this is on, Glowstage's colors and effects replace GG's own on the devices you tick. Switch it off and GG's lighting comes back. Mice and headsets with two zones can't be told apart, so with the headset ticked it gets them." }),
+    h("p", { class: "hint", style: "font-size:12px",
+      text: "SteelSeries support is new. If something doesn't work, please open an issue on the project page." }));
+}
+
 /* "Get OpenRGB": only when it isn't on this PC yet, or while it's being fetched. */
 function installBlock(o) {
   const inst = o.install || { state: "idle" };
@@ -816,7 +873,55 @@ function scheduleSection() {
           items.push({ time: "23:00", days: [0, 1, 2, 3, 4, 5, 6], action: late ? "preset:" + late.name : "off", enabled: true });
           save();
         } })),
-    nightPart());
+    nightPart(),
+    awayPart());
+}
+
+/* Setup → Schedule → While you're away: the room looks lived in, with lights that come on and go off at a
+   slightly different time each day (presence.py). */
+function awayPart() {
+  const p = S.data.presence || { on: false, lights: "room", groups: [], when: "sunset", at: "17:30", off: "23:30" };
+  const fields = { on: p.on, lights: p.lights, groups: [...(p.groups || [])], when: p.when, at: p.at, off: p.off };
+  const groups = S.data.groups || [];
+  const save = async () => {
+    const r = await callRaw("set_presence", fields.on, fields.lights, fields.groups, fields.when, fields.at, fields.off);
+    if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const sunset = (S.data.sun || {}).sunset;
+  return h("div", { class: "night-part away-part" },
+    h("h4", { text: "While you're away" }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Make it look like someone's home" }),
+      h("input", { type: "checkbox", checked: !!p.on, onchange: e => { fields.on = e.target.checked; save(); } })),
+    h("div", { class: "night-row" + (p.on ? "" : " is-off") },
+      h("span", { text: "Lights" }),
+      h("select", { class: "night-max", "aria-label": "Which lights", onchange: e => { fields.lights = e.target.value; save(); } },
+        [["room", "The room's lights"], ["groups", "Some of my groups"]].map(([v, t]) =>
+          h("option", { value: v, text: t, selected: v === p.lights })))),
+    p.lights === "groups"
+      ? (groups.length
+        ? h("div", { class: "night-row", role: "group", "aria-label": "Groups that play along" }, groups.map(g =>
+          h("label", { class: "check-row" },
+            h("input", { type: "checkbox", checked: fields.groups.includes(g.name), onchange: e => {
+              fields.groups = e.target.checked ? [...fields.groups, g.name] : fields.groups.filter(n => n !== g.name); save(); } }),
+            h("span", { text: g.name }))))
+        : h("p", { class: "hint", text: "You have no groups yet: make one under Lights." }))
+      : null,
+    h("div", { class: "night-row" + (p.on ? "" : " is-off") },
+      h("span", { text: "Come on" }),
+      h("select", { class: "night-max", "aria-label": "When the lights come on", onchange: e => { fields.when = e.target.value; save(); } },
+        [["sunset", sunset ? `Around sunset · ${sunset} today` : "Around sunset"], ["time", "Around a time"]].map(([v, t]) =>
+          h("option", { value: v, text: t, selected: v === p.when }))),
+      p.when === "time"
+        ? h("input", { type: "time", class: "text-input night-time", value: fields.at, "aria-label": "Time the lights come on",
+          onchange: e => { if (e.target.value) { fields.at = e.target.value; save(); } } })
+        : null,
+      h("span", { text: "and go off around" }),
+      h("input", { type: "time", class: "text-input night-time", value: fields.off, "aria-label": "Time the lights go off",
+        onchange: e => { if (e.target.value) { fields.off = e.target.value; save(); } } })),
+    h("p", { class: "hint", text: "Each day the times move by up to 25 minutes, and now and then one light goes off while another comes on, in a plain warm white. Your PC's own lights stay as they are. While this is on, schedules and automatic looks leave your lights alone, and when you switch it off your lights go back to how they were." }),
+    h("p", { class: "hint", text: "This only works while this PC is on and Glowstage runs." }));
 }
 
 /* Setup → Schedule → Night limit: from the evening to the morning no light goes above a brightness (night.py). */

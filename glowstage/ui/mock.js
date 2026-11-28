@@ -96,6 +96,11 @@
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
+    razer: { on: /[?&]razer/.test(location.search), types: ["keyboard", "mouse", "mousepad"], status: "off", text: "", lights: 0,
+      kinds: [{ id: "keyboard", name: "Razer keyboard" }, { id: "mouse", name: "Razer mouse" }, { id: "headset", name: "Razer headset" },
+        { id: "mousepad", name: "Razer mouse mat" }, { id: "keypad", name: "Razer keypad" }, { id: "chromalink", name: "Razer Chroma Link" }] },
+    steelseries: { on: /[?&]steelseries/.test(location.search), types: ["keyboard", "mouse"], status: "off", message: "",
+      available: [{ id: "keyboard", title: "SteelSeries keyboard (per key)" }, { id: "mouse", title: "SteelSeries mouse" }, { id: "headset", title: "SteelSeries headset" }] },
     genreAi: { state: "idle", progress: 0, message: "", name: "Discogs-EffNet", maker: "Music Technology Group, Universitat Pompeu Fabra",
       license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       aboutUrl: "https://essentia.upf.edu/models.html", mb: 18, installed: false, active: "YAMNet" },
@@ -137,16 +142,19 @@
     autoPaused: /[?&]paused/.test(location.search) ? Date.now() / 1000 + 50 * 60 : 0,
     night: { on: /[?&]night/.test(location.search), from: "23:00", to: "07:00", max: 30, choices: [5, 10, 15, 20, 30, 40, 50, 60, 75],
       active: /[?&]night/.test(location.search), until: (() => { const d = new Date(); d.setDate(d.getDate() + (d.getHours() >= 7 ? 1 : 0)); d.setHours(7, 0, 0, 0); return d.getTime() / 1000; })() },
+    // ?home: Someone's home mode is on (presence.py): the plan is what describe() says, made up here
+    presence: { on: /[?&]home/.test(location.search), lights: "room", groups: [], when: "sunset", at: "17:30", off: "23:30",
+      plan: { on: "17:20", off: "23:40", day: "tonight", changes: 2 }, going: false, lit: 0 },
     auto: (location.search.match(/[?&]auto=(cs2|lol|dota|rl|racing|call|live|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
     whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.9", since: "0.9.7", items: [
       { title: "Rev lights for racing games", go: "setup:games", text: "Forza, F1, iRacing and Assetto Corsa fill your room like a rev counter, and F1's start lights come on above your desk." },
       { title: "Ctrl+K understands you", go: "search", text: "Type \"desk red\", \"30%\", \"storm\", \"sleep 45\" or \"pause 1h\" and press Enter." },
-      { title: "WiZ lights", go: "setup:lights", text: "Philips WiZ bulbs, strips and lamps are found on your network once local communication is on in the WiZ app." },
+      { title: "Someone's home, while you're away", go: "setup:schedule", text: "On holiday, your room's lights come on in the evening and go off at night, a little different every day." },
+      { title: "WiZ, Razer and SteelSeries", go: "setup:lights", text: "WiZ bulbs on your network, and Razer and SteelSeries devices through Synapse or GG when those hold them." },
       { title: "Your phone remote as an app", go: "setup:phone", text: "Add the page to your phone's home screen: it gets the Glowstage icon and opens full screen." },
       { title: "Quicker, and easier with a keyboard", go: "setup:app", text: "Glowstage starts faster and uses less memory, and the color wheel, the stage and every dialog work with the keys." },
-      { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Fireflies, Rain, Plasma and Sunset for any evening." },
-      { title: "Your own groups", go: "setup:lights", text: "Desk, Bed, Living room: each with its own switch, brightness and colors, on Home and your phone." }] } : null,
+      { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Fireflies, Rain, Plasma and Sunset for any evening." }] } : null,
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
       api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
@@ -190,6 +198,36 @@
         : status === "waiting" ? "OBS isn't running, or its WebSocket server is off" : "" });
   };
   obsFake();
+  // Razer: the made-up lights come and go with the switch (?razerdown: Synapse isn't running).
+  const razerFake = () => {
+    const z = data.razer, q = location.search, specs = { keyboard: ["Razer keyboard", 132], mouse: ["Razer mouse", 63], headset: ["Razer headset", 5],
+      mousepad: ["Razer mouse mat", 15], keypad: ["Razer keypad", 20], chromalink: ["Razer Chroma Link", 5] };
+    const down = /[?&]razerdown/.test(q);
+    z.status = !z.on ? "off" : down ? "waiting" : "connected";
+    z.text = z.status === "connected" ? "Connected to Razer Synapse" : z.status === "waiting" ? "Razer Synapse isn't running, or Chroma Connect isn't installed in it" : "";
+    data.devices = data.devices.filter(d => d.kind !== "razer");
+    if (z.on) for (const t of z.types) data.devices.push({ id: "razer:" + t, kind: "razer", group: "pc", name: specs[t][0], online: !down,
+      error: down ? "Razer Synapse isn't running" : null, pixels: specs[t][1], hasNative: false, label: `Razer Chroma \u00b7 ${specs[t][1]} zones`,
+      hidden: false, balance: { warmth: 0, max: 100, order: "RGB" }, zones: [], state: st({ color: "#44d62c", brightness: 80 }) });
+    z.lights = down ? 0 : (z.on ? z.types.length : 0);
+  };
+  razerFake();
+  // SteelSeries GG (beta): the switch adds the lights for the ticked types (?steelseries: on from the start, ?steelseriesdown: GG isn't running).
+  const steelFake = () => {
+    const s = data.steelseries, down = /[?&]steelseriesdown/.test(location.search);
+    const kinds = { keyboard: ["SteelSeries keyboard", 132, "SteelSeries GG · per key · 132 keys", "KEYBOARD"],
+      mouse: ["SteelSeries mouse", 8, "SteelSeries GG · 8 zones", "MOUSE"], headset: ["SteelSeries headset", 2, "SteelSeries GG · 2 zones", "HEADSET"] };
+    data.devices = data.devices.filter(d => d.kind !== "steelseries");
+    if (s.on) for (const t of s.types) {
+      const [name, pixels, label, deviceType] = kinds[t];
+      data.devices.push({ id: "steelseries:" + t, kind: "steelseries", group: "pc", name, online: !down, error: down ? "SteelSeries GG isn't running" : null,
+        pixels, hasNative: false, label, deviceType, state: st({ mode: "effect", effect: "music_show", speed: 70 }), hidden: false });
+    }
+    Object.assign(s, { status: !s.on ? "off" : !s.types.length ? "idle" : down ? "waiting" : "connected",
+      message: !s.on ? "" : !s.types.length ? "Pick the devices to light" : down ? "SteelSeries GG isn't running"
+        : `Connected to SteelSeries GG · ${s.types.length} light${s.types.length === 1 ? "" : "s"}` });
+  };
+  steelFake();
   // A made-up 128 BPM show: a block chasing across the front, the back wall pumping on the beat.
   const live = () => {
     const t = performance.now() / 1000, beat = t / (60 / 128), pal = [[0, 229, 255], [255, 0, 200], [42, 75, 255]];
@@ -345,7 +383,10 @@
     show_white: (id, on) => { const d = data.devices.find(x => x.id === id);
       if (on && d && !d.online) return Promise.resolve({ ok: false, error: `${d.name} isn't answering` });
       console.info(`[mock] ${d ? d.name : id}: ${on ? "plain white" : "back as it was"}`); return ok(); },
+    razer_set: (on, types) => { if (on && !types.length) return Promise.resolve({ ok: false, error: "Tick at least one kind of Razer device" });
+      Object.assign(data.razer, { on: !!on, types }); razerFake(); data.revision++; return ok(); },
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
+    steelseries_set: (on, types) => { Object.assign(data.steelseries, { on: !!on, types: [...types] }); steelFake(); data.revision++; return ok(); },
     remember_color: c => { const l = data.settings.recent_colors; data.settings.recent_colors = [c.toLowerCase(), ...l.filter(x => x !== c.toLowerCase())].slice(0, 8); data.revision++; return ok(); },
     list_displays: () => { const cur = data.settings.screen_display || ""; return ok({ count: 2, current: cur,
       options: [{ id: "", name: "Main display", primary: true }, { id: "\\\\.\\DISPLAY2", name: "Right display · 2560 × 1440", primary: false },
@@ -359,6 +400,12 @@
       data.autoPaused = minutes === "tomorrow" ? d.getTime() / 1000 : now + minutes * 60; data.auto = null; data.revision++; return ok(data.autoPaused); },
     resume_automatic: () => { data.autoPaused = 0; data.revision++; return ok(); },
     set_night_limit: (on, from, to, max) => { Object.assign(data.night, { on, from, to, max }); data.revision++; return ok(); },
+    set_presence: (on, lights, groups, when, at, off) => {
+      if (lights === "groups" && !(groups || []).length) return Promise.resolve({ ok: false, error: "Choose at least one group" });
+      Object.assign(data.presence, { on, lights, groups: lights === "groups" ? groups : [], when, at, off });
+      data.presence.plan = { on: when === "sunset" ? "16:31" : at, off, day: "tonight", changes: 2 };
+      data.revision++; return ok(); },
+    stop_presence: () => { data.presence.on = false; data.revision++; return ok(); },
     skip_night_limit: () => { data.night.active = false; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },

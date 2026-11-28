@@ -12,6 +12,7 @@ class FakeManager:
         self.config.__class__.__getitem__ = lambda c, k: c.data[k]
         self.config.data["settings"] = {"active_preset": "Mine", "auto_game": "", "auto_video": "", "auto_show": False}
         self.games = type("G", (), {"settings": {"cs2": False}})()
+        self.presence = type("P", (), {"active": False})()      # (Someone's home mode: off)
         self.presets = ["Focus", "Gaming", "Mine"]
 
     def looks(self):

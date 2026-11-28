@@ -48,6 +48,7 @@
 - **A sunset at night, a sunrise in the morning.** At bedtime the sleep timer fades your lights out slowly, and a night limit keeps every light dim until morning, whatever switches it on. In the morning *Wake up slowly* brings your room's lights up before your alarm, from a dim deep red through amber to bright warm white.
 - **Your PC and your room, apart or together.** Each group has its own brightness, switch and colors, so you can dim the room and keep the PC bright, and you can make your own groups (*Desk*, *Bed*, *Living room*). *Gradient* blends two colors along each light or across the room, whites go from 2200 K candlelight to 6500 K daylight, and *Pick from screen* takes a color from anything on your screen. *Balance* makes a strip's bluish white match your bulbs, or tames a light that's brighter than the rest.
 - **Everything a few keys away.** Press Ctrl+K and type a few letters to switch on a preset, open a light or jump to a setting, or just say it: "desk red", "30%", "storm", "sleep 45". Keys 1 to 9 pick your presets, hotkeys work from any program (choose your own, macro keys too), and *Undo* puts your lights back when you change your mind. The tray icon glows in your lights' color.
+- **Someone's home while you're away.** On holiday with the PC on, your room's lights come on in the evening and go off at night, a little different every day, so it looks like someone's home.
 - **Lights off when you step away.** Lock the PC, let its screen go off or put it to sleep, and the PC's lights (or all of them) switch off; they come back as they were when you return (Setup → Automatic).
 - **In sync with what you hear.** Bluetooth headphones play the sound later than your PC sends it; Glowstage notices and waits for them. Slow lights (Hue, Govee, Home Assistant) get calmer looks that still catch every hit.
 - **From your phone.** Scan a code in Setup and your phone controls the lights on the same Wi-Fi: every light or a whole group on and off, brightness, presets, a color or a look, the light show, the focus timer and the sleep timer, or a photo you take there and then for the room's colors. Off until you switch it on; only the phone with the code's secret link gets in. Add it to your home screen and it opens like an app. Stream Deck, AutoHotkey and Home Assistant can switch your lights the same way, with a link from Setup.
@@ -68,6 +69,8 @@
 | Nanoleaf (Shapes, Canvas, Light Panels, Lines, Elements) | Found automatically; press Pair and hold the power button |
 | ASRock Radeon graphics cards (not supported by OpenRGB) | Directly over the card's I2C bus |
 | QMK keyboards that speak SignalRGB's protocol (e.g. MCHOSE GX87), per key | Directly over USB |
+| SteelSeries keyboards, mice and headsets *(beta)* | Through SteelSeries GG (GameSense) while it runs, for when GG keeps them from OpenRGB; switch it on in Setup |
+| Razer keyboards, mice, headsets, mouse mats and Chroma Link *(beta)* | Through Razer Synapse (Chroma SDK) while it runs, for when Synapse keeps them from OpenRGB; switch it on in Setup |
 | Philips Hue *(beta)* | Bridge found automatically; press the link button, then Pair |
 | LIFX *(beta)* | Found automatically |
 | Govee *(beta)* | Found automatically once LAN Control is on in the Govee Home app |

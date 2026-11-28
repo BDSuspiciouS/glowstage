@@ -86,6 +86,8 @@ DEFAULTS = {
     "states": {},       # id -> LightState dict (restored on launch)
     "presets": DEFAULT_PRESETS,
     "openrgb": {"auto_launch": True, "elevated": False, "path": "", "port": 6742, "zone_sizes": {}},
+    "razer": {"on": False, "types": ["keyboard", "mouse", "mousepad"]},   # Razer devices through Synapse (devices/razer_chroma.py): the switch and which device types you have
+    "steelseries": {"on": False, "types": ["keyboard", "mouse"]},   # SteelSeries GG's GameSense (devices/steelseries.py): off until switched on; the device types to light (keyboard, mouse, headset)
     "show_layout": {},  # id -> [start, end, "front"|"back"]: where a light sits on the stage
     "show_sync": {},      # sound output name -> ms the music lights wait for the sound ("" = any output)
     "show_excluded": [],  # ids of lights that keep their own look while the light show runs
@@ -114,6 +116,8 @@ DEFAULTS = {
                  "auto_paused_until": 0,  # time.time() until which no automatic look runs (0: none)
                  "night_limit": {"on": False, "from": "23:00", "to": "07:00", "max": 30},   # night.py
                  "night_skip_until": 0,  # "Not tonight": no night limit until then (time.time())
+                 "presence": {"on": False, "lights": "room", "groups": [], "when": "sunset", "at": "17:30", "off": "23:30"},   # Someone's home while you're away (presence.py)
+                 "presence_before": None,   # how those lights looked when it was switched on: {"looks", "preset"}, put back when it's switched off
                  "auto_game": "",        # a game in full screen: "", "screen" or "preset:<name>"
                  "auto_video": "",       # a video in full screen: the same
                  "screen_display": "",   # the display Screen sync follows: "" main, "auto" (where a full-screen window is) or a device name (screen.py)

@@ -82,6 +82,7 @@ class Api:
                  "cycle": self._m.cycle.describe(),
                  "focus": self._m.focus.describe(),
                  "night": self._m.night.describe(),
+                 "presence": self._m.presence.describe(),
                  "wallpaper": self._m.wallpaper.describe(),
                  "askSupport": self._ask_support(),
                  "whatsNew": whatsnew.card(self._app.config["settings"]),
@@ -145,6 +146,17 @@ class Api:
     def set_night_limit(self, on, start, end, top):
         """The night limit: from `start` to `end` no light above `top` percent (night.py)."""
         self._m.night.configure(on, start, end, top)
+
+    @_safe
+    def set_presence(self, on, lights, groups, when, at, off):
+        """Someone's home while you're away: the room's lights (or your groups) come on in the
+        evening and go off at night at slightly different times each day (presence.py)."""
+        self._m.presence.configure(on, lights, groups, when, at, off)
+
+    @_safe
+    def stop_presence(self):
+        """Stop Someone's home mode: the lights go back to how they were."""
+        self._m.presence.stop_now()
 
     @_safe
     def skip_night_limit(self):
@@ -528,6 +540,11 @@ class Api:
         installer.start(on_done=lambda: provider.restart(elevated))
 
     @_safe
+    def steelseries_set(self, on, types):
+        """Setup → PC lighting → SteelSeries: the switch, and which device types to light."""
+        self._m.steelseries.set_options(on, types)
+
+    @_safe
     def genre_ai_install(self):
         """Download the enhanced genre AI from its makers (the user pressed the button); the light
         show switches to it at its next look."""
@@ -701,6 +718,12 @@ class Api:
     @_safe
     def obs_clear_password(self):
         self._app.manager.obs.clear_password()
+
+    @_safe
+    def razer_set(self, on, types):
+        """Setup → PC lighting → Razer Synapse: take the Razer devices of these types through Synapse's
+        Chroma SDK (or give them back to Synapse)."""
+        self._app.manager.razer.set_options(on, types)
 
     @_safe
     def stop_automation(self):

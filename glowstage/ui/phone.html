@@ -77,6 +77,9 @@
   .switch:disabled, input[type=range]:disabled { opacity: .4; cursor: default; }
   .item .row { gap: 12px; }
   .hint { color: var(--muted); font-size: 14px; margin: -4px 0 12px; }
+  .note-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card);
+    border-radius: 14px; padding: 10px 14px; margin-bottom: 10px; font-size: 14px; }
+  .note-line .chip { flex: 0 0 auto; padding: 0 14px; min-height: 40px; }
   .btn:disabled { opacity: .55; cursor: default; }
   .swatches { display: flex; height: 44px; border-radius: 12px; overflow: hidden; margin: 14px 0 12px; }
   .swatches span { flex: 1; }
@@ -108,6 +111,7 @@
     </button>
   </header>
   <div class="banner" id="banner" role="alert"></div>
+  <div id="notes" aria-live="polite"></div>
   <section>
     <h2>Brightness</h2>
     <div class="row"><input type="range" id="bright" min="1" max="100" aria-label="Brightness"><span class="num" id="bright-val"></span></div>
@@ -292,8 +296,29 @@ function syncRows(box, kind, items, labelOf, dot) {
   for (const i of items) updateRow(rows[`${kind}:${i.id}`], i);
 }
 
+function renderNotes(notes) {
+  const sig = JSON.stringify(notes || []);
+  if ($("notes").dataset.sig === sig) return;
+  $("notes").dataset.sig = sig;
+  $("notes").replaceChildren(...(notes || []).map(n => {
+    const line = document.createElement("div");
+    line.className = "note-line";
+    const t = document.createElement("span");
+    t.textContent = n.text;
+    line.append(t);
+    if (n.action) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = n.action;
+      b.onclick = () => act({ do: "note", id: n.id });
+      line.append(b);
+    }
+    return line;
+  }));
+}
+
 function render(s) {
   state = s;
+  renderNotes(s.notes);
   $("sub").textContent = s.count ? `${s.on} of ${s.count} lights on` : "No lights found";
   const groups = s.groups.map(g => ({ id: g.key, name: g.name, on: g.on, brightness: g.brightness, online: true }));
   $("groups-box").hidden = !groups.length;

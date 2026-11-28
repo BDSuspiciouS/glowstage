@@ -19,6 +19,7 @@ from .away import Away
 from .cycle import PresetCycle
 from .focus import FocusTimer
 from .night import NightLimit
+from .presence import Presence
 from . import hotkeys, wallpaper as wallpaper_look
 from .wallpaper import WallpaperFollow
 from .timer import SleepTimer
@@ -29,6 +30,8 @@ from .devices.base import COLOR_ORDERS, GLIDES, MAX_FLOOR, WARMTH_RANGE, Device
 from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
 from .devices.openrgb_dev import OpenRGBProvider
+from .devices.razer_chroma import RazerChroma
+from .devices.steelseries import SteelSeriesProvider
 from .devices.registry import Found, drivers
 from .colors import RGB, hex_to_rgb, scale
 from .effects import EFFECTS, _rgb, blend
@@ -174,6 +177,9 @@ class DeviceManager:
         self._forced: set[str] = set()
         self._stop = threading.Event()
         self.openrgb = OpenRGBProvider(config["openrgb"], self._on_openrgb_change)
+        self.razer = RazerChroma(config["razer"], self._on_razer_change, config.save_soon)   # (Razer Synapse: devices/razer_chroma.py)
+        self._razer_up: set[str] = set()      # Razer lights this session that answered and got their look
+        self.steelseries = SteelSeriesProvider(config["steelseries"], self._on_steelseries_change, config.save_soon)   # (SteelSeries GG's GameSense, beta)
         self.discovery = Discovery(self._on_discovered)
         self.engine = EffectEngine(self)
         self.engine.audio.set_source(config["settings"].get("show_input", ""))   # (a microphone only if you chose one)
@@ -187,6 +193,7 @@ class DeviceManager:
         self.focus = FocusTimer(self)
         self.wallpaper = WallpaperFollow(self)
         self.night = NightLimit(self)
+        self.presence = Presence(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -194,12 +201,15 @@ class DeviceManager:
         for dev_id, entry in list(self.config["devices"].items()):
             self._add_entry(dev_id, entry)
         self.openrgb.start()
+        self.razer.start()
+        self.steelseries.start()
         self.discovery.start()
         self.engine.start()
         self.games.start()
         self.obs.start()
         self.automations.start()
         self.night.start()
+        self.presence.start()
         threading.Thread(target=self._monitor, name="monitor", daemon=True).start()
         threading.Thread(target=self._scheduler, name="schedule", daemon=True).start()
         threading.Thread(target=self._discover_direct, name="direct-discovery", daemon=True).start()
@@ -225,11 +235,14 @@ class DeviceManager:
         self.focus.stop()
         self.wallpaper.stop()
         self.night.stop()
+        self.presence.stop()
         self.games.stop()
         self.obs.stop()
         self.engine.stop()
         self.discovery.stop()
         self.openrgb.stop()
+        self.razer.stop()       # (ends the session: Synapse gets its own effects back)
+        self.steelseries.stop()     # (gives the devices back to GG)
         for hub in list(self.hubs.values()):
             hub.close()
         self.config.save_now()
@@ -249,7 +262,11 @@ class DeviceManager:
             self.devices[dev.id] = dev
             saved = self.config["states"].get(dev.id)
             self.states.setdefault(dev.id, LightState.from_dict(saved))
-            self.workers.setdefault(dev.id, DeviceWorker(dev, self.report_error))
+            worker = self.workers.get(dev.id)
+            if worker is None:
+                self.workers[dev.id] = DeviceWorker(dev, self.report_error)
+            else:       # (a light that comes back as a new object, a SteelSeries or Razer one: its worker drives the new one)
+                worker.device = dev
             dev.name = self.config["names"].get(dev.id) or dev.name
             self._balance_device(dev)
             self.night.fit(dev)
@@ -339,6 +356,37 @@ class DeviceManager:
 
     def _on_openrgb_change(self) -> None:
         for dev in list(self.openrgb.devices.values()):
+            if dev.id not in self.devices:
+                self._register(dev)
+            if dev.online:
+                self._came_online(dev)
+        self._changed()
+
+    def _on_razer_change(self) -> None:
+        """The Razer lights offered changed (switch, ticked types) or one started or stopped answering."""
+        offered = dict(self.razer.devices)
+        with self.lock:
+            for dev_id in [i for i, d in self.devices.items() if d.kind == "razer" and i not in offered]:
+                self.devices.pop(dev_id, None)    # (its worker and saved look stay for the next time it is switched on)
+                self._razer_up.discard(dev_id)
+            for dev in offered.values():
+                if dev.id not in self.devices:
+                    self._register(dev)
+        for dev in offered.values():
+            if not dev.online:
+                self._razer_up.discard(dev.id)
+            elif dev.id not in self._razer_up:
+                self._razer_up.add(dev.id)
+                self._came_online(dev)
+        self._changed()
+
+    def _on_steelseries_change(self) -> None:
+        """SteelSeries lights come and go with the switch in Setup (their looks are kept for next time)."""
+        present = dict(self.steelseries.devices)
+        with self.lock:
+            for dev_id in [i for i, d in self.devices.items() if d.kind == "steelseries" and i not in present]:
+                self.devices.pop(dev_id).streaming = False
+        for dev in present.values():
             if dev.id not in self.devices:
                 self._register(dev)
             if dev.online:
@@ -829,12 +877,21 @@ class DeviceManager:
         is skipped rather than run late."""
         fired: dict[str, datetime.date] = {}
         while not self._stop.wait(15):
-            for s in self.due_schedules(datetime.datetime.now(), fired):
-                log.info("Schedule %s: %s", self.schedule_name(s), s["action"])
-                try:
-                    self.run_action(s["action"])
-                except Exception:
-                    log.exception("Schedule %s failed", self.schedule_name(s))
+            self.run_schedules(datetime.datetime.now(), fired)
+
+    def run_schedules(self, now: datetime.datetime, fired: dict) -> None:
+        """Run what's due at `now`. While Someone's home mode is on they are skipped (still marked
+        as done for today): a schedule switches every light or a preset on, and that would break
+        the evening the mode plays, and nobody is home to need it."""
+        for s in self.due_schedules(now, fired):
+            if self.presence.active:
+                log.info("Schedule %s skipped: Someone's home mode is on", self.schedule_name(s))
+                continue
+            log.info("Schedule %s: %s", self.schedule_name(s), s["action"])
+            try:
+                self.run_action(s["action"])
+            except Exception:
+                log.exception("Schedule %s failed", self.schedule_name(s))
 
     def due_schedules(self, now: datetime.datetime, fired: dict) -> list[dict]:
         """The schedules to run at `now` (each once a day; `fired` remembers which ran when)."""
@@ -1395,6 +1452,8 @@ class DeviceManager:
         return {
             "revision": self.revision,
             "openrgb": self.openrgb.describe(),
+            "razer": self.razer.describe(),
+            "steelseries": self.steelseries.describe(),
             "genreAi": {**genre_install.describe(), "active": self.engine.show.genre.model_name},
             "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,
                       "kind": self.engine.audio.device_kind, "sync": self.show_sync(),

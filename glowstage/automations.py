@@ -584,8 +584,8 @@ class Automations:
         holds = {"call": self._call, "live": self._live, "cs2": self._cs2, "lol": self._lol, "dota": self._dota, "rl": self._rl, "racing": self._racing, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
                  **{r: r[4:] in self._apps for r in rules if r.startswith("app:")}}
         want = next((r for r in rules if rules[r] and holds.get(r)), None)
-        if want is not None and self.paused_until():
-            want = None         # paused: no automatic look now (the one that's on ends below)
+        if want is not None and (self.paused_until() or m.presence.active):
+            want = None         # paused, or Someone's home mode is on: no automatic look now (the one that's on ends below)
         if self.active and self._set is not None and not _same(m.looks(), self._set):
             log.info("Automatic look (%s): taken over by hand", self.active)
             self.active, self._saved, self._set, self._hands_off = None, None, None, True

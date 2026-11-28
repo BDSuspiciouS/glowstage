@@ -66,6 +66,8 @@ def report(app) -> str:
     o = m.openrgb.describe()
     out.append(f"OpenRGB: {o.get('status') or '?'}" + (f" ({o['message']})" if o.get("message") else "")
                + (", as administrator" if o.get("elevated") else ""))
+    out.append(f"Razer Synapse: {m.razer.summary()}")
+    out.append(f"SteelSeries GG: {m.steelseries.summary()}")
     apps = len(app.config.data.get("app_looks") or [])
     out.append("Automatic: " + ", ".join([
         f"games {s.get('auto_game') or 'off'}", f"videos {s.get('auto_video') or 'off'}",
@@ -80,7 +82,7 @@ def report(app) -> str:
     taken = [f"{keys.label(a)} {k}" for a, k in keys.taken.items()] if keys else []
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
-        f"hotkeys {hotkeys.summary(s, m.preset_names(), taken)}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"automatic looks {'paused' if m.automations.paused_until() else 'on'}", f"night limit {m.night.describe()['max']}% now" if m.night.applied is not None else f"night limit {'on' if m.night.settings['on'] else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
+        f"hotkeys {hotkeys.summary(s, m.preset_names(), taken)}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"someone's home {'on' if m.presence.active else 'off'}", f"automatic looks {'paused' if m.automations.paused_until() else 'on'}", f"night limit {m.night.describe()['max']}% now" if m.night.applied is not None else f"night limit {'on' if m.night.settings['on'] else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
         f"sound {m.engine.audio.device or 'not listening now'}"
         + (" (microphone" + (", not there" if m.engine.audio.missing else "") + ")" if m.engine.audio.source else " (PC's sound)")]))
     problems = recent_problems()

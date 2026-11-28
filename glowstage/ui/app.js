@@ -270,9 +270,11 @@ const OFFLINE_TIPS = {
   wled: "Check it has power and is on the same Wi-Fi. If its address changed, Search now in Setup finds it again.",
   nanoleaf: "Check it has power. If it was reset, pair it again in Setup.",
   openrgb: "OpenRGB may have stopped: restart it in Setup \u2192 PC lighting.",
+  steelseries: "Check that SteelSeries GG is running. Glowstage connects to it by itself.",
   hue: "Check the bridge has power and is on your network.",
   asrock_gpu: "Unplug and plug it back in, or restart Glowstage.",
   qmk: "Unplug and plug it back in, or restart Glowstage.",
+  razer: "Start Razer Synapse (with Chroma Connect), or tick only the Razer devices you have in Setup \u2192 Razer devices.",
 };
 const offlineTip = d => OFFLINE_TIPS[d.kind]
   || ((driverOf(d.kind) || {}).hub ? OFFLINE_TIPS.hue : "Check it has power and is on your network.");
@@ -341,8 +343,9 @@ function renderHomeNotes() {
   const focus = S.data.focus;
   const paused = S.data.autoPaused;
   const night = S.data.night && S.data.night.active ? S.data.night : null;
+  const home = S.data.presence && S.data.presence.on ? S.data.presence : null;
   const news = !S.newsClosed && S.data.whatsNew;
-  const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
+  const sig = JSON.stringify([home && [home.plan, home.going], showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
     sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, paused, night && [night.max, night.until], news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
@@ -351,6 +354,16 @@ function renderHomeNotes() {
   const had = host.contains(document.activeElement) ? document.activeElement : null;
   const keep = had && { at: [...host.children].indexOf(had.closest(".note")), text: had.textContent };
   fill(host,
+    home ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("bulb")),
+      h("div", { class: "note-text" },
+        h("strong", { text: home.plan
+          ? `Someone's home mode is on: ${home.plan.day === "tomorrow" ? "tomorrow " : ""}lights on around ${home.plan.on}, off around ${home.plan.off}`
+          : "Someone's home mode is on" }),
+        h("span", { class: "muted", text: "Your lights come on and go off at slightly different times each day, and now and then one changes, so it looks like someone is home. Your PC's own lights stay as they are." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Stop", onclick: async () => {
+          await call("stop_presence"); toast("Someone's home mode is off: your lights are back as they were"); refresh(true); } }))) : null,
     wake ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("bulb")),
       h("div", { class: "note-text" }, h("strong", { text: "Waking you up" }),

@@ -303,8 +303,25 @@ class Remote:
                       "text": focus.get("text", ""), "last": self._focus_line()},
             "sleep": m.sleep.describe(),
             "canUndo": m.can_undo(),
+            "notes": self._notes(),
             "now": time.time(),
         }
+
+    def _notes(self) -> list[dict]:
+        """What's holding the lights back right now, for a line at the top of the phone page with a
+        way out: the night limit, the automatic looks paused, an ON AIR look while OBS is live."""
+        m, out = self.manager, []
+        if m.night.applied is not None:
+            until = time.strftime("%H:%M", time.localtime(m.night.describe()["until"]))
+            out.append({"id": "night", "text": f"Night limit: lights at most {m.night.applied}% until {until}",
+                        "action": "Not tonight"})
+        paused = m.automations.paused_until()
+        if paused:
+            out.append({"id": "paused", "text": f"Automatic looks paused until {time.strftime('%H:%M', time.localtime(paused))}",
+                        "action": "Resume"})
+        if m.automations.active == "live":
+            out.append({"id": "live", "text": "You're live: your lights show your on air look", "action": ""})
+        return out
 
     def act(self, req: dict) -> None:
         m, what = self.manager, str(req.get("do", ""))
@@ -333,6 +350,14 @@ class Remote:
         elif what == "sleep":
             minutes = int(req.get("minutes") or 0)
             m.sleep.start(minutes) if minutes else m.sleep.cancel()
+        elif what == "note":         # the way out of a line at the top of the page
+            which = req.get("id")
+            if which == "night":
+                m.night.skip_tonight()
+            elif which == "paused":
+                m.automations.resume()
+            else:
+                raise ValueError("There's nothing to do for that")
         elif what == "undo":
             if not m.undo():
                 raise ValueError("There's nothing to undo")

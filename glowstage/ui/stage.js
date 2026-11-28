@@ -24,7 +24,7 @@ const stageOf = d => ST.pending[d.id] || (S.data.stage && S.data.stage[d.id]) ||
 
 function fixtureType(d) {
   if (d.kind === "nanoleaf") return "panels";
-  if (d.kind === "qmk") return "keys";
+  if (d.kind === "qmk" || (d.kind === "steelseries" && d.deviceType === "KEYBOARD")) return "keys";
   if ((d.pixels || 0) <= 1) return "bulb";
   if (d.group === "pc") return "pc";
   return "strip";
