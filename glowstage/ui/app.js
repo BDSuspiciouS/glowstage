@@ -253,6 +253,7 @@ const AUTO_NOTES = {
   call: { icon: "spark", title: "You're on a call", text: "Your lights changed for it by themselves and go back when the call ends." },
   cs2: { icon: "spark", title: "Counter-Strike 2 is on", text: "Your lights play along with the match and go back when you leave it." },
   lol: { icon: "spark", title: "League of Legends is on", text: "Your lights play along with the match and go back when you leave it." },
+  dota: { icon: "spark", title: "Dota 2 is on", text: "Your lights play along with the match and go back when you leave it." },
   game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
   video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
   music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
@@ -1821,7 +1822,10 @@ function renderShow() {
     setSlider($("#show-intensity"), v, null, false);
     $("#show-int-val").textContent = `${v}%`;
   }
-  $("#show-strobe").checked = S.data.settings.show_strobe !== false;
+  const soft = !!S.data.settings.soft_flashes;      // (Soften flashes leaves the strobes out: say so here)
+  $("#show-strobe").checked = S.data.settings.show_strobe !== false && !soft;
+  $("#show-strobe").disabled = soft;
+  $("#show-strobe").closest(".switch-row").querySelector(".muted").textContent = soft ? "Off: flashes are softened (Setup → App)" : "On the big moments";
   $("#show-auto").checked = !!S.data.settings.auto_show;
   const g = S.data.genreAi;
   $("#show-how").textContent = g && g.installed

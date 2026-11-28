@@ -166,7 +166,7 @@ class WithAManager(unittest.TestCase):
 
     def test_the_loop_tells_step_about_the_call(self):
         seen = self.loop()
-        self.assertTrue(seen and all(args[-2] is True for args in seen))   # (call is the one before lol)
+        self.assertTrue(seen and all(args[-3] is True for args in seen))   # (call is the one before lol and dota)
 
     def test_nothing_runs_while_away(self):
         self.m.away.reasons.add("locked")

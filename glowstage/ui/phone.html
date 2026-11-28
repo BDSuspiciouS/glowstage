@@ -24,8 +24,7 @@
   }
   .power svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
   .power.is-on { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
-  .power:active, .btn:active, .preset:active, .chip:active { transform: scale(.97); }
-  section { background: var(--card); border-radius: 18px; padding: 16px; margin-bottom: 12px; }
+  .power:active, .btn:active, .preset:active, .chip:active { transform: scale(.97); }  section { background: var(--card); border-radius: 18px; padding: 16px; margin-bottom: 12px; }
   h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 12px; letter-spacing: .02em; }
   .row { display: flex; align-items: center; gap: 14px; }
   input[type=range] { flex: 1; accent-color: var(--text); height: 32px; }
@@ -74,6 +73,16 @@
   .btn:disabled { opacity: .55; cursor: default; }
   .swatches { display: flex; height: 44px; border-radius: 12px; overflow: hidden; margin: 14px 0 12px; }
   .swatches span { flex: 1; }
+  .colors { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+  .color { height: 44px; padding: 0; border-radius: 12px; border: 1px solid var(--line-2); cursor: pointer; }
+  .color:active { transform: scale(.97); }
+  .color[aria-pressed=true] { outline: 2px solid var(--text); outline-offset: 2px; }
+  .more { margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .more .dot { width: 16px; height: 16px; }
+  .pick { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .looks { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .looks .preset { height: 64px; padding: 8px 10px; font-size: 13px; line-height: 1.2; }
+  .focus-label { font-weight: 600; font-size: 16px; margin-bottom: 4px; }
   .save-row { display: flex; flex-wrap: wrap; gap: 8px; }
   .save-row input {
     flex: 1 1 100%; min-width: 0; min-height: 44px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card-2);
@@ -96,14 +105,19 @@
     <h2>Brightness</h2>
     <div class="row"><input type="range" id="bright" min="1" max="100" aria-label="Brightness"><span class="num" id="bright-val"></span></div>
   </section>
-  <section id="groups-box" hidden><div id="groups"></div></section>
-  <section id="lights-box" hidden>
-    <h2>Lights</h2>
-    <div id="lights"></div>
-  </section>
   <section>
     <h2>Presets</h2>
     <div class="presets" id="presets"></div>
+  </section>
+  <section>
+    <h2>Color</h2>
+    <div class="colors" id="colors"></div>
+    <button class="btn more" id="more-colors" type="button"><span class="dot" id="more-dot" hidden></span>More colors</button>
+    <input type="color" class="pick" id="pick" value="#ffb46b" aria-label="Choose a color" tabindex="-1">
+  </section>
+  <section>
+    <h2>Looks</h2>
+    <div class="presets looks" id="looks"></div>
   </section>
   <section>
     <h2>From a photo</h2>
@@ -124,8 +138,28 @@
     <button class="btn" id="show" type="button">Start the light show</button>
   </section>
   <section>
+    <h2>Focus timer</h2>
+    <div id="focus-off">
+      <p class="hint" id="focus-last"></p>
+      <button class="btn" id="focus-start" type="button">Start the focus timer</button>
+    </div>
+    <div id="focus-on" hidden>
+      <div class="focus-label" id="focus-label"></div>
+      <p class="hint" id="focus-text"></p>
+      <div class="chips">
+        <button class="chip" id="focus-skip" type="button">Skip</button>
+        <button class="chip" id="focus-stop" type="button">Stop</button>
+      </div>
+    </div>
+  </section>
+  <section>
     <h2>Sleep timer</h2>
     <div id="sleep"></div>
+  </section>
+  <section id="groups-box" hidden><div id="groups"></div></section>
+  <section id="lights-box" hidden>
+    <h2>Lights</h2>
+    <div id="lights"></div>
   </section>
 </main>
 <script>
@@ -150,6 +184,11 @@ function art(p) {
   return `radial-gradient(90% 110% at 0% 0%, ${c[0]} 0%, transparent 70%), radial-gradient(90% 110% at 100% 10%, ${c[1]} 0%, transparent 70%),`
     + ` radial-gradient(90% 110% at 30% 110%, ${c[2 % c.length]} 0%, transparent 70%), linear-gradient(135deg, #222, #111)`;
 }
+// The quick colors (the same ones as in the window's color panel).
+const COLORS = [
+  ["Warm white", "#ffb46b"], ["Cool white", "#f2f5ff"], ["Red", "#ff1a1a"], ["Amber", "#ff7a00"], ["Green", "#00e05a"],
+  ["Cyan", "#00c8ff"], ["Blue", "#1f4bff"], ["Violet", "#7c3dff"], ["Magenta", "#ff00c8"], ["Pink", "#ff5c8a"],
+];
 const clock = s => new Date(s * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 async function api(path, body) {
@@ -255,6 +294,29 @@ function render(s) {
   $("power").setAttribute("aria-pressed", String(s.on > 0));
   if (document.activeElement !== $("bright")) $("bright").value = s.brightness || 1;
   $("bright-val").textContent = s.on ? `${s.brightness}%` : "off";
+  // The looks come from Glowstage with the colors of their tile; presets that use one are drawn in them too.
+  for (const l of s.looks) if (!PALETTES[l.id]) PALETTES[l.id] = l.colors;
+  const lookSig = JSON.stringify([s.looks, s.current.effect]);
+  if ($("looks").dataset.sig !== lookSig) {
+    $("looks").dataset.sig = lookSig;
+    $("looks").replaceChildren(...s.looks.map(l => {
+      const b = document.createElement("button");
+      const here = l.id === s.current.effect;
+      b.type = "button";
+      b.className = "preset" + (here ? " is-active" : "");
+      b.style.background = art({ colors: l.colors });
+      b.setAttribute("aria-pressed", String(here));
+      const t = document.createElement("span");
+      t.textContent = l.name;
+      b.append(t);
+      b.onclick = () => act({ do: "effect", effect: l.id });
+      return b;
+    }));
+  }
+  for (const b of $("colors").children) b.setAttribute("aria-pressed", String(b.dataset.color === s.current.color));
+  const custom = s.current.color && !COLORS.some(([, c]) => c === s.current.color);
+  $("more-dot").hidden = !custom;                     // (a color of your own: shown next to "More colors")
+  $("more-dot").style.background = custom ? s.current.color : "";
   const sig = JSON.stringify([s.presets, s.active]);
   if ($("presets").dataset.sig !== sig) {
     $("presets").dataset.sig = sig;
@@ -273,6 +335,12 @@ function render(s) {
   }
   $("show").textContent = s.show ? "Stop the light show" : "Start the light show";
   $("show").classList.toggle("is-on", s.show);
+  const running = !!s.focus.phase;
+  $("focus-off").hidden = running;
+  $("focus-on").hidden = !running;
+  $("focus-last").textContent = s.focus.last;
+  $("focus-label").textContent = s.focus.label;
+  $("focus-text").textContent = s.focus.text;
   const sleep = $("sleep");
   if (s.sleep) {
     sleep.innerHTML = "";
@@ -368,6 +436,25 @@ $("photo-undo").onclick = async () => {
 };
 $("power").onclick = () => state && act({ do: "power", on: !(state.on > 0) });
 $("show").onclick = () => act({ do: "show" });
+$("focus-start").onclick = () => act({ do: "focus", action: "start" });
+$("focus-skip").onclick = () => act({ do: "focus", action: "skip" });
+$("focus-stop").onclick = () => act({ do: "focus", action: "stop" });
+
+// Color: the quick colors are built once; "More colors" opens the phone's own picker, and the
+// color is sent when it is chosen (not on every drag over it).
+for (const [name, c] of COLORS) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "color"; b.title = name; b.setAttribute("aria-label", name);
+  b.dataset.color = c; b.style.background = c;
+  b.onclick = () => act({ do: "color", color: c });
+  $("colors").append(b);
+}
+$("more-colors").onclick = () => {
+  const now = state && state.current.color;
+  if (now) $("pick").value = now;
+  $("pick").click();
+};
+$("pick").onchange = e => act({ do: "color", color: e.target.value });
 let slide;
 $("bright").oninput = e => {
   $("bright-val").textContent = `${e.target.value}%`;

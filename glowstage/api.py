@@ -405,6 +405,20 @@ class Api:
         self._m.identify(dev_id)
 
     @_safe
+    def get_balance(self, dev_id):
+        """A light's white balance and what full brightness means for it."""
+        return self._m.balance(dev_id)
+
+    @_safe
+    def set_balance(self, dev_id, warmth, top):
+        self._m.set_balance(dev_id, warmth, top)
+
+    @_safe
+    def show_white(self, dev_id, on):
+        """A plain white on one light while its Balance window is open (off: back as it was)."""
+        self._m.show_white(dev_id, bool(on))
+
+    @_safe
     def forget(self, dev_id):
         self._m.forget(dev_id)
 
@@ -506,6 +520,15 @@ class Api:
     @_safe
     def games_disconnect(self):
         self._app.manager.games.disconnect()
+
+    @_safe
+    def games_dota_connect(self):
+        """Game lighting: put the small file in Dota 2's cfg folder and start listening."""
+        self._app.manager.games.connect_dota()
+
+    @_safe
+    def games_dota_disconnect(self):
+        self._app.manager.games.disconnect_dota()
 
     @_safe
     def games_lol(self, on):

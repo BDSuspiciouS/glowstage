@@ -11,12 +11,12 @@ import re
 
 from .paths import VERSION
 
-# go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups, games),
+# go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups, games, lights, app),
 # "effect:<id>" (the effects panel, at that look), "sleep" (the sleep timer), "focus" (the focus
 # timer), "search" (the quick search), "presets:<button>" (the Presets page, at that button:
 # picture, turns).
 GOES = ("sleep", "focus", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups",
-        "setup:games", "presets:picture", "presets:turns")
+        "setup:games", "setup:lights", "setup:app", "presets:picture", "presets:turns")
 
 NOTES: dict[str, list[dict]] = {
     "0.9.8": [
@@ -24,16 +24,16 @@ NOTES: dict[str, list[dict]] = {
          "text": "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors."},
         {"title": "Focus timer", "go": "focus",
          "text": "Work for a while, then a short break: your room turns soft green, so you see it's time to get up."},
-        {"title": "League of Legends", "go": "setup:games",
-         "text": "Your team's color, your health across the lights, a flash for every kill, dragon and baron."},
+        {"title": "League of Legends and Dota 2", "go": "setup:games",
+         "text": "Your side's color, your health across the lights, a flash for every kill, and Dota's day and night in your room."},
+        {"title": "Balance your lights", "go": "setup:lights",
+         "text": "Make a strip's bluish white match your bulbs, or tame a light that's brighter than the rest."},
+        {"title": "Soften flashes", "go": "setup:app",
+         "text": "For people who are sensitive to flashing light: every flash becomes a soft swell."},
         {"title": "Presets in turn", "go": "presets:turns",
          "text": "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes."},
         {"title": "Candle, Ocean, Lava lamp, Thunderstorm", "go": "effect:storm",
-         "text": "Four calm looks for the evening. The storm never flashes more than three times a second."},
-        {"title": "PC load and Gradient", "go": "effect:pc_load",
-         "text": "Your lights fill up like a bar as your PC gets busy, or blend two colors across your setup."},
-        {"title": "Use from other apps", "go": "setup:phone",
-         "text": "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link."},
+         "text": "Four calm looks for the evening, and PC load and Gradient besides."},
     ],
     "0.9.7": [
         {"title": "Quick search", "go": "search",

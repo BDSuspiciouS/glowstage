@@ -25,7 +25,7 @@ S.addForm = { kind: "wled", values: {} };
 
 function settingsSignature() {
   const d = S.data;
-  return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label]),
+  return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label, x.balance]),
     d.hubs, d.openrgb, d.genreAi, d.settings, d.games, (d.drivers || []).length, d.stage, d.schedules,
     (d.presets || []).map(p => p.name), d.hotkeysTaken, d.remote, d.appLooks]);
 }
@@ -50,7 +50,7 @@ function lightsSection() {
     const meta = stripMeta(d);
     const dotClass = "dev-dot" + (d.online ? " is-on" : meta.warn ? " is-warn" : "");
     const dr = driverOf(d.kind);
-    const sub = [kindTitle(d) + (dr && dr.beta ? " (beta)" : ""), d.host, d.online ? d.label : meta.text]
+    const sub = [kindTitle(d) + (dr && dr.beta ? " (beta)" : ""), d.host, d.online ? d.label : meta.text, balanceHint(d)]
       .filter(Boolean).join(" · ");
     const child = hubOf(d);
     const actions = h("div", { class: "dev-actions" },
@@ -60,6 +60,12 @@ function lightsSection() {
         title: "Flash this light for a few seconds so you can see which one it is",
         "aria-label": `Find ${d.name}: flash it for a few seconds`,
         onclick: async () => { const r = await callRaw("identify", d.id); if (r && r.ok !== false) toast(`${d.name} is flashing`); else toast((r && r.error) || "Couldn't make it flash", true); },
+      }),
+      h("button", {
+        class: "btn", type: "button", text: "Balance",
+        title: "Make this light match the others: its white, and how bright it is at full",
+        "aria-label": `Balance ${d.name}: its white and its brightness at full`,
+        onclick: () => openBalanceDialog(d),
       }),
       h("button", {
         class: "btn", type: "button", text: d.hidden ? "Show again" : "Hide",
@@ -100,6 +106,72 @@ function lightsSection() {
         onclick: async () => { await call("search"); toast("Looking for lights on your network…"); } }))),
     h("p", { class: "hint", text: "Everything Glowstage found, in your PC and on your network. Rename lights, hide ones you don't use, set up fan LED counts." }),
     rows.length ? rows : h("p", { class: "hint", text: "No lights found yet." }));
+}
+
+/** "Balanced: warmer, 70% at full" for a light that has a balance set; nothing for one that hasn't. */
+function balanceHint(d) {
+  const b = d.balance;
+  if (!b || (!b.warmth && (b.max ?? 100) >= 100)) return "";
+  const parts = [b.warmth > 0 ? "warmer" : b.warmth < 0 ? "cooler" : "", (b.max ?? 100) < 100 ? `${b.max}% at full` : ""].filter(Boolean);
+  return `Balanced: ${parts.join(", ")}`;
+}
+
+/** Match one light against the others: its white (cooler to warmer) and what full brightness means
+    for it. Changes show while you drag; "Show white" holds a plain white on this light while the
+    window is open, so you can put it next to the others. Closing puts the light back. */
+function openBalanceDialog(d) {
+  const start = d.balance || { warmth: 0, max: 100 };
+  const cur = { warmth: start.warmth || 0, max: start.max ?? 100 };
+  const warmthText = v => v === 0 ? "As it comes" : v > 0 ? `Warmer ${v}` : `Cooler ${-v}`;
+  const warmth = h("input", { type: "range", min: "-50", max: "50", step: "1", value: String(cur.warmth), "aria-label": `White balance of ${d.name}` });
+  const warmthVal = h("span", { class: "num muted balance-val" });
+  const top = h("input", { type: "range", min: "20", max: "100", step: "1", value: String(cur.max), "aria-label": `Brightness at 100% of ${d.name}` });
+  const topVal = h("span", { class: "num muted balance-val" });
+  const sync = () => {
+    warmthVal.textContent = warmthText(cur.warmth);
+    warmth.setAttribute("aria-valuetext", warmthText(cur.warmth));
+    topVal.textContent = `${cur.max}%`;
+  };
+  const save = () => callRaw("set_balance", d.id, cur.warmth, cur.max);
+  const saveSoon = throttle(save, 90);          // (a few times a second while dragging, the last value always)
+  warmth.addEventListener("input", () => { cur.warmth = Number(warmth.value); sync(); saveSoon(); });
+  top.addEventListener("input", () => { cur.max = Number(top.value); sync(); saveSoon(); });
+  const resetWarmth = h("button", { class: "link-btn", type: "button", text: "Reset",
+    onclick: () => { warmth.value = "0"; cur.warmth = 0; sync(); save(); } });
+  const resetTop = h("button", { class: "link-btn", type: "button", text: "Reset",
+    onclick: () => { top.value = "100"; cur.max = 100; sync(); save(); } });
+  let white = false;
+  const showWhite = h("input", { type: "checkbox", class: "switch", id: "balance-white", "aria-label": "Show white on this light", disabled: !d.online,
+    onchange: async e => {
+      const box = e.target;
+      const r = await callRaw("show_white", d.id, box.checked);
+      if (!r || r.ok === false) { box.checked = !box.checked; toast((r && r.error) || "That didn't work", true); return; }
+      white = box.checked;
+    } });
+  sync();
+  openModal({
+    title: `Balance ${d.name}`,
+    body: h("div", { class: "balance-dialog" },
+      h("p", { class: "hint", text: "Lights show the same color a little differently. Match this one to the others: put it next to them with Show white, then nudge the sliders until the whites look alike." }),
+      h("div", { class: "control-head" }, h("span", { class: "control-title", text: "White balance" }), warmthVal),
+      h("div", { class: "balance-row" }, h("span", { class: "muted", text: "Cooler" }), warmth, h("span", { class: "muted", text: "Warmer" })),
+      h("div", { class: "control-hint" }, resetWarmth),
+      h("div", { class: "control-head" }, h("span", { class: "control-title", text: "Brightness at 100%" }), topVal),
+      h("div", { class: "balance-row" }, top),
+      h("div", { class: "control-hint" }, h("span", { text: "Lower it if this light is brighter than the others at full. The brightness numbers in Glowstage stay the same. " }), resetTop),
+      h("label", { class: "check-row", for: "balance-white" },
+        h("span", { class: "check-text" }, h("span", { class: "check-name", text: "Show white" }),
+          h("span", { class: "muted", text: d.online ? "A plain white on this light while this window is open." : "This light isn't answering." })),
+        showWhite)),
+    ok: "Done",
+    cancel: false,
+    onOk: () => true,
+    onClose: async () => {
+      await save();                       // (the last value, and before the light goes back to what it showed)
+      if (white) await callRaw("show_white", d.id, false);
+      refresh(true);
+    },
+  });
 }
 
 function hubsSection() {
@@ -266,7 +338,7 @@ function gamesSection() {
         onclick: async () => { if (await call("games_connect") !== undefined) toast("Connected: start CS2 and play"); refresh(true); } }) : null,
       c.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
         onclick: async () => { await call("games_disconnect"); toast("CS2 is disconnected"); refresh(true); } }) : null),
-    leagueCard());
+    leagueCard(), dotaCard());
 }
 
 /* Setup → Games: League of Legends. Nothing to install: the game answers Riot's own live data API on this PC (lol.py). */
@@ -286,6 +358,26 @@ function leagueCard() {
           if (await call("games_lol", on) !== undefined) toast(on ? "On: start a match and play" : "League of Legends is off");
           refresh(true);
         } })));
+}
+
+/* Setup → Games: Dota 2. Valve's game state integration, like CS2: one small file in Dota's cfg folder, plus a Steam launch option the person adds. */
+function dotaCard() {
+  const d = ((S.data.games || {}).dota) || {};
+  const status = !d.found ? "Not found on this PC"
+    : !d.connected ? "Found on this PC"
+    : d.inMatch ? `Playing along · ${d.team === "radiant" ? "Radiant" : d.team === "dire" ? "Dire" : "in a match"}${d.team ? ` · ${d.health}% health` : ""}`
+    : d.receiving ? "Connected · waiting for a match"
+    : "Connected · starts when you open Dota 2";
+  return h("div", { class: "league-card", style: "margin-top:22px" },
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (d.connected ? " is-on" : "") }), h("strong", { text: "Dota 2" }), h("span", { class: "muted", text: " · " + status })),
+    h("p", { class: "hint", style: "margin-bottom:10px", text: "While you play, your room plays along: your side's color, the day and night of the map, your health across the lights, grey while you wait to respawn, a flash for your kills and for Roshan, and gold when you win." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: "Uses Valve's own game state integration, like for CS2: the game sends what happens, nothing reads or changes the game. Connecting puts one small file in Dota 2's cfg folder." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: "Dota 2 only sends once you add one launch option: in Steam, right-click Dota 2, choose Properties, and under Launch options type -gamestateintegration. Glowstage doesn't change Steam for you. Restart Dota 2 after that." }),
+    h("div", { class: "form-actions", style: "margin:0" },
+      !d.connected ? h("button", { class: "btn btn-primary", type: "button", text: "Connect", disabled: !d.found,
+        onclick: async () => { if (await call("games_dota_connect") !== undefined) toast("Connected: add the launch option, then start Dota 2"); refresh(true); } }) : null,
+      d.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
+        onclick: async () => { await call("games_dota_disconnect"); toast("Dota 2 is disconnected"); refresh(true); } }) : null));
 }
 
 function automaticSection() {
@@ -477,6 +569,10 @@ function linksPart(r) {
     ...(S.data.presets || []).map(p => ["preset/" + encodeURIComponent(p.name), `Preset: ${p.name}`]),
     ...[100, 75, 50, 25, 10].map(v => ["brightness/" + v, `Brightness ${v} %`]),
     ["brighter", "Brighter"], ["darker", "Darker"],
+    ...[["ffb46b", "Warm white"], ["f2f5ff", "Cool white"], ["ff1a1a", "Red"], ["00e05a", "Green"], ["1f4bff", "Blue"]]
+      .map(([hex, name]) => ["color/" + hex, `Color: ${name} (swap the code for any color)`]),
+    ...[["rainbow", "Rainbow wave"], ["fire", "Fire"], ["candle", "Candle"], ["aurora", "Aurora"], ["ocean", "Ocean"],
+      ["screen", "Screen sync"]].map(([id, name]) => ["effect/" + id, `Look: ${name}`]),
     ["show/start", "Start the light show"], ["show/stop", "Stop the light show"],
     ["sleep/30", "Sleep timer 30 min"], ["sleep/cancel", "Cancel the sleep timer"], ["undo", "Undo"]];
   if (!actions.some(([v]) => v === linkPick)) linkPick = "on";
@@ -576,6 +672,8 @@ function appSection() {
     row("pc_lights_off_at_shutdown", "Switch the PC's lights off when Windows shuts down"),
     row("room_lights_off_at_shutdown", "Switch the room lights off when Windows shuts down"),
     row("show_strobe", "Strobe flashes in the light show"),
+    row("soft_flashes", "Soften flashes: no look flashes, every light brightens and dims softly"),
+    s.soft_flashes ? h("p", { class: "hint", text: "For people who are sensitive to flashing light. Lightning, kills in games and the beats of the light show swell softly instead, and the light show leaves out its strobes." }) : null,
     row("check_updates", "Check once a day for a new version (asks GitHub; sends nothing about you)"),
     row("hotkeys", "Hotkeys from any program: Ctrl+Alt+Shift+L lights on/off, +S the light show, +1 to +9 your first nine presets, +↑/↓ brightness, +N the sleep timer, +Z undo"),
     (S.data.hotkeysTaken || []).length && s.hotkeys

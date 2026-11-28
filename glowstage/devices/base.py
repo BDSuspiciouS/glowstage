@@ -8,6 +8,28 @@ from ..colors import RGB, hex_to_rgb
 from ..state import LightState
 
 
+WARMTH_RANGE = 50        # the white balance slider goes from -50 (cooler) to +50 (warmer)
+MAX_FLOOR = 20           # "brightness at 100%" can't go below this (percent)
+KEEP_MIN = 0.4           # white balance never takes a channel below 40% of what it was
+
+
+def balance_gains(warmth: int = 0, top: int = 100) -> tuple[float, float, float] | None:
+    """How much of red, green and blue a light gets so that it matches the others, or None when
+    nothing needs correcting. Warmer takes blue (and a little green) out, cooler takes red (and a
+    little green) out; `top` is what full brightness means for this light (percent). Kept gentle:
+    the white balance alone never takes a channel below KEEP_MIN."""
+    t = max(-WARMTH_RANGE, min(WARMTH_RANGE, int(warmth))) / WARMTH_RANGE
+    top = max(MAX_FLOOR, min(100, int(top))) / 100
+    if t == 0 and top == 1:
+        return None
+    r = g = b = 1.0
+    if t > 0:
+        b, g = 1 - 0.5 * t, 1 - 0.15 * t
+    elif t < 0:
+        r, g = 1 + 0.5 * t, 1 + 0.15 * t
+    return tuple(max(KEEP_MIN, c) * top for c in (r, g, b))
+
+
 class Device:
     kind = "generic"
     group = "room"               # "pc" or "room", used to group devices in the UI
@@ -15,6 +37,7 @@ class Device:
     max_fps = 30
     fades = False                # True: a new color glides in (local, quick lights; manager.DeviceWorker)
     fixture: dict | None = None  # its shape, for the light show: {"ring": 8} fans, {"geometry": [...]} keys
+    gains: tuple[float, float, float] | None = None   # the light's balance (set_balance); None: as it comes
 
     def __init__(self, dev_id: str, name: str):
         self.id = dev_id
@@ -24,6 +47,26 @@ class Device:
         self.pixel_count = 0
         self.streaming = False
         self.lock = threading.RLock()
+
+    # ---- balance: what the light is sent, so that it looks like the others -------------------
+
+    def set_balance(self, warmth: int = 0, top: int = 100) -> None:
+        self.gains = balance_gains(warmth, top)
+
+    def balanced(self, rgb: RGB) -> RGB:
+        """One color, corrected for this light. Exactly the same color when the light isn't balanced."""
+        g = self.gains
+        if g is None:
+            return rgb
+        return (min(255, int(rgb[0] * g[0] + 0.5)), min(255, int(rgb[1] * g[1] + 0.5)), min(255, int(rgb[2] * g[2] + 0.5)))
+
+    def balanced_frame(self, colors: list[RGB]) -> list[RGB]:
+        """A whole frame, corrected. The very same list when the light isn't balanced (nearly always)."""
+        g = self.gains
+        if g is None:
+            return colors
+        gr, gg, gb = g
+        return [(min(255, int(r * gr + 0.5)), min(255, int(gc * gg + 0.5)), min(255, int(b * gb + 0.5))) for r, gc, b in colors]
 
     # ---- implemented by subclasses -------------------------------------------------
 
@@ -77,7 +120,7 @@ class Device:
                 if state.mode == "native" and state.native is not None and self.native_effects():
                     self.show_native(state)
                 else:
-                    self.show_color(hex_to_rgb(state.color), state)
+                    self.show_color(self.balanced(hex_to_rgb(state.color)), state)
 
     def _stop_stream(self) -> None:
         if self.streaming:

@@ -12,6 +12,7 @@ import numpy as np
 from . import keys, show, sun
 from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
+from .games import DOTA_LENGTH
 from .lol import LENGTH
 from .state import LightState
 
@@ -1035,6 +1036,88 @@ class LeagueOfLegends(Effect):
         return _rgb(out)
 
 
+_RADIANT = np.array([40.0, 225.0, 70.0])      # Dota: Radiant, a clear green
+_DIRE = np.array([255.0, 35.0, 25.0])         # ... and Dire, a clear red
+_DAWN = np.array([255.0, 205.0, 130.0])       # the warm light of the day
+_DUSK = np.array([50.0, 80.0, 255.0])         # ... and the blue of the night
+_MANA = np.array([40.0, 120.0, 255.0])
+_ROSHAN = np.array([150.0, 50.0, 255.0])      # Roshan and the aegis: purple, turning gold
+
+
+class Dota2(Effect):
+    """Dota 2, as the game tells it (games.DotaState): the room in your side's color (Radiant a
+    clear green, Dire a clear red) that follows the map's day and night (the day brighter and warmer,
+    the night dimmer and bluer), your health as a bar across the stage, your mana as a blue bar on
+    the PC's own lights, a dim cold grey while you're dead with the respawn bar filling back up,
+    a gold flash for your kill, a purple flash turning gold when your team kills Roshan or you pick
+    up the aegis, a short desaturated dip when you're stunned or hexed (a dip, not a flash), gold held
+    for a win and a dim red for a loss.
+
+    Safety: games.py only starts a flash when the one before is over (and never closer than 0.34 s),
+    so there are never more than three flashes in any second, like League and Storm. Slow lights
+    (ctx["fps"] <= SLOW_FPS) get each flash held, not decayed, for at least 0.35 s."""
+    id, name = "game_dota", "Dota 2"
+    group = "game"
+    uses = ()
+    HOLD = 0.35
+    DIP = 0.8
+    RESULT_HOLD, RESULT_FADE = 5.0, 1.5
+    FLASHES = (("my_kill", _KILL, 0.8), ("aegis", None, 0.9), ("roshan", None, 1.0))
+
+    def render(self, t, n, st, mem, ctx):
+        g = ctx.get("dota") or {}
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        x = start + (end - start) * (np.arange(n) + 0.5) / n      # where each pixel sits: 0 left .. 1 right
+        ago = g.get("ago") or {}
+        slow = (ctx.get("fps") or 100) <= show.SLOW_FPS
+        result = next((k for k in ("win", "lose") if ago.get(k, 99) < self.RESULT_HOLD + self.RESULT_FADE), None)
+        if not g.get("inMatch") and result is None:   # no match: both sides' colors drift slowly across the room
+            u = (0.5 + 0.5 * np.sin(2 * np.pi * (x * 0.8 - t * 0.05)))[:, None]
+            return _rgb((_RADIANT * u + _DIRE * (1 - u)) * (0.35 + 0.08 * math.sin(t * 0.8)))
+        # Day and night: eased, so the room slowly turns with the map instead of jumping.
+        want = 1.0 if g.get("daytime", True) else 0.0
+        day = want if "day" not in mem else mem["day"] + (want - mem["day"]) * min(1.0, max(0.0, t - mem["t"]) * 0.8)
+        mem["day"], mem["t"] = day, t
+        base = {"radiant": _RADIANT, "dire": _DIRE}.get(g.get("team"), _NEUTRAL)
+        team = (base * 0.82 + _DAWN * 0.18) * day + (base * 0.78 + _DUSK * 0.22) * 0.6 * (1 - day)
+        if g.get("alive") is False:           # dead: dim grey, and the respawn bar fills with your side's color
+            back = np.tile(_COLD * (0.10 + 0.02 * math.sin(t * 1.5)), (n, 1))
+            back_up = max(0.0, min(1.0, g.get("respawn") or 0.0))
+            if n == 1:
+                out = _mix(back, team * 0.5, back_up)
+            else:
+                out = _mix(back, team * 0.5, np.clip((back_up - x) / 0.04 + 0.5, 0.0, 1.0))
+        else:
+            hp = max(0.0, min(1.0, g.get("health") if g.get("health") is not None else 1.0))
+            if n == 1:
+                out = np.tile(team * (0.25 + 0.75 * hp), (1, 1))
+            else:
+                lit = np.clip((hp - x) / 0.04 + 0.5, 0.0, 1.0)
+                out = team[None, :] * (0.07 + 0.93 * lit[:, None])
+                mana = max(0.0, min(1.0, g.get("mana") if g.get("mana") is not None else 1.0))
+                if start >= 0.7:              # the PC's own lights stand at the right: each shows mana as a blue bar
+                    along = (x - start) / max(end - start, 1e-6)
+                    out = _mix(out, _MANA, 0.55 * np.clip((mana - along) / 0.06 + 0.5, 0.0, 1.0))
+        a = ago.get("dip", 99)
+        if a < self.DIP:                      # stunned or hexed: the colors drain for a moment and come back
+            k = 0.7 if slow else 0.7 * math.sin(math.pi * a / self.DIP)
+            grey = out.mean(axis=1, keepdims=True) * 0.7
+            out = out * (1 - k) + grey * k
+        for kind, color, power in self.FLASHES:
+            a, length = ago.get(kind, 99), DOTA_LENGTH[kind]
+            if a < length:
+                level = power if slow and a < max(length, self.HOLD) else power * (1 - a / length)
+                if color is None:             # purple at the start, gold at the end
+                    p = min(1.0, a / length)
+                    color = _ROSHAN * (1 - p) + _GOLD * p
+                out = _mix(out, color, level)
+        if result:                            # the end: gold held for a win, a dim red for a loss
+            a = ago[result]
+            level = 1.0 if a < self.RESULT_HOLD else 1 - (a - self.RESULT_HOLD) / self.RESULT_FADE
+            out = _mix(out, _KILL if result == "win" else _LOSS, max(0.0, level) * (0.85 if result == "win" else 0.9))
+        return _rgb(out)
+
+
 def _rgb(arr: np.ndarray) -> list[RGB]:
     a = np.clip(arr, 0, 255).astype(int)
     return [(int(r), int(g), int(b)) for r, g, b in a]
@@ -1044,7 +1127,7 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in (
     Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
-    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(),
+    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(),
 )}
 MUSIC_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "music"}
 HEARING_EFFECTS = MUSIC_EFFECTS | {"screen_sound"}        # ask the audio analysis for its picture

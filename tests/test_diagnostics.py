@@ -59,6 +59,7 @@ class Report(unittest.TestCase):
         self.assertIn("- Shelf (wled, room, 60 LEDs): not answering: Not responding", t)
         self.assertIn("phone remote on", t)
         self.assertIn("CS2 connected", t)
+        self.assertIn("Dota 2 off", t)
         self.assertIn("ERROR glowstage.api: broke", t)
         self.assertNotIn("INFO", t)
 

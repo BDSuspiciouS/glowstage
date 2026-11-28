@@ -14,12 +14,13 @@ class SlowDisk(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.cfg = Path(self.tmp.name) / "cfg"
         self.cfg.mkdir()
-        self._find = games.find_cs2
+        self._find, self._find_dota = games.find_cs2, games.find_dota2
+        games.find_dota2 = lambda: None
         games.find_cs2 = self.slow_find
         self.g = games.Games(Config(Path(self.tmp.name) / "config.json"), lambda: None)
 
     def tearDown(self):
-        games.find_cs2 = self._find
+        games.find_cs2, games.find_dota2 = self._find, self._find_dota
         self.tmp.cleanup()
 
     def slow_find(self):

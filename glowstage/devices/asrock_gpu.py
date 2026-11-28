@@ -166,7 +166,7 @@ class AsrockGpuDevice(Device):
             colors = effect.render(0.0, self.pixel_count, state, {}, {})
             if not any(any(c) for c in colors):  # e.g. screen sync before it has sampled anything
                 colors = [hex_to_rgb(state.color)] * self.pixel_count
-            self.send_frame([scale(c, state.brightness / 100) for c in colors])
+            self.send_frame(self.balanced_frame([scale(c, state.brightness / 100) for c in colors]))
 
     def show_color(self, rgb: RGB, state: LightState) -> None:
         self.send_frame([scale(rgb, state.brightness / 100)] * self.pixel_count)

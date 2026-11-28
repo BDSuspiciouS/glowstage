@@ -81,6 +81,7 @@ DEFAULTS = {
     "devices": {},      # network lights: id -> {kind, host, port, token}
     "names": {},        # custom display names: id -> name
     "hidden": [],       # device ids hidden from the UI
+    "balance": {},      # id -> {"warmth": -50..50, "max": 20..100}: a light's white balance and what full brightness means for it
     "states": {},       # id -> LightState dict (restored on launch)
     "presets": DEFAULT_PRESETS,
     "openrgb": {"auto_launch": True, "elevated": False, "path": "", "port": 6742, "zone_sizes": {}},
@@ -90,12 +91,13 @@ DEFAULTS = {
     "online": {},         # what online.py last heard from GitHub (latest version, support links)
     "schedules": [],      # [{"time": "23:00" | "sunrise" | "sunset", "offset": minutes (-180..180, sun times only),
                           #   "days": [0..6] (Monday = 0), "action": "off" | "on" | "show" | "preset:<name>", "enabled": true}]
-    "games": {"cs2": False, "lol": False, "port": 0, "token": ""},   # game lighting (games.py): CS2 connected, League switched on, where CS2 sends to
+    "games": {"cs2": False, "lol": False, "dota": False, "port": 0, "token": ""},   # game lighting (games.py): CS2 and Dota 2 connected, League switched on, where CS2 and Dota send to
     "remote": {"on": False, "port": 0, "token": ""},   # the phone remote (remote.py)
     "app_looks": [],      # [{"exe": "photoshop.exe", "name": "Adobe Photoshop", "action": "preset:Focus"}]: while open
     "settings": {"close_to_tray": True, "start_minimized": False, "restore_on_launch": True,
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
                  "room_lights_off_at_shutdown": True, "show_strobe": True,
+                 "soft_flashes": False,  # no light jumps: every look brightens and dims softly (soft.py)
                  "setup_done": False,    # the welcome tour ran (or was skipped)
                  "active_preset": "",    # the preset the lights show now ("" once changed by hand)
                  "hotkeys": False,       # Ctrl+Alt+Shift+L/S/1-9 from any program (see hotkeys.py)

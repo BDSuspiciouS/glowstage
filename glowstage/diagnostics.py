@@ -49,6 +49,12 @@ def report(app) -> str:
     for d in sorted(devices, key=lambda d: (d["group"], d["kind"], d["name"])):
         state = "answering" if d["online"] else f"not answering: {d['error'] or 'no reason given'}"
         out.append(f"- {d['name']} ({d['kind']}, {d['group']}, {d['pixels']} LEDs): {state}")
+    shown = {d["id"] for d in devices}
+    balanced = [f"{m.devices[i].name} ({b['warmth']:+d} warmth, {b['max']}% at full)"
+                for i in sorted(shown) if i in m.devices and i in (app.config.data.get("balance") or {})
+                for b in [m.balance(i)]]
+    if balanced:
+        out.append("Balanced lights: " + ", ".join(balanced))
     o = m.openrgb.describe()
     out.append(f"OpenRGB: {o.get('status') or '?'}" + (f" ({o['message']})" if o.get("message") else "")
                + (", as administrator" if o.get("elevated") else ""))
@@ -57,7 +63,8 @@ def report(app) -> str:
         f"games {s.get('auto_game') or 'off'}", f"videos {s.get('auto_video') or 'off'}",
         f"music {'on' if s.get('auto_show') else 'off'}", f"calls {s.get('auto_call') or 'off'}", f"away {s.get('away_lights') or 'off'}",
         f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}",
-        f"League of Legends {'on' if m.games.settings.get('lol') else 'off'}"]))
+        f"League of Legends {'on' if m.games.settings.get('lol') else 'off'}",
+        f"Dota 2 {'connected' if m.games.settings.get('dota') else 'off'}"]))
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
         f"hotkeys {'on' if s.get('hotkeys') else 'off'}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",

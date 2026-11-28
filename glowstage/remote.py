@@ -1,6 +1,6 @@
 """Phone remote: a small page on your phone (same Wi-Fi) to switch the lights on and off, set the
-brightness, pick a preset, start the light show or the sleep timer, or light the room in the colors
-of a photo you take there and then (Setup → Phone remote).
+brightness, pick a preset, a color or a look, start the light show, the focus timer or the sleep
+timer, or light the room in the colors of a photo you take there and then (Setup → Phone remote).
 
 Off until you switch it on. Then Glowstage listens on your home network, on a port it keeps
 (a new one if that's taken), and answers only to its secret link: the code in Setup, which
@@ -14,6 +14,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 import secrets
 import socket
 import threading
@@ -21,6 +22,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
+from . import effects
 from .paths import UI_DIR
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,29 @@ PHOTO_PATH = "/api/picture"     # a photo from the phone (shrunk there first; pa
 PRESET_NAME = 40                # the longest preset name the phone can give
 LINK_STEP = 10                  # "brighter" and "darker" by link (the same step as the hotkeys)
 GROUPS = (("pc", "PC"), ("room", "Room"))
+HEX = re.compile(r"#[0-9a-fA-F]{6}")
+
+# The looks the phone offers: the everyday animations, the calm ones and Screen sync, with the colors
+# the tile is drawn in. Not the game looks, typing ripples or the music looks: those follow
+# something else (a game, the keyboard, sound) and make no sense as a tap on a phone (the light
+# show button covers music). The names come from effects.py, so a rename there shows here.
+LOOKS = (
+    ("rainbow", ("#ff3b5c", "#ffb03b", "#3bff8a", "#3bc8ff", "#8a5bff")),
+    ("wave", ("#00e5ff", "#7c4dff", "#ff3bd2")),
+    ("comet", ("#101426", "#00e5ff", "#ffffff")),
+    ("gradient", ("#7c4dff", "#00e5ff")),
+    ("breathing", ("#7c4dff", "#1d1530")),
+    ("twinkle", ("#0b1030", "#bcd4ff", "#7c4dff")),
+    ("fire", ("#ffd25a", "#ff5a00", "#8a1500")),
+    ("candle", ("#ffbe3c", "#eb6406", "#3c0c00")),
+    ("aurora", ("#2bff9a", "#2bd3ff", "#8a4bff")),
+    ("ocean", ("#001255", "#0046a0", "#0096a5")),
+    ("lava", ("#ff6908", "#aa0818", "#e11478")),
+    ("storm", ("#1a2236", "#3a4a70", "#e1ebff")),
+    ("daylight", ("#ffe6cc", "#ff8a3a", "#ffc27a")),
+    ("screen", ("#3a6bff", "#ff8a3a", "#2bd3c4")),
+)
+FOCUS_ACTIONS = ("start", "skip", "stop")
 
 
 def lan_ip() -> str:
@@ -222,6 +247,7 @@ class Remote:
                      "on": m.states[i].on, "brightness": m.states[i].brightness,
                      "color": m.states[i].color, "online": bool(m.devices[i].online)} for i in visible]
         on = [st for st in lights if st.on]
+        focus = m.focus.describe() or {}
         groups = []
         for key, name in GROUPS:
             mine = [r for r in rows if r["group"] == key]
@@ -237,6 +263,10 @@ class Remote:
             "presets": [{k: p[k] for k in ("name", "effects", "colors", "off")} for p in m.preset_previews()],
             "active": m.config["settings"].get("active_preset", ""),
             "show": m.show_running(),
+            "current": _current(on),
+            "looks": [{"id": i, "name": effects.EFFECTS[i].name, "colors": list(c)} for i, c in LOOKS],
+            "focus": {"phase": focus.get("phase", ""), "label": focus.get("label", ""),
+                      "text": focus.get("text", ""), "last": self._focus_line()},
             "sleep": m.sleep.describe(),
             "canUndo": m.can_undo(),
             "now": time.time(),
@@ -246,6 +276,10 @@ class Remote:
         m, what = self.manager, str(req.get("do", ""))
         if what in ("group", "group_brightness", "light", "light_brightness"):
             return self._act_lights(what, req)
+        if what in ("color", "effect"):
+            return self._act_look(what, req)
+        if what == "focus":
+            return self._act_focus(req)
         if what in ("power", "preset", "show"):
             m.remember()                      # (undo works for the phone's changes too)
         if what == "power":
@@ -295,6 +329,53 @@ class Remote:
         m.light_from_colors(colors)
         return colors
 
+    def _lit_ids(self) -> list[str]:
+        """The lights that are on: a color or a look goes to those only, like the photo does."""
+        m = self.manager
+        with m.lock:
+            return [i for i in m.visible_ids() if i in m.states and m.states[i].on]
+
+    def _set_look(self, patch: dict) -> None:
+        """One color or look for every light that is on, as one change (Undo covers it)."""
+        m = self.manager
+        ids = self._lit_ids()
+        if not ids:                 # (checked before remember(): a refused change keeps the last undo)
+            raise ValueError("Switch a light on first, then try again")
+        m.remember()
+        m.update(ids, patch)
+
+    def _act_look(self, what: str, req: dict) -> None:
+        """A color or a look from the phone: checked completely before anything changes."""
+        if what == "color":
+            color = req.get("color")
+            if not isinstance(color, str) or not HEX.fullmatch(color):
+                raise ValueError("A color looks like #ff8800")
+            self._set_look({"mode": "color", "color": color.lower()})
+        else:
+            look = req.get("effect")
+            if not isinstance(look, str) or look not in dict(LOOKS):
+                raise ValueError("There's no such look")
+            self._set_look({"mode": "effect", "effect": look})
+
+    def _act_focus(self, req: dict) -> None:
+        m, what = self.manager, req.get("action")
+        if what not in FOCUS_ACTIONS:
+            raise ValueError("Unknown focus action")
+        if what == "start":
+            m.remember()                      # (the work light is a preset: Undo brings the lights back)
+            m.focus.start_last()
+        elif what == "skip":
+            m.focus.skip()
+        else:
+            m.focus.cancel()
+
+    def _focus_line(self) -> str:
+        """What Start will do, in words: "25 min of work, 5 min breaks, 4 rounds"."""
+        c = self.manager.focus.last()
+        rounds = f"{c['rounds']} round" + ("" if c["rounds"] == 1 else "s")
+        line = f"{c['work']} min of work, {c['rest']} min breaks, {rounds}"
+        return line + (f", with the {c['look']} preset" if c["look"] else "")
+
     def link(self, parts: list[str]) -> tuple[int, dict]:
         """An action link, /do/<action>[/<value>]: the same calls as the tray and the hotkeys
         (so Undo covers it too). Gives the HTTP status and the answer."""
@@ -333,6 +414,22 @@ class Remote:
                 return fail(400, "Brightness goes from 0 to 100")
             m.remember()
             m.set_brightness_on(value)              # (0 is the lowest light, not off)
+        elif action == "color" and len(args) == 1:
+            if not HEX.fullmatch("#" + args[0]):
+                return fail(400, "A color looks like ff8800")
+            try:
+                self._set_look({"mode": "color", "color": "#" + args[0].lower()})
+            except ValueError as e:
+                return fail(409, str(e))
+        elif action == "effect" and len(args) == 1:
+            look = args[0].casefold()           # typed by hand ("Fire" for fire): any case will do
+            if look not in dict(LOOKS):
+                return fail(404, f"No look called {args[0]}")
+            try:
+                self._set_look({"mode": "effect", "effect": look})
+            except ValueError as e:
+                return fail(409, str(e))
+            args = [look]
         elif action == "show" and len(args) == 1 and args[0] in ("start", "stop"):
             m.remember()
             m.start_show() if args[0] == "start" else m.stop_show()
@@ -389,6 +486,16 @@ class Remote:
                    if i in m.states and m.states[i].on and _group_of(m.devices[i]) == group]
         if ids:
             m.update(ids, {"brightness": value})
+
+
+def _current(on: list) -> dict:
+    """The color and the look all the lights that are on share ("" where they differ), so the
+    page can mark them."""
+    colors = {st.color.lower() for st in on if st.mode == "color"}
+    looks = {st.effect for st in on if st.mode == "effect"}
+    solid = len(colors) == 1 and all(st.mode == "color" for st in on)
+    moving = len(looks) == 1 and all(st.mode == "effect" for st in on)
+    return {"color": next(iter(colors)) if solid else "", "effect": next(iter(looks)) if moving else ""}
 
 
 def _group_of(device) -> str:

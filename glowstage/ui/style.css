@@ -486,6 +486,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .pipette-btn svg { width: 15px; height: 15px; }
 select { height: 34px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--card); min-width: 0; }
 input[type="range"] { flex: 1; margin: 0; accent-color: var(--text); min-width: 0; }
+/* Setup → Lights → Balance */
+.balance-dialog .control-head { margin-top: 14px; }
+.balance-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; font-size: 12.5px; }
+.balance-val { font-size: 12.5px; }
 
 /* effects */
 .fx-speed-val { width: 26px; text-align: right; font-size: 13px; }

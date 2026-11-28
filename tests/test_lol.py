@@ -423,14 +423,15 @@ class Asking(unittest.TestCase):
 class TheSwitch(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self._find, games.find_cs2 = games.find_cs2, lambda: None
+        self._find, self._find_dota = games.find_cs2, games.find_dota2
+        games.find_cs2 = games.find_dota2 = lambda: None
         self.calls = []
         self.g = games.Games(Config(Path(self.tmp.name) / "config.json"), lambda: None)
         self.g.lol.fetch = lambda: self.calls.append(1) or match()
 
     def tearDown(self):
         self.g.stop()
-        games.find_cs2 = self._find
+        games.find_cs2, games.find_dota2 = self._find, self._find_dota
         self.tmp.cleanup()
 
     def test_off_until_switched_on(self):

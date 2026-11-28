@@ -21,7 +21,7 @@ from .wallpaper import WallpaperFollow
 from .timer import SleepTimer
 from .wake import WakeUp, wake_minutes
 from .games import Games
-from .devices.base import Device
+from .devices.base import MAX_FLOOR, WARMTH_RANGE, Device
 from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
 from .devices.openrgb_dev import OpenRGBProvider
@@ -124,7 +124,7 @@ class DeviceWorker:
         for rgb in _rgb(colors):
             with dev.lock:
                 dev._stop_stream()
-                dev.show_color(rgb, full)       # (the brightness is in the color already)
+                dev.show_color(dev.balanced(rgb), full)       # (the brightness is in the color already)
             self._shown = rgb
             with self._cv:
                 if self._pending is None:
@@ -156,6 +156,7 @@ class DeviceManager:
         self._applied: set[str] = set()      # devices we have pushed a state to this session
         self._touches: dict[str, int] = {}   # how often each light was changed (away.py)
         self._identifying: set[str] = set()  # lights that are flashing so you can find them
+        self._white: dict[str, LightState] = {}   # lights showing a plain white while their Balance window is open
         self._undo: tuple[dict, str] | None = None   # the lights before the last big change by hand
         self._connecting: set[str] = set()
         self.force_on = False                # set when started with Windows: lights come on
@@ -232,6 +233,7 @@ class DeviceManager:
             self.states.setdefault(dev.id, LightState.from_dict(saved))
             self.workers.setdefault(dev.id, DeviceWorker(dev, self.report_error))
             dev.name = self.config["names"].get(dev.id) or dev.name
+            self._balance_device(dev)
 
     def _add_entry(self, dev_id: str, entry: dict) -> Device | Hub | None:
         """Make the light (or hub) for a config entry and connect it in the background."""
@@ -733,6 +735,64 @@ class DeviceManager:
         self.config.save_soon()
         self._changed()
 
+    # ---- balance: white balance and brightness at 100% per light -----------------------------
+
+    def _balance_device(self, dev: Device) -> None:
+        b = self.balance(dev.id)
+        dev.set_balance(b["warmth"], b["max"])
+
+    def balance(self, dev_id: str) -> dict:
+        """What is set for this light: {"warmth": -50..50, "max": 20..100} (0 and 100 when nothing is)."""
+        b = self.config.data.get("balance", {}).get(dev_id)
+        try:
+            return {"warmth": max(-WARMTH_RANGE, min(WARMTH_RANGE, int(b["warmth"]))),
+                    "max": max(MAX_FLOOR, min(100, int(b["max"])))}
+        except (TypeError, KeyError, ValueError):   # (nothing set, or a file edited by hand)
+            return {"warmth": 0, "max": 100}
+
+    def set_balance(self, dev_id: str, warmth, top) -> None:
+        """Save a light's balance and use it from the next color on. A neutral one is not kept."""
+        with self.lock:
+            dev = self.devices.get(dev_id)
+            if dev is None:
+                raise ValueError("That light isn't there any more")
+            warmth = max(-WARMTH_RANGE, min(WARMTH_RANGE, int(round(float(warmth)))))
+            top = max(MAX_FLOOR, min(100, int(round(float(top)))))
+            table = self.config.data.setdefault("balance", {})
+            if warmth == 0 and top == 100:
+                table.pop(dev_id, None)
+            else:
+                table[dev_id] = {"warmth": warmth, "max": top}
+            self._balance_device(dev)
+            shown = self._white.get(dev_id) or self.states.get(dev_id)
+            worker = self.workers.get(dev_id)
+        self.config.save_soon()
+        # What a solid light shows is sent again so you see the change at once; an effect
+        # picks the new balance up with its next frame.
+        if worker is not None and shown is not None and (dev_id in self._white or shown.mode != "effect"):
+            worker.submit(shown, instant=True)
+        self._changed()
+
+    def show_white(self, dev_id: str, on: bool) -> None:
+        """While a light's Balance window is open: a plain white at its current brightness, to hold
+        it against the other lights. Nothing is saved; off puts the light back as it was."""
+        with self.lock:
+            dev = self.devices.get(dev_id)
+            if dev is None:
+                raise ValueError("That light isn't there any more")
+            worker, state = self.workers.get(dev_id), self.states.get(dev_id)
+            if on:
+                if not dev.online:
+                    raise ValueError(f"{dev.name} isn't answering")
+                white = state.patched({"on": True, "mode": "color", "color": "#ffffff"})
+                self._white[dev_id] = white
+            else:
+                if self._white.pop(dev_id, None) is None:
+                    return
+                white = state
+        if worker is not None and white is not None:
+            worker.submit(white, instant=True)   # (a change made meanwhile is in self.states: that wins)
+
     def set_hidden(self, dev_id: str, hidden: bool) -> None:
         ids = [i for i in self.config["hidden"] if i != dev_id]
         if hidden:
@@ -1008,6 +1068,7 @@ class DeviceManager:
                 d = dev.describe()
                 d["state"] = self.states[dev_id].to_dict()
                 d["hidden"] = dev_id in hidden
+                d["balance"] = self.balance(dev_id)
                 devices.append(d)
         devices.sort(key=lambda d: (d["group"] != "pc", d["name"].lower()))
         return {

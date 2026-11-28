@@ -126,7 +126,7 @@ class OpenRGBDevice(Device):
     def show_native(self, state: LightState) -> None:
         mode = next((m for m in self._dev.modes if m.name == state.native), None)
         if mode is None:
-            return self.show_color(hex_to_rgb(state.color), state)
+            return self.show_color(self.balanced(hex_to_rgb(state.color)), state)   # (the mode is gone: a plain color, balanced)
         if mode.speed_min is not None and mode.speed_max is not None:
             mode.speed = round(mode.speed_min + (mode.speed_max - mode.speed_min) * state.speed / 100)
         if mode.color_mode == ModeColors.MODE_SPECIFIC and mode.colors_max:

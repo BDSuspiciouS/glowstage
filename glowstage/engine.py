@@ -10,6 +10,7 @@ import time
 from .audio import AudioAnalyzer
 from .colors import scale
 from .effects import EFFECTS, GAME_EFFECTS, HEARING_EFFECTS, SCREEN_EFFECTS
+from .soft import Softener
 from .genre import DiscogsDetector
 from .keys import KeyWatcher
 from .load import LoadWatcher
@@ -42,6 +43,7 @@ class EffectEngine:
         self._mem: dict[tuple[str, str], dict] = {}
         self._last: dict[str, float] = {}
         self._live: dict[str, tuple[float, list]] = {}   # id -> (time, last frame), for the stage view
+        self._soft = Softener()                          # "Soften flashes" (soft.py)
         self._heard: collections.deque[tuple[float, dict]] = collections.deque(maxlen=40)  # for the sync delay
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="effects", daemon=True)
@@ -105,6 +107,9 @@ class EffectEngine:
             return
         t = now - self._epoch
         ctx = {}
+        soft = bool(self.manager.config["settings"].get("soft_flashes"))
+        if not soft:
+            self._soft.forget()
         spans = {}
         screen = any(st.effect in SCREEN_EFFECTS for _, st in targets)
         if screen:
@@ -114,6 +119,8 @@ class EffectEngine:
             ctx["game"] = self.manager.games.cs2.snapshot(now)
         if any(st.effect == "game_lol" for _, st in targets):
             ctx["lol"] = self.manager.games.lol.snapshot(now)
+        if any(st.effect == "game_dota" for _, st in targets):
+            ctx["dota"] = self.manager.games.dota.snapshot(now)
         if any(st.effect == "typing" for _, st in targets):
             ctx["keys"] = self.keys.recent(now)
         if any(st.effect == "pc_load" for _, st in targets):
@@ -125,7 +132,8 @@ class EffectEngine:
             if show:  # one show for the whole room; its intensity is the speed of the lights running it
                 settings = self.manager.config["settings"]
                 intensity = sum(st.speed for st in show) / len(show) / 100
-                ctx["show"] = self.show.update(heard, now, intensity, settings.get("show_strobe", True), sync)
+                strobe = settings.get("show_strobe", True) and not soft    # (softened flashes: no strobes either)
+                ctx["show"] = self.show.update(heard, now, intensity, strobe, sync)
         flow = bool(self.manager.config["settings"].get("flow")) and any(
             getattr(EFFECTS.get(st.effect), "flows", False) for _, st in targets)
         ctx["flow"] = flow
@@ -148,6 +156,8 @@ class EffectEngine:
             if not dev.hardware_brightness and st.brightness < 100:
                 f = st.brightness / 100
                 colors = [scale(c, f) for c in colors]
+            if soft:
+                colors = self._soft.apply(dev.id, colors, now)
             self._live[dev.id] = (now, colors)
             if not due:
                 continue
@@ -156,7 +166,7 @@ class EffectEngine:
                 continue
             try:
                 if dev.streaming and dev.online:
-                    dev.send_frame(colors)
+                    dev.send_frame(dev.balanced_frame(colors))   # (_live above keeps the look, not the correction)
                     self._last[dev.id] = now
             except Exception as e:
                 self.manager.report_error(dev, e)
