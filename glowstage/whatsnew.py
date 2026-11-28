@@ -21,7 +21,11 @@ GOES = ("sleep", "focus", "search", "show:colors", "setup:automatic", "setup:pho
 NOTES: dict[str, list[dict]] = {
     "0.9.9": [
         {"title": "Rev lights for racing games", "go": "setup:games",
-         "text": "Forza and F1 fill your room like a rev counter, and F1's five red start lights come on above your desk."},
+         "text": "Forza, F1, iRacing and Assetto Corsa fill your room like a rev counter, and F1's start lights come on above your desk."},
+        {"title": "Ctrl+K understands you", "go": "search",
+         "text": "Type \"desk red\", \"30%\", \"storm\", \"sleep 45\" or \"pause 1h\" and press Enter."},
+        {"title": "WiZ lights", "go": "setup:lights",
+         "text": "Philips WiZ bulbs, strips and lamps are found on your network once local communication is on in the WiZ app."},
         {"title": "Your phone remote as an app", "go": "setup:phone",
          "text": "Add the page to your phone's home screen: it gets the Glowstage icon and opens full screen."},
         {"title": "Quicker, and easier with a keyboard", "go": "setup:app",

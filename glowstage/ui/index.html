@@ -147,12 +147,12 @@
 
       <div class="show-controls">
         <div class="card control">
-          <div class="control-head"><span class="control-title">Intensity</span><span id="show-int-val" class="num muted"></span></div>
+          <div class="control-head"><span class="control-title" role="heading" aria-level="2">Intensity</span><span id="show-int-val" class="num muted"></span></div>
           <div id="show-intensity" class="slider" role="slider" tabindex="0" aria-label="Show intensity" aria-valuemin="1" aria-valuemax="100"><div class="slider-fill"></div></div>
           <div class="range-ends"><span>Smooth</span><span>Wild</span></div>
         </div>
         <div class="card control">
-          <div class="control-head"><span class="control-title">Sync</span><span id="show-sync-val" class="num muted"></span></div>
+          <div class="control-head"><span class="control-title" role="heading" aria-level="2">Sync</span><span id="show-sync-val" class="num muted"></span></div>
           <div id="show-sync" class="slider slider-zero" role="slider" tabindex="0" aria-label="When the lights react: earlier or later" aria-valuemin="0" aria-valuemax="100"><div class="slider-fill"></div></div>
           <div class="range-ends"><span>Earlier</span><span>Later</span></div>
           <div class="control-hint"><span id="show-sync-hint"></span> <button id="show-sync-auto" class="link-btn" type="button" hidden>Auto</button></div>
@@ -169,7 +169,7 @@
         </div>
         <div class="card control control-listen">
           <div class="colors-head">
-            <span class="control-text"><span class="control-title">Listen to</span><span id="show-listen-sub" class="muted"></span></span>
+            <span class="control-text"><span class="control-title" role="heading" aria-level="2">Listen to</span><span id="show-listen-sub" class="muted"></span></span>
             <div class="seg" role="radiogroup" aria-label="What the show listens to">
               <button id="show-listen-pc" type="button" role="radio" aria-checked="true">What this PC plays</button>
               <button id="show-listen-mic" type="button" role="radio" aria-checked="false">A microphone</button>
@@ -182,7 +182,7 @@
         </div>
         <div class="card control control-colors">
           <div class="colors-head">
-            <span class="control-text"><span class="control-title">Colors</span><span id="show-colors-sub" class="muted"></span></span>
+            <span class="control-text"><span class="control-title" role="heading" aria-level="2">Colors</span><span id="show-colors-sub" class="muted"></span></span>
             <div class="seg" role="radiogroup" aria-label="Colors of the show">
               <button id="show-colors-music" type="button" role="radio" aria-checked="true">Follow the music</button>
               <button id="show-colors-mine" type="button" role="radio" aria-checked="false">My colors</button>
@@ -197,7 +197,7 @@
           </div>
         </div>
         <div class="card control control-note">
-          <span class="control-title">How it works</span>
+          <span class="control-title" role="heading" aria-level="2">How it works</span>
           <span id="show-how" class="muted">Listens to what your PC plays (no microphone), hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.</span>
           <button id="show-ai-get" class="link-btn" type="button" hidden>Let it hear 400 music styles</button>
         </div>
@@ -334,6 +334,7 @@
   </div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="commands.js"></script>
   <script src="app.js"></script>
   <script src="stage.js"></script>
   <script src="setup.js"></script>

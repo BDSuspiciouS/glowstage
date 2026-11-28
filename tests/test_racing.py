@@ -813,6 +813,7 @@ class TheGames(unittest.TestCase):
         self.opened = []
         self.g = games.Games(Config(Path(self.tmp.name) / "config.json"), lambda: self.changed.append(1))
         self.g.racing.make_socket = lambda port: self.opened.append(port) or FakeSocket()     # (never a real port)
+        self.g.racing.sim.opener = lambda name: None                                          # (nor a real block of shared memory)
 
     def tearDown(self):
         self.g.stop()
@@ -890,7 +891,7 @@ class TheGames(unittest.TestCase):
 
     def test_describe_follows_the_race(self):
         d = self.g.describe()
-        self.assertEqual(set(d["racing"]), {"on", "forzaPort", "f1Port", "receiving", "inRace", "game", "problem"})
+        self.assertEqual(set(d["racing"]), {"on", "forzaPort", "f1Port", "receiving", "inRace", "game", "seen", "problem"})
         self.assertFalse(d["racing"]["on"])
         self.g.settings["racing"]["on"] = True
         now = time.monotonic()

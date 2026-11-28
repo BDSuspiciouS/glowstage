@@ -74,7 +74,7 @@ def report(app) -> str:
         f"League of Legends {'on' if m.games.settings.get('lol') else 'off'}",
         f"Dota 2 {'connected' if m.games.settings.get('dota') else 'off'}",
         f"Rocket League {'connected' if m.games.settings.get('rl') else 'off'}",
-        "Racing games " + (f"on (Forza port {m.games.racing_ports()[0]}, F1 port {m.games.racing_ports()[1]})" if m.games.racing_on() else "off"), f"OBS {m.obs.summary()}",
+        "Racing games " + (f"on (Forza port {m.games.racing_ports()[0]}, F1 port {m.games.racing_ports()[1]}, sees {m.games.racing.seen() or 'no sim'})" if m.games.racing_on() else "off"), f"OBS {m.obs.summary()}",
         f"OBS look {s.get('auto_live') or 'off'}"]))
     keys = getattr(app, "hotkeys", None)      # (the keys another program already has: which actions)
     taken = [f"{keys.label(a)} {k}" for a, k in keys.taken.items()] if keys else []

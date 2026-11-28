@@ -346,6 +346,10 @@ function renderHomeNotes() {
     sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, paused, night && [night.max, night.until], news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
+  // (the notes are rebuilt when what they say changes, every minute for the focus timer: a button
+  // that had the keyboard's focus gets it back, so Tab doesn't jump to the top of the page)
+  const had = host.contains(document.activeElement) ? document.activeElement : null;
+  const keep = had && { at: [...host.children].indexOf(had.closest(".note")), text: had.textContent };
   fill(host,
     wake ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("bulb")),
@@ -440,6 +444,11 @@ function renderHomeNotes() {
           S.supportClosed = true; call("support_answer", "later"); renderHomeNotes(); } }),
         h("button", { class: "link-btn", type: "button", text: "Don't ask again", onclick: () => {
           S.supportClosed = true; call("support_answer", "never"); renderHomeNotes(); } }))) : null);
+  if (keep) {
+    const note = host.children[keep.at];
+    const again = note && [...note.querySelectorAll("button")].find(b => b.textContent === keep.text);
+    (again || host.querySelector("button"))?.focus({ preventScroll: true });
+  }
 }
 
 /** "Show me" on the what's-new card: open the new thing. */
@@ -2614,7 +2623,7 @@ async function applyPreset(p) {
 }
 
 const QS = { open: false, items: [], shown: [], active: 0, from: null, root: null, input: null, list: null, empty: null };
-const QS_KINDS = ["Action", "Preset", "Light", "Effect", "Go to"];   // (also the order ties keep)
+const QS_KINDS = ["Action", "Preset", "Light", "Effect", "Go to", "Command"];   // (also the order ties keep)
 
 /** Everything the box can run right now, in group order: actions, presets, lights, effects, places. */
 function searchItems() {
@@ -2667,6 +2676,133 @@ function searchItems() {
   return items;
 }
 
+/* ---- commands: what you type, read as an instruction (commands.js) ---- */
+
+/** What the command reader needs to know right now: the names it can match and what is running. */
+function commandContext() {
+  const d = S.data, last = (d.settings || {}).focus_last || {};
+  return {
+    presets: (d.presets || []).map(p => p.name),
+    groups: (d.groups || []).filter(g => myGroupIds(g).length).map(g => ({ name: g.name })),
+    lights: visible().map(l => ({ id: l.id, name: l.name, group: l.group === "pc" ? "pc" : "room" })),
+    effects: (d.effects || []).map(e => ({ id: e.id, name: e.name, group: e.group })),
+    showOn: runningShow().length > 0,
+    focus: { lastWork: last.work, lastRest: last.rest },
+  };
+}
+
+/** The top results for what is typed when it reads as an instruction (none when it doesn't). */
+function commandItems(query) {
+  if (!query.trim() || typeof Commands === "undefined" || !S.data) return [];
+  return Commands.parse(query, commandContext()).map((c, i) =>
+    ({ kind: 5, name: c.label, id: "qs-cmd-" + i, run: () => runCommand(c.action, c.label) }));
+}
+
+/** The lights a command names, as they are now. With no light named: the ones that are on (all of them, when asked and none is). */
+function commandIds(target, orAll) {
+  if (target.kind === "group") { const g = myGroup(target.name); return g ? myGroupIds(g) : []; }
+  if (target.kind === "light") { const d = byId(target.id); return d && !d.hidden ? [d.id] : []; }
+  if (target.kind === "scope") return groupIds(target.scope);
+  const on = visible().filter(d => d.online && d.state.on).map(d => d.id);
+  return on.length || !orAll ? on : visible().map(d => d.id);
+}
+
+/** Change lights now and wait for the app (the commands go one after the other, not through the slider's throttle). */
+async function applyNow(ids, patch) {
+  for (const id of ids) { const d = byId(id); if (d) Object.assign(d.state, patch); }
+  S.quietUntil = Date.now() + 900;
+  render();
+  const r = await callRaw("update", ids, patch);
+  S.quietUntil = 0;
+  refresh(true);
+  if (!r || r.ok === false) { toast((r && r.error) || "Something went wrong", true); return false; }
+  return true;
+}
+
+/** Carry out what commands.js described. `label` is what the result said: it is also the confirmation. */
+async function runCommand(a, label) {
+  const last = (S.data.settings || {}).focus_last || {};
+  const none = () => toast("There are no lights there right now");
+  switch (a.type) {
+    case "color": {
+      const ids = commandIds(a.target, true);
+      if (!ids.length) return none();
+      const hex = a.hex || rgbToHex(kelvinToRgb(a.kelvin));
+      if (await applyNow(ids, { mode: "color", on: true, color: hex })) undoable(label);
+      return;
+    }
+    case "effect": {
+      const ids = commandIds(a.target, true);
+      if (!ids.length) return none();
+      if (await applyNow(ids, { mode: "effect", on: true, effect: a.effect })) undoable(label);
+      return;
+    }
+    case "brightness": {
+      const ids = commandIds(a.target, false);
+      if (!ids.length) return a.target.kind === "every" ? toast("Your lights are off") : none();
+      if (await applyNow(ids, a.target.kind === "every" ? { brightness: a.value } : { brightness: a.value, on: true })) toast(label);
+      return;
+    }
+    case "relative": {
+      const ids = commandIds(a.target, false);
+      if (!ids.length) return a.target.kind === "every" ? toast("Your lights are off") : none();
+      if (a.target.kind === "every") {
+        await call("nudge_brightness", a.delta);
+        refresh(true);
+        return toast(label);
+      }
+      await Promise.all(ids.map(id => applyNow([id], { brightness: clamp(byId(id).state.brightness + a.delta, 1, 100) })));
+      return toast(label);
+    }
+    case "power": {
+      const t = a.target;
+      if (t.kind === "group") return switchMyGroup(t.name, a.on);
+      if (t.kind === "every") {
+        const all = visible().map(d => d.id);
+        if (!a.on && !commandIds(t, false).length) return toast("Your lights are already off");
+        if (!await applyNow(all, { on: a.on })) return;
+        return a.on || all.length < 2 ? toast(label) : undoable("All lights are off");
+      }
+      const all = commandIds(t, true);
+      if (!all.length) return none();
+      if (!await applyNow(all, { on: a.on })) return;
+      return !a.on && all.length > 1 ? undoable(label) : toast(label);
+    }
+    case "show": {
+      const running = runningShow().length > 0;
+      if (a.want === "on" && running) return toast("The light show is already on");
+      if (a.want === "off" && !running) return toast("The light show isn't on");
+      return $("#show-start").click();
+    }
+    case "sleep": {
+      const r = await callRaw("start_sleep_timer", a.minutes);
+      if (!r || r.ok === false) return toast((r && r.error) || "Couldn't start the timer", true);
+      refresh(true);
+      return toast(`Your lights fade out and switch off in ${Commands.minutesText(a.minutes)}`);
+    }
+    case "sleepStop": {
+      if (!S.data.sleep) return toast("No sleep timer is running");
+      await call("cancel_sleep_timer"); refresh(true);
+      return toast("Sleep timer cancelled: your lights stay as they are");
+    }
+    case "focus": {
+      const rest = a.rest !== null ? a.rest : [5, 10, 15].includes(last.rest) ? last.rest : 5;
+      const have = new Set((S.data.presets || []).map(p => p.name));
+      const wanted = last.look !== undefined ? last.look : have.has("Focus") ? "Focus" : "";
+      const r = await callRaw("start_focus", a.work, rest, last.rounds || 4, have.has(wanted) ? wanted : "");
+      if (!r || r.ok === false) return toast((r && r.error) || "Couldn't start", true);
+      refresh(true);
+      return toast(`Focus timer started: ${a.work} minutes of work, then a break`);
+    }
+    case "focusStop":
+      return S.data.focus ? stopFocus() : toast("No focus timer is running");
+    case "pause":
+      return pauseAutomatic(a.minutes);
+    case "resume":
+      return S.data.autoPaused ? resumeAutomatic() : toast("Automatic looks aren't paused");
+  }
+}
+
 /** One of your groups on or off from the search box (off offers Undo, like the power button). */
 async function switchMyGroup(name, on) {
   const r = await callRaw("group_power", name, on);
@@ -2698,7 +2834,7 @@ function searchMatches(items, query) {
 function buildSearch() {
   const input = h("input", {
     class: "qs-input", type: "text", role: "combobox", autocomplete: "off", spellcheck: "false",
-    placeholder: "Search presets, lights, effects, settings…", "aria-label": "Search",
+    placeholder: "Search, or say what to do: desk red, storm, sleep 30…", "aria-label": "Search",
     "aria-expanded": "true", "aria-controls": "qs-list", "aria-autocomplete": "list", "aria-activedescendant": "",
   });
   const list = h("ul", { class: "qs-list", id: "qs-list", role: "listbox", "aria-label": "Results" });
@@ -2735,7 +2871,12 @@ function buildSearch() {
 
 function renderSearch() {
   QS.items = searchItems();
-  QS.shown = searchMatches(QS.items, QS.input.value);
+  // (a preset with exactly that name first, then what the words say to do, then the normal matches)
+  const commands = commandItems(QS.input.value), said = new Set(commands.map(c => c.name.toLowerCase()));
+  const typed = QS.input.value.trim().toLowerCase();
+  const matches = searchMatches(QS.items, QS.input.value).filter(it => !said.has(it.name.toLowerCase()));
+  const exact = matches.filter(it => it.kind === 1 && it.name.toLowerCase() === typed);
+  QS.shown = [...exact, ...commands, ...matches.filter(it => !exact.includes(it))];
   QS.active = Math.min(QS.active, Math.max(0, QS.shown.length - 1));
   fill(QS.list, QS.shown.map(it => h("li", { class: "qs-row", id: it.id, role: "option", "aria-selected": "false" },
     h("span", { class: "qs-name", text: it.name }), h("span", { class: "qs-kind", text: QS_KINDS[it.kind] }))));
@@ -2797,7 +2938,7 @@ function bindSearch() {
    show, + and - brightness, N the sleep timer, Z undo, ? the list of keys. */
 
 const WINDOW_KEYS = [
-  ["Ctrl+K", "Search presets, lights, effects and settings"],
+  ["Ctrl+K", "Search presets, lights, effects and settings, or say what to do"],
   ["1 – 9", "Your first nine presets (in the order of the Presets page)"],
   ["L", "All lights on or off"],
   ["S", "Start or stop the light show"],

@@ -6,7 +6,7 @@ itself" switch is the music one).
 - A League of Legends match, once its switch is on (games.py, lol.py): the same.
 - A Dota 2 match, once Dota 2 is connected (games.py): the same.
 - A Rocket League match, once Rocket League is connected (games.py, rocket_league.py): the same.
-- A race in Forza or an F1 game, once the racing games' switch is on (games.py, racing.py): the rev lights.
+- A race in Forza, an F1 game, iRacing or Assetto Corsa, once the racing games' switch is on (games.py, racing.py): the rev lights.
 - An app you chose is open (Setup → Automatic → Apps): its look, e.g. Focus while Photoshop is.
 - A game in full screen: the look chosen for games (Screen sync, or a preset such as Gaming).
 - A video in full screen, in a browser or a video player: the look chosen for videos.

@@ -117,7 +117,7 @@ function lightsSection() {
           S.settingsSig = ""; refresh(true); } },
         [["instant", "Change at once"], ["smooth", "Glide (a third of a second)"], ["slow", "Fade slowly (two seconds)"]]
           .map(([v, t]) => h("option", { value: v, text: t, selected: v === (S.data.settings.glide || "smooth") })))),
-    h("p", { class: "hint", text: "Dragging a slider or the color wheel always follows your hand at once, and effects move by themselves. Some lights (Govee, Elgato, Magic Home, Twinkly) change at once whatever you pick." }));
+    h("p", { class: "hint", text: "Dragging a slider or the color wheel always follows your hand at once, and effects move by themselves. Some lights (Govee, WiZ, Elgato, Magic Home, Twinkly) change at once whatever you pick." }));
 }
 
 /* ---- your own groups: "Desk", "Bed", "Living room"... Home, the phone, the tray and links use them ---- */
@@ -580,12 +580,13 @@ function rocketLeagueCard() {
         onclick: async () => { await call("games_rl_disconnect"); toast("Rocket League is disconnected: restart it if it's open"); refresh(true); } }) : null));
 }
 
-/* Setup → Games: racing games (racing.py). Forza and the F1 games send their telemetry as UDP to an address typed into the game's own settings; this listens on this PC only, and only while the switch is on. */
+/* Setup → Games: racing games (racing.py, simracing.py). Forza and the F1 games send their telemetry as UDP to an address typed into the game's own settings; this listens on this PC only. iRacing and Assetto Corsa publish theirs in shared memory, read-only, with nothing to set up. Both only while the switch is on. */
 function racingCard() {
   const r = ((S.data.games || {}).racing) || {};
   const status = !r.on ? "Off"
     : r.problem ? r.problem
     : r.inRace ? `In a race${r.game ? " · " + r.game : ""}`
+    : r.seen ? `${r.seen} is running · no race yet`
     : "Listening · no race yet";
   const apply = async (on, forza, f1) => {
     const r2 = await callRaw("games_racing", on, forza, f1);
@@ -599,9 +600,9 @@ function racingCard() {
   const f1 = h("input", { class: "text-input mono", type: "number", min: 1024, max: 65535, value: r.f1Port || 20777,
     style: "width:90px", "aria-label": "F1 port", onchange: () => apply(!!r.on, forza.value, f1.value) });
   return h("div", { class: "league-card", style: "margin-top:22px" },
-    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (r.on && !r.problem ? " is-on" : "") }), h("strong", { text: "Racing games (Forza, F1)" }), h("span", { class: "muted", text: " · " + status })),
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (r.on && !r.problem ? " is-on" : "") }), h("strong", { text: "Racing games" }), h("span", { class: "muted", text: " · " + status })),
     h("p", { class: "hint", style: "margin-bottom:10px", text: "While you race, your lights are the rev lights of a real wheel: the revs fill the stage from left to right in green, yellow and red, and pulse blue at the limiter. In the F1 games the start lights come on, a yellow flag or the safety car shows as an amber band, DRS as a green edge, your fastest lap as a purple sweep and the chequered flag as a slow black and white checker." }),
-    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: "Uses the telemetry these games send on purpose: the game tells this PC how the car is doing. Nothing reads or changes the game, and Glowstage only listens while this is on." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: "Works with Forza, the F1 games, iRacing, Assetto Corsa and Assetto Corsa Competizione. Uses the telemetry these games share on purpose: the game tells this PC how the car is doing. Nothing reads or changes the game, and Glowstage only listens while this is on." }),
     h("label", { class: "toggle-row" }, h("span", { text: "Play along with racing games" }),
       h("input", { type: "checkbox", checked: !!r.on, "aria-label": "Play along with racing games",
         onchange: e => apply(e.target.checked, forza.value, f1.value) })),
@@ -609,7 +610,9 @@ function racingCard() {
     h("div", { class: "toggle-row", style: "cursor:default" }, h("span", { text: "F1 port" }), f1),
     h("p", { class: "hint", style: "font-size:12px;margin-bottom:6px", text: "Forza: in Settings, open HUD and Gameplay (Gameplay and HUD in Motorsport 7), scroll down to Data out and set it to On, the IP address to 127.0.0.1 and the port to the number above. Forza Motorsport 7, Motorsport and Horizon 4 and 5 work." }),
     h("p", { class: "hint", style: "font-size:12px;margin-bottom:6px", text: "F1 23 and F1 24: in Settings, open Telemetry settings and set UDP telemetry to On, the IP address to 127.0.0.1, the port to the number above (the game's own is 20777) and the UDP format to 2023 or 2024. F1 25 works too, with its format set to 2025." }),
-    h("p", { class: "hint", style: "font-size:12px", text: "Both games send only while you drive. If the status says a port is busy, another program is using it: pick another number here and in the game." }));
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:6px", text: "iRacing: nothing to set up. Start the sim and drive, and the lights follow the shift lights of your car (a yellow flag shows as the amber band and the chequered flag as the checker)." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:6px", text: "Assetto Corsa and Assetto Corsa Competizione: nothing to set up either. Start a session and drive: the revs follow your car's limit, and a yellow or chequered flag shows as in the other games." }),
+    h("p", { class: "hint", style: "font-size:12px", text: "The F1 and Forza games send only while you drive. If the status says a port is busy, another program is using it: pick another number here and in the game." }));
 }
 
 function automaticSection() {

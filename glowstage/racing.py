@@ -1,12 +1,15 @@
-"""Racing game lighting: rev lights, start lights and flags for Forza and the F1 games. Both
-families have an official setting that sends the car's telemetry over UDP to an address you type in
-(the game's own "Data out" or "Telemetry" settings). Glowstage listens on this PC (127.0.0.1) only
-while the switch in Setup -> Games is on; nothing reads the game's memory and no game file is
-touched, so anti-cheat has nothing to say about it.
+"""Racing game lighting: rev lights, start lights and flags for Forza, the F1 games, iRacing and
+Assetto Corsa (with Competizione). Forza and F1 have an official setting that sends the car's telemetry
+over UDP to an address you type in (the game's own "Data out" or "Telemetry" settings). iRacing and
+Assetto Corsa publish theirs in Windows shared memory, which is their documented way for dashboards
+and wheels: simracing.py reads that, read-only. Glowstage listens on this PC (127.0.0.1) and looks for
+those blocks only while the switch in Setup -> Games is on; nothing reads the game's own memory and no
+game file is touched, so anti-cheat has nothing to say about it.
 
 This file holds what is specific to the racing games: the packet formats (pure functions, below),
 what a race looks like (RacingState, which the "game_racing" effect in effects.py reads) and the
-listener threads (RacingListener). Games (games.py) owns the listener.
+listener threads (RacingListener, which also owns the shared memory reader of simracing.py). Games
+(games.py) owns the listener.
 
 ---- Forza (Motorsport 7, Motorsport 2023, Horizon 4, Horizon 5): "Data out" -------------------
 One UDP packet per frame (about 60 a second), little-endian, no header. What the game sends is told
@@ -87,6 +90,7 @@ import time
 from typing import Callable
 
 from .lol import MIN_GAP, PAUSE, STALE
+from .simracing import SimReader
 
 log = logging.getLogger(__name__)
 
@@ -222,7 +226,7 @@ def _f1_event(data: bytes, game: str, player: int) -> dict | None:
 
 class RacingState:
     """The race as the game last described it, plus the moments worth showing with when they
-    started. feed() takes one parsed packet; snapshot() is what the light effect reads."""
+    started. feed() takes one parsed packet (or one read of a sim's shared memory); snapshot() is what the light effect reads."""
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -231,9 +235,10 @@ class RacingState:
 
     def _reset(self) -> None:
         """A new session: forget the old one."""
-        self.source = ""                # "forza" | "f1"
+        self.source = ""                # "forza" | "f1" | "sim" (iRacing, Assetto Corsa: shared memory)
         self.game = ""                  # "Forza" | "F1 24"
-        self.race_on = False            # Forza: IsRaceOn
+        self.race_on = False            # Forza: IsRaceOn; the sims: you're driving (on track, live)
+        self.chequered_seen = False     # the sims: the flag is up now (so it counts once, not every read)
         self.rpm = 0.0                  # 0..1, idle to limit (F1: the game's own rev lights)
         self.gear = 0
         self.speed = 0.0                # km/h
@@ -259,6 +264,8 @@ class RacingState:
                 self._forza(p, now)
             elif p.get("source") == "f1":
                 self._f1(p, now)
+            elif p.get("source") == "sim":
+                self._sim(p, now)
             self._pump(now)
 
     def _forza(self, p: dict, now: float) -> None:
@@ -274,6 +281,31 @@ class RacingState:
         self.gear, self.speed = p.get("gear", self.gear), p.get("speed", self.speed)
         # (with a little give, so an engine bouncing off its limit doesn't start and stop the blink)
         self.limiter = self.rpm >= 0.985 or (self.limiter and self.rpm >= 0.96)
+
+    def _sim(self, p: dict, now: float) -> None:
+        """One read of iRacing's or Assetto Corsa's shared memory (simracing.py). They send nothing like
+        start lights or a fastest lap, only the revs, the gear and the flag at your car."""
+        if self.source != "sim" or self.game != p["game"]:
+            self._reset()
+            self.source, self.game = "sim", p["game"]
+        self.last = now
+        self.race_on = p["live"]
+        if not self.race_on:
+            self.limiter, self.rpm, self.yellow, self.chequered_seen = False, 0.0, False, False
+            return
+        self.rpm = p["rpm"]
+        self.gear, self.speed = p["gear"], p["speed"]
+        if p.get("limiter") is None:          # (the car gave no limiter point: a little below the top of the bar, with give)
+            self.limiter = self.rpm >= 0.97 or (self.limiter and self.rpm >= 0.94)
+        else:
+            self.limiter = p["limiter"]
+        if p["caution"]:
+            self.yellow, self.yellow_at = True, now
+        else:
+            self.yellow = False
+        if p["chequered"] and not self.chequered_seen:
+            self.events["chequered"] = now
+        self.chequered_seen = p["chequered"]
 
     def _f1(self, p: dict, now: float) -> None:
         if self.source != "f1":
@@ -359,7 +391,7 @@ class RacingState:
         stop driving (IsRaceOn); F1 says when the session ends; both stop when the packets do."""
         if now - self.last >= ALIVE:
             return False
-        if self.source == "forza":
+        if self.source in ("forza", "sim"):
             return self.race_on
         if self.source == "f1":
             return self.ended is None or now - self.ended <= END_LINGER
@@ -405,12 +437,13 @@ class RacingListener:
     is injectable so tests never open a real port."""
 
     def __init__(self, on_change: Callable[[], None] | None = None, make_socket: Callable[[int], object] | None = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, sim_opener: Callable | None = None):
         self.state = RacingState()
         self.on_change = on_change or (lambda: None)
         self.make_socket = make_socket or _bind
         self.clock = clock
         self.ports = {"forza": FORZA_PORT, "f1": F1_PORT}
+        self.sim = SimReader(self._sim_read, opener=sim_opener, clock=clock)
         self.problems: dict[str, str] = {}      # game -> why its port isn't open
         self.ignored = 0                        # packets from anywhere but this PC, or that no game sends: for the log and the tests
         self._was = False
@@ -449,6 +482,15 @@ class RacingListener:
             self._noticed()
         self._noticed()
 
+    def _sim_read(self, sample: dict) -> None:
+        """One read of a sim's shared memory: into the state, and tell the window when a race starts or ends."""
+        self.state.feed(sample, self.clock())
+        self._noticed()
+
+    def seen(self) -> str:
+        """The sim whose shared memory is open now ("iRacing", "Assetto Corsa"), or ""."""
+        return " · ".join(self.sim.seen())
+
     def _noticed(self) -> None:
         """Tell the window when a race starts or ends (the rest it reads every second)."""
         now = self.state.in_race(self.clock())
@@ -469,7 +511,7 @@ class RacingListener:
         return self.state.label()
 
     def start(self, forza_port: int = FORZA_PORT, f1_port: int = F1_PORT) -> None:
-        """Opens both ports (again, with these numbers, when it was running)."""
+        """Opens both ports and starts looking for the sims' shared memory (again, with these numbers, when it was running)."""
         self.stop()
         self.ports = {"forza": int(forza_port), "f1": int(f1_port)}
         self._stop = stop = threading.Event()
@@ -477,10 +519,12 @@ class RacingListener:
                          for kind, port in self.ports.items()]
         for t in self._threads:
             t.start()
-        log.info("Game lighting: listening for racing games (Forza %s, F1 %s)", forza_port, f1_port)
+        self.sim.start()
+        log.info("Game lighting: listening for racing games (Forza %s, F1 %s, iRacing and Assetto Corsa in shared memory)", forza_port, f1_port)
 
     def stop(self) -> None:
         self._stop.set()
+        self.sim.stop()
         self._threads = []
         self.problems = {}
         self.state.last = -1e9                  # (no race any more, at once)

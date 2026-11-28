@@ -1578,7 +1578,7 @@ def _rev_colors(x: np.ndarray) -> np.ndarray:
 
 
 class Racing(Effect):
-    """Racing games, as they tell it (racing.RacingState, Forza and the F1 games): rev lights like a
+    """Racing games, as they tell it (racing.RacingState: Forza, the F1 games, iRacing and Assetto Corsa): rev lights like a
     real wheel's, the engine's revs filling the stage from left to right in green, then yellow, then
     red near the top. At the limiter the whole bar pulses blue. F1 start lights: one to five red
     blocks as they come on, all gone together at lights out. A yellow flag or a safety car: an amber

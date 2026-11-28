@@ -67,7 +67,7 @@ class Driver:
                 "fields": list(self.fields), "beta": self.beta}
 
 
-MODULES = ("wled", "nanoleaf", "hue", "govee", "lifx", "yeelight", "elgato", "twinkly", "magichome",
+MODULES = ("wled", "nanoleaf", "hue", "govee", "lifx", "yeelight", "wiz", "elgato", "twinkly", "magichome",
            "homeassistant", "dmx")
 
 

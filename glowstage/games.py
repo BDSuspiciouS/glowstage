@@ -719,7 +719,7 @@ class Games:
         """You're in a Rocket League match and the game is sending."""
         return bool(self.settings.get("rl")) and self.rl.in_match(now)
 
-    # -- racing games (Forza, F1) --
+    # -- racing games (Forza, F1, iRacing, Assetto Corsa) --
 
     def racing_settings(self) -> dict:
         s = self.settings.get("racing")
@@ -735,7 +735,7 @@ class Games:
 
     def set_racing(self, on, forza_port, f1_port) -> None:
         """The switch in Setup → Games: listen for what Forza and the F1 games send (on these two UDP
-        ports of this PC) only while it's on."""
+        ports of this PC) and look for iRacing's and Assetto Corsa's shared memory, only while it's on."""
         forza, f1 = _port(forza_port), _port(f1_port)
         if forza is None or f1 is None:
             raise ValueError("A port is a number from 1024 to 65535")
@@ -787,6 +787,7 @@ class Games:
             "on": racing_on, "forzaPort": forza_port, "f1Port": f1_port,
             "receiving": racing_on and self.racing.receiving(now), "inRace": racing_on and self.racing.in_race(now),
             "game": self.racing.label() if racing_on and self.racing.in_race(now) else "",
+            "seen": self.racing.seen() if racing_on else "",
             "problem": " · ".join(v for _, v in sorted(self.racing.problems.items())) if racing_on else "",
         }, "rl": {
             "found": rl_folder is not None, "connected": rl_on and rl_folder is not None,

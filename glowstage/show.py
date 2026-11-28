@@ -1336,7 +1336,7 @@ def _back(f: Frame, n: int, mem, slow: bool = False) -> np.ndarray:
     return _fill(n, f.accent, 0.04)
 
 
-# Lights that take only ~10 updates a second (Hue, Home Assistant, Govee, Elgato: behind a bridge,
+# Lights that take only ~10 updates a second (Hue, Home Assistant, Govee, WiZ, Elgato: behind a bridge,
 # a hub or the cloud) can't step on every 16th note: they get the calmer look of the same kind.
 SLOW_FPS = 12
 SLOW_LOOKS = {"chase16": "chase", "strobe_chase": "pump", "random_zones": "alternate", "sparkle": "breathe"}

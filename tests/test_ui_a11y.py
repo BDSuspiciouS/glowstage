@@ -413,5 +413,25 @@ class FocusAndMotion(unittest.TestCase):
         self.assertRegex(CSS, r"\.head-actions\s*\{[^}]*flex-wrap:\s*wrap")
 
 
+
+ROOT_UI = Path(__file__).resolve().parent.parent / "glowstage" / "ui"
+
+
+class LeftoversFixed(unittest.TestCase):
+    """What the first pass left: the Light show page's outline, and focus kept on Home's notes."""
+
+    def test_the_light_show_page_has_headings(self):
+        html = (ROOT_UI / "index.html").read_text(encoding="utf-8")
+        show = html[html.index('id="page-show"'):html.index("</section>", html.index('id="page-show"'))]
+        self.assertGreaterEqual(show.count('role="heading" aria-level="2"'), 5)
+
+    def test_home_notes_give_focus_back(self):
+        js = (ROOT_UI / "app.js").read_text(encoding="utf-8")
+        body = js[js.index("function renderHomeNotes()"):]
+        body = body[:body.index(chr(10) + "}" + chr(10))]
+        self.assertIn("document.activeElement", body)
+        self.assertIn(".focus(", body)
+
+
 if __name__ == "__main__":
     unittest.main()
