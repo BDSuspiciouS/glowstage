@@ -8,7 +8,8 @@
     ["breathing", "Breathing", ["speed", "color", "color2"]], ["wave", "Color wave", ["speed", "color", "color2"]],
     ["gradient", "Gradient", ["color", "color2"]],
     ["comet", "Comet", ["speed", "color", "color2"]], ["twinkle", "Starlight", ["speed", "color", "color2"]],
-    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
+    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["candle", "Candle", ["speed"]], ["ocean", "Ocean", ["speed"]],
+    ["lava", "Lava lamp", ["speed"]], ["storm", "Thunderstorm", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
     ["music_show", "Light show", ["speed"], "music"],
     ["music_party", "Party", ["speed"], "music"], ["music_ripple", "Bass ripple", ["speed"], "music"],
     ["music_spectrum", "Spectrum", ["speed"], "music"], ["music_pulse", "Beat pulse", ["speed", "color", "color2"], "music"],
@@ -18,7 +19,7 @@
     ["music_fire", "Music fire", ["speed"], "music"], ["music_aurora", "Northern lights", ["speed"], "music"],
     ["music_heart", "Heartbeat", ["speed", "color", "color2"], "music"]]
     .map(([id, name, uses, group]) => ({ id, name, uses, group: group || "animation",
-      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "pc_load"].includes(id) }));
+      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "ocean", "lava", "storm", "pc_load"].includes(id) }));
   const zones = [{ index: 0, name: "Pump", leds: 29, min: 29, max: 29, resizable: false, detected: -1 },
     ...[1, 2, 3, 4, 5, 6].map(i => ({ index: i, name: `Corsair Fan Header ${i}`, leds: i <= 3 ? 8 : 0, min: 0, max: 34,
       resizable: true, detected: i <= 3 ? 8 : null }))];
@@ -122,6 +123,9 @@
     auto: (location.search.match(/[?&]auto=(cs2|call|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
     whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
+      { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo and your lights take its main colors, left to right as they stand." },
+      { title: "Presets in turn", go: "presets:turns", text: "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes." },
+      { title: "Candle, Ocean, Lava lamp, Thunderstorm", go: "effect:storm", text: "Four calm looks for the evening. The storm never flashes more than three times a second." },
       { title: "PC load", go: "effect:pc_load", text: "Your lights fill up like a bar as your PC gets busy, and the graphics card shows its own load." },
       { title: "Gradient", go: "effect:gradient", text: "Two colors blended along each light, through the colors between them, or one blend across your whole setup." },
       { title: "Use from other apps", go: "setup:phone", text: "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link." },
@@ -129,6 +133,8 @@
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
       api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
+    cycle: /[?&]cycle/.test(location.search) ? { names: ["Cozy", "Reading", "Late night"], minutes: 10, shuffle: false,
+      now: "Cozy", next: "Reading", at: Date.now() / 1000 + 600 } : null,
     wake: /[?&]wake/.test(location.search) ? { until: Date.now() / 1000 + 900, minutes: 30 } : null,
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
     updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
@@ -185,6 +191,10 @@
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
     cancel_sleep_timer: () => { data.sleep = null; return ok(); },
+    start_cycle: (names, minutes, shuffle) => { if (names.length < 2) return Promise.resolve({ ok: false, error: "Choose at least two presets" });
+      data.activePreset = names[0]; data.cycle = { names, minutes, shuffle, now: names[0], next: names[1], at: Date.now() / 1000 + minutes * 60 };
+      data.settings.cycle_last = { names, minutes, shuffle }; data.revision++; return ok(); },
+    stop_cycle: () => { data.cycle = null; data.revision++; return ok(); },
     cancel_wake: () => { data.wake = null; return ok(); },
     whats_new_seen: () => { data.whatsNew = null; return ok(); },
     undo: () => ok(),
@@ -207,6 +217,20 @@
     export_settings: () => ok("Glowstage settings 2026-11-27.json"),
     pick_settings_file: () => ok({ file: "Glowstage settings 2026-11-20.json", saved: "2026-11-20T18:30", before: false, ok: true, presets: 31, lights: 11 }),
     load_settings_file: () => ok(),
+    pick_picture: () => ok("C:\\Users\\You\\Pictures\\sunset_over_the_bay.jpg"),
+    colors_from_picture: () => {
+      const colors = ["#ff5a1f", "#ff2e63", "#c11fd6", "#3b5bff", "#1fd2c8"];
+      // (the real app places each light where it stands on the stage; here it is the order on the page)
+      const lit = data.devices.filter(d => !d.hidden && d.state.on);
+      lit.forEach((d, i) => {
+        const at = Math.min(colors.length - 1, Math.floor(i / lit.length * colors.length));
+        if (d.pixels <= 1) Object.assign(d.state, { mode: "color", color: colors[at] });
+        else Object.assign(d.state, { mode: "effect", effect: "gradient", color: colors[at], color2: colors[Math.min(colors.length - 1, at + 1)] });
+      });
+      data.activePreset = ""; data.revision++;
+      const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='160'><defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='#ff5a1f'/><stop offset='.35' stop-color='#ff2e63'/><stop offset='.65' stop-color='#c11fd6'/><stop offset='1' stop-color='#1fd2c8'/></linearGradient></defs><rect width='240' height='160' fill='url(#g)'/></svg>";
+      return ok({ colors, name: "Sunset over the bay", thumb: "data:image/svg+xml," + encodeURIComponent(svg) });
+    },
     remote_set: on => { data.remote = { on, url: on ? "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg" : "", error: "" }; data.revision++; return ok(); },
     remote_new_link: () => { data.remote = { ...data.remote, url: data.remote.url.replace(/k=.*/, "k=" + Math.random().toString(36).slice(2, 24)) }; data.revision++; return ok(); },
     remote_qr: () => ok(window.SAMPLE_QR || ""),

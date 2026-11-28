@@ -74,6 +74,7 @@ class WakeUp:
             raise ValueError("Choose between 1 minute and 4 hours")
         m = self.manager
         m.sleep.cancel()                # a sleep timer and a wake-up don't run at once
+        m.cycle.cancel()                # nor do presets in turn (they would undo the sunrise)
         with self._lock:
             with m.lock:
                 visible = [i for i in m.visible_ids() if i in m.states]

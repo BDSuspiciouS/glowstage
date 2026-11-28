@@ -63,6 +63,15 @@ class WhatsNew(unittest.TestCase):
                 else:
                     self.assertIn(go, whatsnew.GOES, go)
 
+    def test_presets_places_are_real_buttons(self):
+        page = (Path(__file__).parent.parent / "glowstage" / "ui" / "index.html").read_text(encoding="utf-8")
+        app = (Path(__file__).parent.parent / "glowstage" / "ui" / "app.js").read_text(encoding="utf-8")
+        for go in whatsnew.GOES:
+            if go.startswith("presets:"):
+                self.assertIn(f'{go[8:]}: "#', app, go)
+        for button in ("from-picture", "take-turns"):
+            self.assertIn(f'id="{button}"', page)
+
     def test_setup_places_are_real_sections(self):
         setup = (Path(__file__).parent.parent / "glowstage" / "ui" / "setup.js").read_text(encoding="utf-8")
         for go in whatsnew.GOES:

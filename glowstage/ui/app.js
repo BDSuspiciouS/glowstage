@@ -84,7 +84,7 @@ function throttle(fn, ms) {
    the light itself, so they get longer. */
 const CALL_TIMEOUT = 15000;
 const SLOW_CALLS = { pair: 60000, pair_nanoleaf: 60000, add_device: 45000, search: 45000,
-  export_settings: 3600000, pick_settings_file: 3600000 };   // (these wait for you in a file dialog)
+  export_settings: 3600000, pick_settings_file: 3600000, pick_picture: 3600000 };   // (these wait for you in a file dialog)
 async function callRaw(method, ...args) {
   let timer;
   try {
@@ -329,9 +329,10 @@ function renderHomeNotes() {
     : AUTO_NOTES[S.data.auto];
   const sleep = S.data.sleep;
   const wake = S.data.wake;
+  const cycle = S.data.cycle;
   const news = !S.newsClosed && S.data.whatsNew;
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
-    sleep && sleep.until, wake && wake.until, news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
+    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
@@ -342,6 +343,12 @@ function renderHomeNotes() {
       h("div", { class: "note-actions" },
         h("button", { class: "btn", type: "button", text: "Stop", onclick: async () => {
           await call("cancel_wake"); refresh(true); } }))) : null,
+    cycle ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("presets")),
+      h("div", { class: "note-text" }, h("strong", { text: `Presets in turn: ${cycle.now} now` }),
+        h("span", { class: "muted", text: `${cycle.next ? cycle.next + " next, at " : "Next one at "}${clockTime(cycle.at)}. If you change a light yourself, it stops.` })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Stop", onclick: stopCycle }))) : null,
     sleep ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("moon")),
       h("div", { class: "note-text" }, h("strong", { text: `Lights off at ${clockTime(sleep.until)}` }),
@@ -406,6 +413,12 @@ function showNew(where) {
     setTimeout(() => { const s = $("#set-" + where.slice(6)); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
     return;
   }
+  if (where.startsWith("presets:")) {     // the Presets page, at the button that does the new thing
+    go("presets");
+    const button = $({ picture: "#from-picture", turns: "#take-turns" }[where.slice(8)] || "#save-preset");
+    setTimeout(() => { button.focus(); button.classList.add("btn-pulse"); setTimeout(() => button.classList.remove("btn-pulse"), 1600); }, 80);
+    return;
+  }
   if (where.startsWith("effect:")) {
     $("#all-color").click();
     switchTab("effects");
@@ -444,6 +457,63 @@ function openSleepTimer() {
   });
 }
 
+/** Presets page → Take turns: a few presets, one after the other, every few minutes (cycle.py). */
+function openCycle() {
+  const d = S.data, presets = d.presets || [], running = d.cycle;
+  const last = (d.settings || {}).cycle_last || {};
+  const have = new Set(presets.map(p => p.name));
+  let chosen = ((running && running.names) || last.names || []).filter(n => have.has(n));
+  if (chosen.length < 2) chosen = presets.filter(p => !isMusicPreset(p)).slice(0, 3).map(p => p.name);
+  const boxes = new Map();
+  const hint = h("p", { class: "hint", style: "margin-top:12px" });
+  const sync = () => {
+    const n = [...boxes.values()].filter(b => b.checked).length;
+    $("#modal-ok").disabled = n < 2;
+    hint.textContent = n < 2 ? "Tick at least two presets." : `${n} presets, one after the other.`;
+  };
+  const group = (title, list) => list.length ? [
+    h("div", { class: "pick-group" }, h("span", { class: "field-label", text: title })),
+    h("div", { class: "check-list" }, list.map(p => {
+      const box = h("input", { type: "checkbox", class: "switch", checked: chosen.includes(p.name), "aria-label": p.name, onchange: sync });
+      boxes.set(p.name, box);
+      return h("label", { class: "check-row" }, h("span", { class: "check-text" }, h("span", { class: "check-name", text: p.name })), box);
+    }))] : [];
+  const every = h("select", { "aria-label": "Every" }, [[1, "1 minute"], [5, "5 minutes"], [10, "10 minutes"], [15, "15 minutes"],
+    [30, "30 minutes"], [60, "1 hour"]].map(([m, t]) => h("option", { value: String(m), text: t, selected: m === (running ? running.minutes : last.minutes || 10) })));
+  const shuffle = h("input", { type: "checkbox", class: "switch", id: "cycle-shuffle", checked: !!(running ? running.shuffle : last.shuffle) });
+  openModal({
+    title: "Presets in turn",
+    body: h("div", {},
+      h("p", { class: "hint", text: running
+        ? `Running now: ${running.now}. Starting again begins with the first one.`
+        : "Glowstage switches between the presets you tick by itself. It stops when you change a light yourself." }),
+      // (when and how first, then the presets: the list is long and scrolls on its own)
+      h("div", { class: "cycle-when" },
+        h("label", { class: "field-label", for: "cycle-every", text: "Every" }), every,
+        h("label", { class: "cycle-shuffle", for: "cycle-shuffle" }, h("span", { text: "Shuffle" }), shuffle)),
+      h("div", { class: "cycle-list" },
+        group("Lighting", presets.filter(p => !isMusicPreset(p))), group("Moves to the music", presets.filter(isMusicPreset))),
+      hint),
+    ok: "Start",
+    onOk: async () => {
+      const names = presets.map(p => p.name).filter(n => boxes.get(n).checked);
+      if (names.length < 2) return "Tick at least two presets.";
+      const r = await callRaw("start_cycle", names, +every.value, shuffle.checked);
+      if (!r || r.ok === false) return (r && r.error) || "Couldn't start";
+      toast(`${names[0]} is on, then the next one every ${every.selectedOptions[0].text.replace(/^1 /, "")}`);
+      refresh(true);
+      return true;
+    },
+  });
+  every.id = "cycle-every";
+  sync();
+  setTimeout(() => { const first = boxes.values().next().value; if (first) first.focus(); }, 30);
+}
+
+async function stopCycle() {
+  await call("stop_cycle"); toast("Presets in turn stopped: your lights stay as they are"); refresh(true);
+}
+
 function renderChrome() {
   for (const b of document.querySelectorAll(".nav-item[data-page]")) {
     if (b.dataset.page === S.page) b.setAttribute("aria-current", "page");
@@ -467,6 +537,10 @@ const FX_LOOK = {
   screen: "linear-gradient(90deg, #3a6bff, #ff8a3a, #2bd3c4)",
   screen_sound: "linear-gradient(90deg, #fff0dc, #3a6bff 30%, #2bd3c4 70%, #ff8a3a)",
   daylight: "linear-gradient(90deg, #ff9a45, #ffe0c7, #ffb06a)",
+  candle: "linear-gradient(90deg, #6b2200, #ff7a10, #ffc13a, #ff8a14, #7a2800)",
+  ocean: "linear-gradient(90deg, #00125a, #0046a0, #0096a5, #d2f6fa 52%, #0096a5, #00125a)",
+  lava: "linear-gradient(90deg, #1a0406, #aa0818, #ff6908 35%, #e11478 62%, #aa0818 80%, #1a0406)",
+  storm: "linear-gradient(90deg, #1a2236, #3a4663, #1a2236 55%, #f2f6ff 62%, #3a4663 70%, #1a2236)",
   typing: "linear-gradient(90deg, #1b1430, #00e5ff 28%, #1b1430 48%, #7c4dff 72%, #1b1430)",
   pc_load: "linear-gradient(90deg, #2bff6a 0%, #ffd23a 35%, #ff3a2a 70%, #1b2a20 70%)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
@@ -969,6 +1043,56 @@ function openSavePreset() {
   input.addEventListener("keydown", e => { if (e.key === "Enter") $("#modal-ok").click(); });
 }
 
+/** "From a picture": a photo is chosen, the lights take its main colors (left to right as they stand
+ *  on the stage) and a window shows what was found. Closing keeps the colors, with Undo. */
+async function fromPicture() {
+  const btn = $("#from-picture"), label = btn.lastChild;
+  if (btn.disabled) return;
+  const idle = label.textContent;
+  const done = () => { btn.disabled = false; btn.removeAttribute("aria-busy"); label.textContent = idle; };
+  const picked = await callRaw("pick_picture");
+  if (!picked || picked.ok === false) { toast((picked && picked.error) || "That didn't work", true); return; }
+  if (!picked.result) return;                              // (cancelled)
+  btn.disabled = true; btn.setAttribute("aria-busy", "true"); label.textContent = "Reading the picture…";
+  const r = await callRaw("colors_from_picture", picked.result);
+  done();
+  if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return; }
+  S.quietUntil = 0; refresh(true);
+  const { colors, name, thumb } = r.result;
+  const input = h("input", { class: "text-input", style: "width:100%", value: name, maxlength: "40", "aria-label": "Preset name" });
+  let saved = false, replace = "";
+  input.addEventListener("input", () => { replace = ""; $("#modal-ok").textContent = "Save as preset"; });
+  openModal({
+    title: "Colors from your picture",
+    body: h("div", { class: "picture-colors" },
+      h("div", { class: "pic-top" },
+        h("img", { class: "pic-thumb", src: thumb, alt: "Your picture" }),
+        h("div", { class: "pic-found" },
+          h("div", { class: "pic-swatches" }, colors.map(c => h("span", { class: "pic-swatch", style: `background:${c}`, title: c, role: "img", "aria-label": c }))),
+          h("p", { class: "hint", text: "Your lights show these colors now, left to right as they stand." }))),
+      h("label", { class: "field-label", text: "Preset name" }), input),
+    ok: "Save as preset",
+    cancelText: "Close",
+    onOk: async () => {
+      const preset = input.value.trim();
+      if (!preset) return "Give the preset a name.";
+      if (replace !== preset && S.data.presets.some(p => p.name === preset)) {
+        replace = preset; $("#modal-ok").textContent = "Replace preset";
+        return `There is a preset called ${preset} already. Choose Replace preset to save over it.`;
+      }
+      const s = await callRaw("save_preset", preset);
+      if (!s || s.ok === false) return (s && s.error) || "That didn't work";
+      saved = true;
+      toast(`Saved ${preset}`);
+      refresh(true);
+      return true;
+    },
+    onClose: () => { if (!saved) undoable(`Your lights show the colors of ${name}`); },
+  });
+  setTimeout(() => input.focus(), 30);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") $("#modal-ok").click(); });
+}
+
 /* ============================== the panel ============================== */
 
 function openSheet() {
@@ -1211,6 +1335,53 @@ const PREVIEW = {
       return hsvToRgb(0.33 + 0.42 * noise(x + t * r, 3), 0.85, 0.25 + 0.75 * noise(x * 1.7 - t * r * 1.3, 4));
     });
   },
+  candle: (t, n, st) => {
+    const k = st.speed / 100, x = t * (1.2 + 4 * k), period = 7 - 4 * k, slot = Math.floor(t / period);
+    const stops = [[60, 12, 0], [235, 100, 6], [255, 190, 60]];
+    return Array.from({ length: n }, (_, i) => {
+      const off = i * 97.13, flame = 0.5 * noise(x + off, 11) + 0.3 * noise(x * 2.7 + off * 1.3, 12) + 0.2 * noise(x * 6.1 + off * 0.7, 13);
+      let dip = 0;
+      for (const s of [slot - 1, slot]) {   /* a gust now and then: a quick dip, a slow recovery */
+        const d = t - ((s + 0.15 + 0.7 * hash01(s, 21)) * period + i / n * 0.25);
+        const depth = hash01(i * 131 + s, 23) > 0.2 ? 0.35 + 0.5 * hash01(i * 131 + s, 22) : 0;
+        dip = Math.max(dip, d < 0 ? 0 : depth * (d < 0.12 ? d / 0.12 : Math.exp(-(d - 0.12) / 0.7)));
+      }
+      const v = clamp((0.68 + (flame - 0.5) * (0.9 + 0.9 * k)) * (1 - dip), 0, 1) * 2;
+      return v < 1 ? lerp(stops[0], stops[1], v) : lerp(stops[1], stops[2], v - 1);
+    });
+  },
+  ocean: (t, n, st) => {
+    const r = rate(st.speed) * 0.6, tau = 2 * Math.PI, deep = [0, 18, 85], blue = [0, 70, 160], teal = [0, 150, 165];
+    return Array.from({ length: n }, (_, i) => {
+      const u = i / n;
+      const w = 0.5 + 0.5 * (0.55 * Math.sin(tau * (u * 1.6 - t * r * 0.5)) + 0.3 * Math.sin(tau * (u * 2.9 + t * r * 0.35 + 0.3))
+        + 0.15 * Math.sin(tau * (u * 5.3 - t * r * 0.8)));
+      const v = clamp(w * (0.7 + 0.5 * noise(u * 1.2 - t * r * 0.2, 31)), 0, 1);
+      const base = v < 0.4 ? lerp(deep, blue, v / 0.4) : lerp(blue, teal, (v - 0.4) / 0.35);
+      const f = clamp((v - 0.8) / 0.2, 0, 1);
+      return lerp(base, [190, 240, 250], f * f * (3 - 2 * f) * 0.85);
+    });
+  },
+  lava: (t, n, st) => {
+    const r = rate(st.speed) * 0.3, bg = [58, 8, 8], red = [170, 8, 24], orange = [255, 105, 8], magenta = [225, 20, 120];
+    const sm = (lo, hi, x) => { const k = clamp((x - lo) / (hi - lo), 0, 1); return k * k * (3 - 2 * k); };
+    return Array.from({ length: n }, (_, i) => {
+      const u = i / n, field = 0.55 * noise(u * 2.4 + t * r, 5) + 0.45 * noise(u * 1.5 - t * r * 0.7 + 7, 6);
+      const out = lerp(bg, red, sm(0.38, 0.6, field));
+      return lerp(out, lerp(orange, magenta, noise(u * 0.8 + t * r * 0.3, 8)), sm(0.48, 0.7, field));
+    });
+  },
+  storm: (t, n, st) => {   /* a strike every ~6 s: two or three quick flashes, never more than three a second */
+    const cloud = [26, 34, 54], bolt = [225, 235, 255], k = Math.floor(t / 6), d = t - (k * 6 + 1 + 3 * hash01(k, 51));
+    const offs = hash01(k, 52) < 0.4 ? [0, 0.15] : [0, 0.15, 0.3], place = hash01(k, 53);
+    let level = 0;
+    offs.forEach((o, j) => { if (d >= o) level = Math.max(level, [1, 0.6, 0.8][j] * Math.exp(-(d - o) / 0.07)); });
+    return Array.from({ length: n }, (_, i) => {
+      const u = i / n, c = 0.55 * noise(u * 1.8 + t * 0.05, 41) + 0.45 * noise(u * 4.1 - t * 0.08, 42);
+      const w = 0.15 + 0.85 * Math.exp(-(((u - place) / 0.22) ** 2));
+      return lerp(cloud.map(v => v * (0.3 + 0.7 * c)), bolt, level * w);
+    });
+  },
   typing: (t, n, st) => {   /* someone typing: a key every 0.17 s, with pauses between words */
     const c = hexToRgb(st.color), bg = scaleRgb(hexToRgb(st.color2), 0.08), tau = 1.6 * Math.pow(0.12, st.speed / 100);
     const level = new Array(n).fill(0), step = 0.17, last = Math.floor(t / step);
@@ -1423,6 +1594,10 @@ function renderEffects() {
     : fx.id === "daylight" ? sunNote(S.data.sun)
     : fx.id === "gradient" ? "A still blend from the first color to the second along each light, through the colors between them. With Flow on, one blend runs across your whole setup and every light takes the part where it stands."
     : fx.id === "typing" ? "Every key you press lights up and sends a ripple across your keyboard; your other lights glow where the key sits, left to right. Speed sets how quickly it fades. Glowstage only looks at which key is down while this runs, keeps that for three seconds, and saves and sends nothing."
+    : fx.id === "candle" ? "A candle flame on every light, each one flickering on its own, with a gust now and then that makes it dip and recover. Speed sets how lively the flame is."
+    : fx.id === "ocean" ? "Slow waves of deep blue and teal roll along your lights, with a little foam on the crests. With Flow on, the waves roll across your whole setup."
+    : fx.id === "lava" ? "Warm blobs of red, orange and magenta drift, merge and part on a dark background. It uses its own colors. With Flow on, the blobs wander across your whole setup."
+    : fx.id === "storm" ? "Clouds drift over your lights and now and then lightning strikes, never more than three flashes a second. Speed sets how often it strikes. With Flow on, a strike lights up one part of your setup most. Lights that update slowly hold the flash a little longer."
     : fx.id === "pc_load" ? "Your lights fill up as your PC gets busy, from the first color when it's idle to the second when it's working hard. The graphics card shows its own load. Glowstage asks Windows twice a second while this runs and keeps nothing."
     : fx.id === "music_show" ? showNote(S.data.show, audio)
     : fx.group === "music" ? `Listening to ${audio.device || "your PC's sound output"}. Speed sets how punchy it is; when the music stops, the lights glow softly.`
@@ -1661,10 +1836,12 @@ async function renderNative() {
 /* ============================== modal and toasts ============================== */
 
 let modalOk = null;
+let modalClosed = null;    // called once when the window closes, however it closes
 let modalFrom = null;      // what had the focus before the window opened: it gets it back
-function openModal({ title, body, ok, onOk, wide = false, cancel = true }) {
+function openModal({ title, body, ok, onOk, wide = false, cancel = true, cancelText = "Cancel", onClose = null }) {
   if ($("#modal").hidden) modalFrom = document.activeElement;
   $("#modal-title").textContent = title;
+  $("#modal-cancel").textContent = cancelText;
   $("#modal-cancel").hidden = !cancel;     // (a window with only information needs just its one button)
   $(".modal-card").classList.toggle("is-wide", wide);
   fill($("#modal-body"), body);
@@ -1672,12 +1849,16 @@ function openModal({ title, body, ok, onOk, wide = false, cancel = true }) {
   $("#modal-ok").disabled = false;
   $("#modal-error").hidden = true;
   modalOk = onOk;
+  modalClosed = onClose;
   $("#modal").hidden = false;
   setTimeout(() => $("#modal-ok").focus(), 20);
 }
 function closeModal() {
   $("#modal").hidden = true;
   modalOk = null;
+  const closed = modalClosed;
+  modalClosed = null;
+  if (closed) closed();
   if (modalFrom && modalFrom.isConnected && typeof modalFrom.focus === "function") modalFrom.focus();
   modalFrom = null;
 }
@@ -1791,6 +1972,8 @@ function bindStatic() {
   });
 
   $("#save-preset").addEventListener("click", openSavePreset);
+  $("#take-turns").addEventListener("click", openCycle);
+  $("#from-picture").addEventListener("click", fromPicture);
   $("#show-start").addEventListener("click", () => {
     const running = runningShow();
     if (running.length) send(running.map(d => d.id), { mode: "color" }, "fx:show");
@@ -1866,6 +2049,9 @@ function searchItems() {
   add(0, "All lights on", () => send(null, { on: true }, "on:all"));
   add(0, "All lights off", () => { if (anyOn) toggleStrip("__all"); else toast("Your lights are already off"); });
   add(0, "Sleep timer", openSleepTimer);
+  add(0, "Presets in turn", openCycle);
+  if (d.cycle) add(0, "Stop presets in turn", stopCycle);
+  add(0, "Colors from a picture", fromPicture);
   add(0, runningShow().length ? "Stop the light show" : "Start the light show", () => $("#show-start").click());
   // (the window can't ask the app whether there is something to undo: it knows what it just offered Undo for)
   if (d.canUndo === undefined ? S.undoReady : d.canUndo) add(0, "Undo", undoNow);

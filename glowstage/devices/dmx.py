@@ -98,6 +98,7 @@ def _int(value, default: int) -> int:
 class DmxFixture(Device):
     kind = "dmx"
     group = "room"
+    fades = True                 # local and quick: a new look glides in (manager.DeviceWorker)
     hardware_brightness = False
     max_fps = FPS
 

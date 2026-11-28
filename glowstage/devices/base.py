@@ -13,6 +13,7 @@ class Device:
     group = "room"               # "pc" or "room", used to group devices in the UI
     hardware_brightness = False  # True when the device applies brightness itself to streamed frames
     max_fps = 30
+    fades = False                # True: a new color glides in (local, quick lights; manager.DeviceWorker)
     fixture: dict | None = None  # its shape, for the light show: {"ring": 8} fans, {"geometry": [...]} keys
 
     def __init__(self, dev_id: str, name: str):

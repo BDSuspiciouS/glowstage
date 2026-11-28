@@ -53,6 +53,7 @@ def _raw_interfaces() -> list[dict]:
 class QmkKeyboard(Device):
     kind = "qmk"
     group = "pc"
+    fades = True                 # local and quick: a new look glides in (manager.DeviceWorker)
     hardware_brightness = False
     max_fps = 25   # a full frame is 11 reports (~40 ms), sent by the writer thread below
 

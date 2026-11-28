@@ -72,6 +72,7 @@ DESK_ITEMS = {"KEYBOARD", "MOUSEMAT", "MOUSE", "HEADSET_STAND", "HEADSET", "KEYP
 class OpenRGBDevice(Device):
     kind = "openrgb"
     group = "pc"
+    fades = True                 # local and quick: a new look glides in (manager.DeviceWorker)
     hardware_brightness = False
     # OpenRGB's Commander Core driver drops frames that arrive within 33 ms of the previous
     # one, so stay a little under 30 fps to keep effects smooth instead of stuttering.

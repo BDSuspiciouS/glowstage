@@ -3,6 +3,7 @@ the PC, the WLED strips and the Nanoleaf panels animate in sync."""
 
 from __future__ import annotations
 
+import bisect
 import math
 import random
 
@@ -221,6 +222,188 @@ class Aurora(Effect):
             val = 0.25 + 0.75 * _noise(x * 1.7 - t * r * 1.3, 4)
             out.append(hsv(hue, 0.85, val))
         return out
+
+
+# ---- ambient looks: calm ones for a room in the evening ------------------------------------
+
+def _hash_np(i: np.ndarray, seed: int) -> np.ndarray:
+    """_hash01 for a whole array of integers at once (same numbers, int64 instead of Python ints)."""
+    h = (i * 374761393 + seed * 668265263) & 0xFFFFFFFF
+    h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
+    return (h ^ (h >> 16)) / 0xFFFFFFFF
+
+
+def _noise_np(x: np.ndarray, seed: int) -> np.ndarray:
+    """_noise for a whole array: smooth 1-D value noise in 0..1."""
+    i = np.floor(x)
+    f = x - i
+    i = i.astype(np.int64)
+    a, b = _hash_np(i, seed), _hash_np(i + 1, seed)
+    f = f * f * (3 - 2 * f)
+    return a + (b - a) * f
+
+
+def _ramp(v: np.ndarray, stops: list[tuple[float, tuple[int, int, int]]]) -> np.ndarray:
+    """Colors along a ramp of (position, color) stops, for an array of positions: n x 3."""
+    xs = [p for p, _ in stops]
+    return np.stack([np.interp(v, xs, [c[k] for _, c in stops]) for k in range(3)], axis=1)
+
+
+def _smooth(lo: float, hi: float, x: np.ndarray) -> np.ndarray:
+    k = np.clip((x - lo) / (hi - lo), 0.0, 1.0)
+    return k * k * (3 - 2 * k)
+
+
+CANDLE = [(0.0, (60, 12, 0)), (0.5, (235, 100, 6)), (1.0, (255, 190, 60))]   # deep amber .. warm yellow
+
+
+class Candle(Effect):
+    """A candle flame on every LED: layered noise for the soft flicker, each LED with its own
+    phase so a strip looks like a row of candles, and now and then a gust that makes the flames
+    dip and recover (it passes along the light, so the flames don't all dip at the same moment).
+    Speed: how lively the flame is. Red >= green >= blue always: never white, never green."""
+    id, name = "candle", "Candle"
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        k = st.speed / 100
+        i = np.arange(n)
+        x, off = t * (1.2 + 4.0 * k), i * 97.13
+        flame = 0.5 * _noise_np(x + off, 11) + 0.3 * _noise_np(x * 2.7 + off * 1.3, 12) + 0.2 * _noise_np(x * 6.1 + off * 0.7, 13)
+        level = np.clip(0.68 + (flame - 0.5) * (0.9 + 0.9 * k), 0.0, 1.0)
+        period = 7.0 - 4.0 * k
+        slot = math.floor(t / period)
+        dip = np.zeros(n)
+        for s in (slot - 1, slot):          # a gust can still be recovering from the slot before
+            at = (s + 0.15 + 0.7 * _hash01(s, 21)) * period + i / n * 0.25
+            d = t - at
+            depth = (0.35 + 0.5 * _hash_np(i * 131 + s, 22)) * (_hash_np(i * 131 + s, 23) > 0.2)
+            shape = np.where(d < 0, 0.0, np.where(d < 0.12, d / 0.12, np.exp(-(d - 0.12) / 0.7)))
+            dip = np.maximum(dip, depth * shape)
+        return _rgb(_ramp(level * (1 - dip), CANDLE))
+
+
+OCEAN = [(0.0, (0, 18, 85)), (0.4, (0, 70, 160)), (0.75, (0, 150, 165))]
+FOAM = np.array((190.0, 240.0, 250.0))   # pale cyan
+
+
+class Ocean(Effect):
+    """Slow waves of deep blue and teal rolling along the lights, with a little foam on the
+    crests. Three waves of different lengths and a slow swell on top of them."""
+    id, name = "ocean", "Ocean"
+    flows = True
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        u = np.array(_places(n, ctx))
+        r = rate(st.speed) * 0.6
+        tau = 2 * math.pi
+        w = 0.5 + 0.5 * (0.55 * np.sin(tau * (u * 1.6 - t * r * 0.5)) + 0.3 * np.sin(tau * (u * 2.9 + t * r * 0.35 + 0.3))
+                         + 0.15 * np.sin(tau * (u * 5.3 - t * r * 0.8)))
+        v = np.clip(w * (0.7 + 0.5 * _noise_np(u * 1.2 - t * r * 0.2, 31)), 0.0, 1.0)
+        foam = (_smooth(0.8, 1.0, v) * 0.85)[:, None]
+        base = _ramp(v, OCEAN)
+        return _rgb(base + (FOAM - base) * foam)
+
+
+LAVA_BG, LAVA_RED, LAVA_ORANGE, LAVA_MAGENTA = (np.array(c, float) for c in ((58, 8, 8), (170, 8, 24), (255, 105, 8), (225, 20, 120)))
+
+
+class Lava(Effect):
+    """A lava lamp: slow warm blobs that drift, merge and part along each light, on a dark warm
+    background. Two noise fields moving in opposite directions make the blobs run into each
+    other and pull apart. Own colors (deep red, orange, magenta) and only Speed: the colors are
+    what makes it a lava lamp; with the app's usual violet and cyan it would be a different look."""
+    id, name = "lava", "Lava lamp"
+    flows = True
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        u = np.array(_places(n, ctx))
+        r = rate(st.speed) * 0.3
+        field = 0.55 * _noise_np(u * 2.4 + t * r, 5) + 0.45 * _noise_np(u * 1.5 - t * r * 0.7 + 7, 6)
+        blob = _smooth(0.38, 0.6, field)[:, None]     # (this noise sits mostly between 0.25 and 0.7)
+        hot = _smooth(0.48, 0.7, field)[:, None]
+        tint = _noise_np(u * 0.8 + t * r * 0.3, 8)[:, None]      # which blobs lean orange, which magenta
+        core = LAVA_ORANGE + (LAVA_MAGENTA - LAVA_ORANGE) * tint
+        out = LAVA_BG + (LAVA_RED - LAVA_BG) * blob
+        return _rgb(out + (core - out) * hot)
+
+
+STORM_SEED = random.getrandbits(24)    # one per run, shared by every light: the whole room hears the same storm
+CLOUD = np.array((26.0, 34.0, 54.0))   # dim blue-grey
+BOLT = np.array((225.0, 235.0, 255.0))  # cold white
+
+
+class Storm(Effect):
+    """Dim blue-grey clouds drifting, and every 4 to 15 seconds a lightning strike: two or three
+    quick flashes within about 0.4 s, now and then a far one that is dimmer. Speed: how often.
+    With Flow a strike has a place: it lights up that part of the stage most and the rest a little.
+    The strikes are a fixed schedule from the run's seed, so every light sees the same ones, and
+    a given time always gives the same colors.
+
+    Safety: a strike is at least 4 s after the one before, and has at most three flashes, 0.13 s or
+    more apart, so there are never more than three flashes in any second (the limit for people
+    sensitive to flashing light, the same as impacts.py keeps for Screen + sound).
+    Slow lights (Hue, Govee: ctx["fps"] <= SLOW_FPS) update every 0.1 s or slower and could miss a
+    50 ms flash, so they get one flash held for 0.3 s instead of the flicker."""
+    id, name = "storm", "Thunderstorm"
+    flows = True
+    HOLD = 0.3
+
+    def _strikes(self, mem: dict, t: float, speed: int) -> list[dict]:
+        """The schedule, made as far as t needs: a list of strikes in order."""
+        seed = mem.setdefault("seed", STORM_SEED)
+        strikes = mem.setdefault("strikes", [])
+        span = 15.5 - 12.0 * (speed - 1) / 99      # the gap is 4 s plus up to this much: 4..19 s slowest, 4..7.5 s fastest
+        while len(strikes) > 1 and strikes[1]["at"] < t - 2.0:
+            strikes.pop(0)      # (a storm left on for days mustn't keep every strike it ever made)
+        while not strikes or strikes[-1]["at"] <= t + 1.0:
+            k = mem["made"] = mem.get("made", 0) + 1
+            at = 2.0 + 4.0 * _hash01(0, seed) if not strikes else strikes[-1]["at"] + 4.0 + span * _hash01(k, seed + 1)
+            far = _hash01(k, seed + 2) < 0.3
+            if far:     # a far strike: two softer, slower flashes
+                offs, power, tau = [0.0, 0.16], [0.35, 0.22], 0.14
+            else:
+                o1 = 0.13 + 0.04 * _hash01(k, seed + 3)
+                o2 = o1 + 0.13 + 0.06 * _hash01(k, seed + 4)
+                if _hash01(k, seed + 5) < 0.4:
+                    offs, power = [0.0, o1], [1.0, 0.7]
+                else:
+                    offs, power = [0.0, o1, o2], [1.0, 0.55 + 0.2 * _hash01(k, seed + 6), 0.8]
+                tau = 0.07
+            strikes.append({"at": at, "offs": offs, "power": power, "tau": tau, "place": _hash01(k, seed + 7), "far": far})
+        return strikes
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        u = np.array(_places(n, ctx))
+        clouds = 0.55 * _noise_np(u * 1.8 + t * 0.05, 41) + 0.45 * _noise_np(u * 4.1 - t * 0.08, 42)
+        base = CLOUD * (0.3 + 0.7 * clouds)[:, None]
+        strikes = self._strikes(mem, t, st.speed)
+        starts = [s["at"] for s in strikes]
+        s = strikes[max(0, bisect.bisect_right(starts, t) - 1)]
+        d = t - s["at"]
+        if d < 0 or d > 1.5:
+            return _rgb(base)
+        slow = (ctx.get("fps") or 100) <= show.SLOW_FPS
+        if slow:    # one flash held long enough to be seen by a light that updates slowly
+            level = s["power"][0] if d < self.HOLD else s["power"][0] * math.exp(-(d - self.HOLD) / 0.12)
+        else:
+            level = 0.0
+            for off, power in zip(s["offs"], s["power"]):
+                if d >= off:
+                    level = max(level, power * math.exp(-(d - off) / s["tau"]))
+        if level < 0.004:
+            return _rgb(base)
+        # Where it struck gets all of it, the rest of the stage a little. Without Flow the light is one place.
+        w = 0.15 + 0.85 * np.exp(-((u - s["place"]) / 0.22) ** 2) if ctx.get("flow") else np.full(n, 0.8 + 0.2 * (1 - s["place"]))
+        k = np.clip(level * w, 0.0, 1.0)[:, None]
+        return _rgb(base + (BOLT - base) * k)
 
 
 class Typing(Effect):
@@ -778,7 +961,7 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Typing(), PcLoad(), Daylight(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),

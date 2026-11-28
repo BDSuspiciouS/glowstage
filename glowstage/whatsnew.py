@@ -12,11 +12,19 @@ import re
 from .paths import VERSION
 
 # go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups), "effect:<id>"
-# (the effects panel, at that look), "sleep" (the sleep timer), "search" (the quick search).
-GOES = ("sleep", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups")
+# (the effects panel, at that look), "sleep" (the sleep timer), "search" (the quick search),
+# "presets:<button>" (the Presets page, at that button: picture, turns).
+GOES = ("sleep", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups",
+        "presets:picture", "presets:turns")
 
 NOTES: dict[str, list[dict]] = {
     "0.9.8": [
+        {"title": "Colors from a picture", "go": "presets:picture",
+         "text": "Pick a photo and your lights take its main colors, left to right as they stand."},
+        {"title": "Presets in turn", "go": "presets:turns",
+         "text": "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes."},
+        {"title": "Candle, Ocean, Lava lamp, Thunderstorm", "go": "effect:storm",
+         "text": "Four calm looks for the evening. The storm never flashes more than three times a second."},
         {"title": "PC load", "go": "effect:pc_load",
          "text": "Your lights fill up like a bar as your PC gets busy, and the graphics card shows its own load."},
         {"title": "Gradient", "go": "effect:gradient",

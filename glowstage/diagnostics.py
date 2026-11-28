@@ -59,7 +59,7 @@ def report(app) -> str:
         f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}"]))
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
-        f"hotkeys {'on' if s.get('hotkeys') else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
+        f"hotkeys {'on' if s.get('hotkeys') else 'off'}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
         f"sound {m.engine.audio.device or 'not listening now'}"]))
     problems = recent_problems()
     out.append("Last warnings in the log:" if problems else "No warnings in the log.")

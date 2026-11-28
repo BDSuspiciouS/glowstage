@@ -140,6 +140,7 @@ class EffectEngine:
             ctx["fixture"] = getattr(dev, "fixture", None)
             ctx["gpu"] = is_gpu(dev)
             ctx["slow"] = slow
+            ctx["fps"] = dev.max_fps    # for looks that hold a flash longer on slow lights (Thunderstorm)
             effect = EFFECTS.get(st.effect) or EFFECTS["rainbow"]
             colors = effect.render(t, dev.pixel_count, st, self._mem.setdefault((dev.id, effect.id), {}), ctx)
             if not dev.hardware_brightness and st.brightness < 100:

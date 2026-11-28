@@ -15,6 +15,7 @@ from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations, clean_app_looks
 from .away import Away
+from .cycle import PresetCycle
 from .timer import SleepTimer
 from .wake import WakeUp, wake_minutes
 from .games import Games
@@ -23,7 +24,8 @@ from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
 from .devices.openrgb_dev import OpenRGBProvider
 from .devices.registry import Found, drivers
-from .effects import EFFECTS
+from .colors import RGB, hex_to_rgb, scale
+from .effects import EFFECTS, _rgb, blend
 from .engine import EffectEngine
 from .show import SLOW_FPS, stage_spans
 from .sun import SUN
@@ -50,18 +52,34 @@ def friendly_error(exc: Exception) -> str:
 
 
 class DeviceWorker:
-    """Applies the latest desired state to one device, dropping intermediate ones (slider drags)."""
+    """Applies the latest desired state to one device, dropping intermediate ones (slider drags).
+
+    On lights that can take many quick updates (`device.fades`: OpenRGB, the keyboard, DMX: local,
+    a frame in a few milliseconds), a new color, a new brightness, switching on or off glides over
+    FADE seconds instead of jumping: a preset slides into place. A change that comes right after
+    another one (a slider or the color wheel being dragged) is shown at once, so the light keeps up
+    with your hand; so is anything submitted with instant=True (Find a light's flashes). Effects
+    and the lights' own effects are never faded: they move by themselves."""
+
+    FADE = 0.35        # seconds a change glides over
+    QUICK = 0.25       # a change this soon after the last one is part of a drag: no glide
 
     def __init__(self, device: Device, on_error):
         self.device = device
         self.on_error = on_error
         self._pending: LightState | None = None
+        self._instant = False
+        self._last_submit = float("-inf")
+        self._shown: RGB | None = None      # what a solid light shows now (None: an effect, or not known)
         self._working = False
         self._cv = threading.Condition()
         threading.Thread(target=self._run, name=f"worker:{device.id}", daemon=True).start()
 
-    def submit(self, state: LightState) -> None:
+    def submit(self, state: LightState, instant: bool = False) -> None:
         with self._cv:
+            now = time.monotonic()
+            self._instant = instant or now - self._last_submit < self.QUICK
+            self._last_submit = now
             self._pending = state
             self._cv.notify()
 
@@ -76,14 +94,51 @@ class DeviceWorker:
                 while self._pending is None:
                     self._cv.wait()
                 self._working = True
-                state, self._pending = self._pending, None
+                state, self._pending, instant = self._pending, None, self._instant
             try:
-                if self.device.online:   # (an offline one gets its state again when it reconnects)
-                    self.device.apply(state)
+                if not self.device.online:   # (an offline one gets its state again when it reconnects)
+                    self._shown = None
+                    continue
+                target = solid(state)
+                if not instant and getattr(self.device, "fades", False) and self._shown is not None \
+                        and target is not None and target != self._shown:
+                    if not self._glide(self._shown, target, state):
+                        continue           # a newer state came: it glides on from where this one is
+                self.device.apply(state)
+                self._shown = target
             except Exception as e:
+                self._shown = None
                 self.on_error(self.device, e)
             finally:
                 self._working = False
+
+    def _glide(self, start: RGB, end: RGB, state: LightState) -> bool:
+        """Steps from `start` to `end` at the light's own pace. False when a newer state arrived
+        on the way (self._shown is then where the glide got to)."""
+        dev = self.device
+        steps = max(2, round(self.FADE * min(dev.max_fps, 30)))
+        full = state.patched({"on": True, "mode": "color", "brightness": 100})
+        colors = blend(start, end, [(k / steps) ** 2 * (3 - 2 * k / steps) for k in range(1, steps)])
+        for rgb in _rgb(colors):
+            with dev.lock:
+                dev._stop_stream()
+                dev.show_color(rgb, full)       # (the brightness is in the color already)
+            self._shown = rgb
+            with self._cv:
+                if self._pending is None:
+                    self._cv.wait(self.FADE / steps)
+                if self._pending is not None:
+                    return False
+        return True
+
+
+def solid(state: LightState) -> RGB | None:
+    """What a light in this state shows on every LED (off is black), or None for an effect."""
+    if not state.on:
+        return (0, 0, 0)
+    if state.mode != "color":
+        return None
+    return scale(hex_to_rgb(state.color), state.brightness / 100)
 
 
 class DeviceManager:
@@ -112,6 +167,7 @@ class DeviceManager:
         self.away = Away(self)
         self.sleep = SleepTimer(self)
         self.wake = WakeUp(self)
+        self.cycle = PresetCycle(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -144,6 +200,7 @@ class DeviceManager:
         self.automations.stop()
         self.sleep.stop()
         self.wake.stop()
+        self.cycle.stop()
         self.games.stop()
         self.engine.stop()
         self.discovery.stop()
@@ -709,7 +766,7 @@ class DeviceManager:
             end = time.monotonic() + seconds
             lit = True
             while time.monotonic() < end and not self._stop.is_set():
-                worker.submit(white if lit else dark)
+                worker.submit(white if lit else dark, instant=True)
                 lit = not lit
                 if self._stop.wait(min(half, max(0.0, end - time.monotonic()))):
                     break
@@ -718,7 +775,7 @@ class DeviceManager:
                 self._identifying.discard(dev_id)
                 worker, st = self.workers.get(dev_id), self.states.get(dev_id)
             if worker is not None and st is not None:
-                worker.submit(st)   # the light's real state now: a change made meanwhile wins
+                worker.submit(st, instant=True)   # the light's real state now: a change made meanwhile wins
 
     def forget(self, dev_id: str) -> None:
         """Remove a network light or hub (it comes back if discovery sees it again)."""
@@ -826,6 +883,20 @@ class DeviceManager:
                    for dev_id, group in groups.items()}
         self._apply({i: p for i, p in patches.items() if p}, preset=name)
 
+    def light_from_colors(self, colors: list[str]) -> int:
+        """Spread the colors of a picture over the lights that are on, left to right as they stand
+        on the stage, as one change (how many lights took one). No preset shows after it: it is
+        saved as one only if the person says so."""
+        from . import palette
+        with self.lock:
+            lights = [self.devices[i] for i in self.visible_ids() if self.states[i].on]
+            everyone = list(self.devices.values())
+        spans = stage_spans(everyone, self.config.data.get("show_layout"))
+        lights.sort(key=lambda d: d.name.lower())   # (lights that share a place divide it in this order)
+        patches = palette.spread(colors, [(d.id, d.pixel_count, spans[d.id]) for d in lights])
+        self._apply(patches, preset="")
+        return len(patches)
+
     def save_preset(self, name: str, ids: list[str] | None = None) -> None:
         """Save the lights as they are now. ids = only those lights (None = every visible light; an
         existing preset that holds only some lights keeps its own set)."""
@@ -868,6 +939,7 @@ class DeviceManager:
             raise ValueError("There's no such preset")
         if new != old and new in names:
             raise ValueError(f"There's already a preset called {new}")
+        self.cycle.rename(old, new)     # (before the settings change: it accepts both names for a moment)
         with self.lock:
             for p in self.config["presets"]:
                 if p["name"] == old:
@@ -917,6 +989,7 @@ class DeviceManager:
 
     def delete_preset(self, name: str) -> None:
         self.config.data["presets"] = [p for p in self.config["presets"] if p["name"] != name]
+        self.cycle.forget(name)
         self.config.save_soon()
         self._changed()
 

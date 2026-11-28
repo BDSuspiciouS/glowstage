@@ -12,7 +12,7 @@ from pathlib import Path
 
 import webview
 
-from . import automations, backups, diagnostics, genre_install, online, screen, webfix, whatsnew, winutil
+from . import automations, backups, diagnostics, genre_install, online, palette, screen, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -22,6 +22,7 @@ from .sun import SUN
 log = logging.getLogger(__name__)
 
 FILE_TYPES = ("Glowstage settings (*.json)", "All files (*.*)")
+PICTURE_TYPES = ("Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)", "All files (*.*)")
 
 
 def _picked(result) -> str:
@@ -75,6 +76,7 @@ class Api:
                  "sun": SUN.describe(),
                  "sleep": self._m.sleep.describe(),
                  "wake": self._m.wake.describe(),
+                 "cycle": self._m.cycle.describe(),
                  "askSupport": self._ask_support(),
                  "whatsNew": whatsnew.card(self._app.config["settings"]),
                  "remote": self._app.remote.describe()}
@@ -107,6 +109,16 @@ class Api:
     @_safe
     def cancel_sleep_timer(self):
         self._m.sleep.cancel()
+
+    @_safe
+    def start_cycle(self, names, minutes, shuffle=False):
+        """Presets in turn: the first one now, then the next every `minutes` (cycle.py)."""
+        self._m.remember()      # (the first one is a change by hand: Undo goes back to before it)
+        self._m.cycle.start(names, minutes, shuffle)
+
+    @_safe
+    def stop_cycle(self):
+        self._m.cycle.cancel()
 
     @_safe
     def cancel_wake(self):
@@ -278,6 +290,25 @@ class Api:
     def apply_preset(self, name):
         self._m.remember()
         self._m.apply_preset(name)
+
+    @_safe
+    def pick_picture(self):
+        """Choose a picture to light the room from: its path (None if cancelled)."""
+        path = _picked(self._app.window.create_file_dialog(
+            webview.FileDialog.OPEN, directory=_documents(), file_types=PICTURE_TYPES))
+        return path or None
+
+    @_safe
+    def colors_from_picture(self, path):
+        """The picture's main colors, now on the lights (Undo like a preset), with a name to save
+        them under and a small copy of the picture for the window."""
+        img = palette.read(str(path))
+        colors = palette.main_colors(img)
+        self._m.remember()
+        if not self._m.light_from_colors(colors):
+            raise ValueError("Switch a light on first, then try again")
+        stem = Path(str(path)).stem.replace("_", " ").strip()[:40]
+        return {"colors": colors, "name": stem[:1].upper() + stem[1:], "thumb": palette.thumbnail_url(img)}
 
     @_safe
     def save_preset(self, name, ids=None):

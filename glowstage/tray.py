@@ -157,6 +157,8 @@ class Tray:
                                                       checked=lambda item, n=name: n == active)
                                              for name in presets)))
         yield MenuItem("Sleep timer", Menu(*self._sleep_items()))
+        if m.cycle.active:
+            yield MenuItem("Stop presets in turn", lambda: m.cycle.cancel())
         yield MenuItem("Undo", lambda: m.undo(), enabled=lambda item: m.can_undo())
         yield Menu.SEPARATOR
         yield MenuItem(f"Restart {APP_NAME}", lambda: self.app.restart())
