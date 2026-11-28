@@ -21,7 +21,10 @@ runs, and lol.py asks it once a switch in Setup → Games is on.
 
 Rocket League has its own Stats API (rocket_league.py): connecting switches it on in one line of the
 game's DefaultStatsAPI.ini (disconnecting puts the line back), and the game then sends its state to
-whoever connects to it on this PC, which is what the reader there does while a match runs."""
+whoever connects to it on this PC, which is what the reader there does while a match runs.
+
+Forza and the F1 games send their telemetry as UDP packets to an address typed into the game's own
+settings; racing.py opens one port per family on 127.0.0.1 while a switch in Setup → Games is on."""
 
 from __future__ import annotations
 
@@ -35,8 +38,9 @@ import winreg
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import rocket_league
+from . import racing, rocket_league
 from .lol import ABSORB, END_LINGER, MIN_GAP, PAUSE, STALE, LolPoller
+from .racing import RacingListener
 from .rocket_league import RocketLeagueReader
 
 log = logging.getLogger(__name__)
@@ -431,6 +435,7 @@ class Games:
         self._found_rl: tuple[float, Path | None] = (-1e9, None)
         self._rl_file_there = False        # the game's ini asks for the Stats API now
         self._looking_rl = threading.Lock()
+        self.racing = RacingListener(on_change=self._racing_noticed)
 
     def folder(self, fresh: bool = False) -> Path | None:
         """CS2's cfg folder. Fresh: looked up now (you're connecting). Otherwise the last answer,
@@ -492,10 +497,13 @@ class Games:
             self.lol.start()
         if self.settings.get("rl"):
             self._start_rl()
+        if self.racing_on():
+            self.racing.start(*self.racing_ports())
 
     def stop(self) -> None:
         self.lol.stop()
         self.rl.stop()
+        self.racing.stop()
         self._unlisten()
 
     def _unlisten(self) -> None:
@@ -711,6 +719,47 @@ class Games:
         """You're in a Rocket League match and the game is sending."""
         return bool(self.settings.get("rl")) and self.rl.in_match(now)
 
+    # -- racing games (Forza, F1) --
+
+    def racing_settings(self) -> dict:
+        s = self.settings.get("racing")
+        return s if isinstance(s, dict) else {}
+
+    def racing_on(self) -> bool:
+        return bool(self.racing_settings().get("on"))
+
+    def racing_ports(self) -> tuple[int, int]:
+        """(Forza's port, the F1 games' port) as set; the defaults for anything that isn't a good port."""
+        s = self.racing_settings()
+        return (_port(s.get("forza_port")) or racing.FORZA_PORT, _port(s.get("f1_port")) or racing.F1_PORT)
+
+    def set_racing(self, on, forza_port, f1_port) -> None:
+        """The switch in Setup → Games: listen for what Forza and the F1 games send (on these two UDP
+        ports of this PC) only while it's on."""
+        forza, f1 = _port(forza_port), _port(f1_port)
+        if forza is None or f1 is None:
+            raise ValueError("A port is a number from 1024 to 65535")
+        if forza == f1:
+            raise ValueError("Forza and F1 need two different ports")
+        s = self.settings.setdefault("racing", {})
+        again = (bool(s.get("on")), self.racing_ports()) != (bool(on), (forza, f1))
+        s.update(on=bool(on), forza_port=forza, f1_port=f1)
+        self.config.save_soon()
+        if again:
+            if on:
+                self.racing.start(forza, f1)
+            else:
+                self.racing.stop()
+        self.on_change()
+
+    def _racing_noticed(self) -> None:
+        """A race starts or ends: tell the window (the rest it reads every second)."""
+        self.on_change()
+
+    def racing_active(self, now: float) -> bool:
+        """You're in a race in a racing game and it is sending."""
+        return self.racing_on() and self.racing.in_race(now)
+
     def _lol_noticed(self) -> None:
         """A match starts or ends: tell the window (the rest it reads every second)."""
         self.on_change()
@@ -732,7 +781,14 @@ class Games:
         rl_folder = self.rl_folder()
         rl_on = bool(self.settings.get("rl"))
         rl = self.rl.snapshot(now)
-        return {"rl": {
+        racing_on = self.racing_on()
+        forza_port, f1_port = self.racing_ports()
+        return {"racing": {
+            "on": racing_on, "forzaPort": forza_port, "f1Port": f1_port,
+            "receiving": racing_on and self.racing.receiving(now), "inRace": racing_on and self.racing.in_race(now),
+            "game": self.racing.label() if racing_on and self.racing.in_race(now) else "",
+            "problem": " · ".join(v for _, v in sorted(self.racing.problems.items())) if racing_on else "",
+        }, "rl": {
             "found": rl_folder is not None, "connected": rl_on and rl_folder is not None,
             "fileThere": bool(rl_folder) and self._rl_file_there,
             "receiving": rl_on and self.rl.receiving(now), "inMatch": rl_on and rl["inMatch"],
@@ -759,3 +815,12 @@ class Games:
     def dota_active(self, now: float) -> bool:
         """You're in a Dota 2 match and the game is sending."""
         return bool(self.settings.get("dota")) and self.dota.in_match(now)
+
+
+def _port(v) -> int | None:
+    """A port from 1024 up (the ones below belong to Windows and its services), or None."""
+    try:
+        p = int(v)
+    except (TypeError, ValueError):
+        return None
+    return p if 1024 <= p <= 65535 else None

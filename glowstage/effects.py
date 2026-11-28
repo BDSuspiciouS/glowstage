@@ -14,6 +14,7 @@ from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
 from .games import DOTA_LENGTH
 from .lol import LENGTH
+from .racing import LENGTH as RACING_LENGTH
 from .rocket_league import BLUE as _RL_BLUE_RGB, LENGTH as RL_LENGTH, ORANGE as _RL_ORANGE_RGB
 from .state import LightState
 
@@ -1558,6 +1559,106 @@ class RocketLeague(Effect):
         return _rgb(out)
 
 
+_GREEN_LED = np.array([0.0, 255.0, 40.0])             # racing: the rev lights of a real wheel, low to high
+_YELLOW_LED = np.array([255.0, 205.0, 0.0])
+_RED_LED = np.array([255.0, 15.0, 10.0])
+_LIMIT_BLUE = np.array([20.0, 60.0, 255.0])            # at the limiter
+_AMBER = np.array([255.0, 140.0, 0.0])                 # a yellow flag, a safety car
+_DRS_GREEN = np.array([0.0, 255.0, 80.0])
+_PURPLE = np.array([170.0, 40.0, 255.0])               # a fastest lap
+_START_RED = np.array([255.0, 0.0, 0.0])
+
+
+def _rev_colors(x: np.ndarray) -> np.ndarray:
+    """The color of the rev lights at each place on the stage (0 left .. 1 right): green, then yellow, then red near the top."""
+    to_yellow = np.clip((x - 0.5) / 0.15, 0.0, 1.0)[:, None]
+    to_red = np.clip((x - 0.75) / 0.15, 0.0, 1.0)[:, None]
+    low = _GREEN_LED * (1 - to_yellow) + _YELLOW_LED * to_yellow
+    return low * (1 - to_red) + _RED_LED * to_red
+
+
+class Racing(Effect):
+    """Racing games, as they tell it (racing.RacingState, Forza and the F1 games): rev lights like a
+    real wheel's, the engine's revs filling the stage from left to right in green, then yellow, then
+    red near the top. At the limiter the whole bar pulses blue. F1 start lights: one to five red
+    blocks as they come on, all gone together at lights out. A yellow flag or a safety car: an amber
+    band pulsing slowly. DRS open: a green edge on both ends. Your fastest lap: a purple sweep. The
+    chequered flag: a slow black and white checker scrolling by.
+
+    Safety: racing.py starts a limiter pulse or a sweep only when the one before is over (and never
+    closer than 0.34 s), so there are never more than three in any second, like League, Dota and
+    Rocket League. The amber band breathes at 0.5 Hz and the checker scrolls so that a place changes
+    every second or so: slow, not flashing. Slow lights (ctx["fps"] <= SLOW_FPS) can't show a rev bar
+    at 60 Hz: they show the revs as one calm color, green to red, smoothed over a second, and skip the
+    limiter pulse."""
+    id, name = "game_racing", "Racing"
+    group = "game"
+    uses = ()
+    HOLD = 0.35
+    OUT_HOLD = 0.5            # the start lights all gone: dark this long
+    CHEQUERED = 15.0          # seconds the checker shows after the flag
+    SMOOTH = 0.8              # seconds the calm color of a slow light takes to follow the revs
+
+    def render(self, t, n, st, mem, ctx):
+        g = ctx.get("racing") or {}
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        x = start + (end - start) * (np.arange(n) + 0.5) / n      # where each pixel sits: 0 left .. 1 right
+        ago = g.get("ago") or {}
+        slow = (ctx.get("fps") or 100) <= show.SLOW_FPS
+        if not g.get("inRace"):           # no race: a dim red and amber drift, the pit lane waiting
+            u = (0.5 + 0.5 * np.sin(2 * np.pi * (x * 0.6 - t * 0.05)))[:, None]
+            return _rgb((_START_RED * 0.8 * u + _AMBER * (1 - u)) * (0.22 + 0.05 * math.sin(t * 0.8)))
+        lights = int(g.get("startLights") or 0)
+        if lights:                        # the start lights: blocks of red, one more each time
+            if n == 1 or slow:
+                return _rgb(np.tile(_START_RED * (0.2 * lights), (n, 1)))
+            block = np.minimum((x * 5).astype(int), 4)
+            inside = np.abs((x * 5) % 1.0 - 0.5) < 0.38           # (a dark gap between the blocks)
+            return _rgb(_START_RED[None, :] * ((block < lights) & inside)[:, None])
+        if ago.get("lights_out", 99) < self.OUT_HOLD:             # lights out: all of them go off at once
+            return _rgb(np.zeros((n, 3)))
+        if ago.get("chequered", 99) < self.CHEQUERED:             # the flag: a slow checker, black and white
+            if n == 1 or slow:
+                return _rgb(np.tile(_WHITE * (0.55 + 0.4 * math.sin(2 * math.pi * t * 0.3)), (n, 1)))
+            wave = np.clip(np.sin(2 * np.pi * (x * 4 - t * 0.25)) * 3, -1.0, 1.0)
+            return _rgb(_WHITE[None, :] * (0.5 + 0.5 * wave)[:, None])
+        f = max(0.0, min(1.0, g.get("rpm") or 0.0))
+        if n == 1 or slow:                # one light, or one too slow for a bar: the revs as a calm color
+            last = mem.get("t")
+            k = 1.0 if last is None else 1 - math.exp(-max(0.0, min(1.0, t - last)) / self.SMOOTH)
+            mem["f"] = f if "f" not in mem else mem["f"] + (f - mem["f"]) * k
+            mem["t"] = t
+            level = mem["f"]
+            out = np.tile(_rev_colors(np.array([level]))[0] * (0.35 + 0.55 * level), (n, 1))
+        else:
+            lit = np.clip((f - x) / 0.03 + 0.5, 0.0, 1.0)
+            out = _rev_colors(x) * (0.05 + 0.95 * lit)[:, None]
+        if g.get("drs") and n > 1 and not slow:                   # DRS is open: a green edge on both ends
+            edge = np.clip((0.1 - np.minimum(x, 1 - x)) / 0.03 + 0.5, 0.0, 1.0)
+            out = _mix(out, _DRS_GREEN, edge)
+        elif g.get("drs"):
+            out = _mix(out, _DRS_GREEN, 0.25)
+        if g.get("caution"):              # a yellow flag or the safety car: an amber band, breathing slowly
+            breathe = 0.5 + 0.5 * math.sin(2 * math.pi * t * 0.5)
+            if n == 1 or slow:
+                out = _mix(out, _AMBER, 0.55)
+            else:
+                band = np.clip((0.2 - np.abs(x - 0.5)) / 0.06 + 0.5, 0.0, 1.0)
+                out = _mix(out, _AMBER, band * (0.45 + 0.5 * breathe))
+        a = ago.get("limiter", 99)
+        if not slow and a < RACING_LENGTH["limiter"]:             # at the limiter: the whole bar pulses blue
+            out = _mix(out, _LIMIT_BLUE, 0.95)
+        a, length = ago.get("fastest", 99), RACING_LENGTH["fastest"]
+        if a < length:                    # your fastest lap: a purple band running across, the room lifted behind it
+            if n == 1 or slow:
+                out = _mix(out, _PURPLE, 0.85)
+            else:
+                p = a / length
+                band = np.maximum(0.95 * np.exp(-((x - (p * 1.5 - 0.25)) / 0.2) ** 2), 0.35 * (1 - p))
+                out = _mix(out, _PURPLE, band)
+        return _rgb(out)
+
+
 def _rgb(arr: np.ndarray) -> list[RGB]:
     a = np.clip(arr, 0, 255).astype(int)
     return [(int(r), int(g), int(b)) for r, g, b in a]
@@ -1567,7 +1668,7 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in (
     Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Snow(), StringLights(), CandyCane(), Fireflies(), Rain(), Plasma(), Sunset(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
-    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(), RocketLeague(),
+    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(), RocketLeague(), Racing(),
 )}
 MUSIC_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "music"}
 HEARING_EFFECTS = MUSIC_EFFECTS | {"screen_sound"}        # ask the audio analysis for its picture

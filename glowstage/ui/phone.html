@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f1013">
 <meta name="referrer" content="no-referrer">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Glowstage">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" id="manifest">
+<link rel="apple-touch-icon" id="touch-icon">
+<link rel="icon" id="favicon">
 <title>Glowstage</title>
 <style>
   :root {
@@ -165,6 +172,9 @@
 <script>
 "use strict";
 const key = new URLSearchParams(location.search).get("k") || "";
+// "Add to home screen": the name, the icon and opening full screen come from the PC (they need the key too)
+for (const [id, href] of [["manifest", "/manifest.webmanifest"], ["touch-icon", "/icon.png?s=180"], ["favicon", "/icon.png?s=192"]])
+  document.getElementById(id).href = href + (href.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(key);
 const $ = id => document.getElementById(id);
 let state = null, busyUntil = 0, dragging = false;
 const rows = {};                                  // the group and light rows, by "group:pc" / "light:id"

@@ -11,7 +11,7 @@ import io
 import os
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 
 from .colors import rgb_to_hex
 from .screen import vivid
@@ -35,6 +35,7 @@ def read(path: str) -> Image.Image:
             raise ValueError("That picture is too big for Glowstage (over 40 MB)")
         with Image.open(path) as img:
             img.draft("RGB", (THUMB * 2, THUMB * 2))       # (JPEG: decode at 1/2, 1/4 or 1/8 size)
+            from PIL import ImageOps   # (only a picture being read needs it: it is slow to import)
             img = ImageOps.exif_transpose(img)             # (a phone photo held sideways)
             img = img.convert("RGB")
             img.thumbnail((THUMB, THUMB))
@@ -60,6 +61,7 @@ def read_bytes(data: bytes) -> Image.Image:
             if img.width * img.height > PHOTO_PIXELS:
                 raise ValueError("That photo is too big")
             img.draft("RGB", (THUMB * 2, THUMB * 2))
+            from PIL import ImageOps   # (only a picture being read needs it: it is slow to import)
             img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
             img.thumbnail((THUMB, THUMB))

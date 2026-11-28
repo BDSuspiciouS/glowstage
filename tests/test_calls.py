@@ -160,7 +160,7 @@ class WithAManager(unittest.TestCase):
         a._stop = FakeStop(turns)
         seen = []
         with mock.patch.object(calls, "in_use", return_value={"camera": ["Zoom.exe"]}), \
-                mock.patch.object(Automations, "step", lambda s, *args: seen.append(args)):
+                mock.patch.object(Automations, "step", lambda s, *args, **kw: seen.append(args)):
             a._run()
         return seen
 

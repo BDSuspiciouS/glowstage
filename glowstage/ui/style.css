@@ -13,7 +13,7 @@
   --line-2: rgba(255, 255, 255, 0.12);
   --text: #f3f1ed;
   --muted: #9c9ca5;
-  --faint: #62636c;
+  --faint: #8e8f98;            /* the quietest text (counts, small labels): still 4.5:1 on every surface above */
   --primary: #f3f1ed;          /* buttons that do the main thing: warm white with dark text */
   --primary-ink: #141418;
   --ok: #4fd18b;
@@ -83,7 +83,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   transition: background .15s, color .15s;
 }
 .icon-btn:hover { color: var(--text); background: var(--card-2); }
-.link { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 0; color: var(--muted); font-size: 13px; }
+.link { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; border: 0; background: none; padding: 0; color: var(--muted); font-size: 13px; }
 .link:hover { color: var(--text); }
 .link svg { width: 15px; height: 15px; }
 
@@ -126,10 +126,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 /* ---------- pages ---------- */
 .main { min-width: 0; overflow-y: auto; overflow-x: hidden; }
 .page { max-width: 1180px; margin: 0 auto; padding: 26px 32px 40px; }
-.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; margin-bottom: 20px; }
+.page-head > div:first-child { flex: 1 1 260px; min-width: 0; }
 .page-head h1 { margin: 0; font-family: var(--f-display); font-size: 28px; font-weight: 600; letter-spacing: -.015em; line-height: 1.15; }
 .page-sub { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
-.head-actions { display: flex; gap: 8px; flex: none; }
+.head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 26px 0 12px; }
 .section-head h2 { margin: 0; font-family: var(--f-display); font-size: 17px; font-weight: 600; letter-spacing: -.005em; }
 .section-head .count { color: var(--faint); font-weight: 400; margin-left: 6px; }
@@ -186,7 +187,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .tile:hover { border-color: var(--line-2); }
 .tile.is-selected { border-color: color-mix(in srgb, var(--c) 70%, white 10%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 60%, transparent); }
-.tile.is-offline { opacity: .55; }
+.tile.is-offline { opacity: .8; }
 .tile-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .tile .slider { flex: none; }
 .tile-icon {
@@ -198,6 +199,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .tile-icon svg { width: 20px; height: 20px; }
 .tile.is-off .tile-icon, .tile.is-offline .tile-icon { color: var(--faint); background: rgba(255,255,255,.05); }
 .tile-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+button.tile-open { align-items: stretch; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; font: inherit; }
 .tile-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-meta.is-warn { color: var(--warn); }
@@ -222,6 +224,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   background: var(--card); isolation: isolate;
   transition: transform .15s var(--ease), box-shadow .2s;
 }
+/* the card is a box with two real buttons in it: the card itself (apply) and the "more" button */
+.preset-main { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; }
+.preset-main:focus-visible { outline-offset: -4px; }
 .preset:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(0,0,0,.8); }
 .preset:active { transform: translateY(0); }
 /* dragging a preset to a new place: the card it lands before or after gets a bar on that side */
@@ -263,7 +268,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 /* schedule */
 .sched-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 12px; }
 .sched-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-radius: 12px; background: var(--card-2); }
-.sched-row.is-paused { opacity: .55; }
+.sched-row.is-paused { opacity: .8; }
 .sched-time { width: 112px; height: 34px; }
 .sched-when, .sched-offset { flex: 0 0 auto; }
 .sched-hint { font-size: 12.5px; white-space: nowrap; }
@@ -388,7 +393,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   display: grid; place-items: center; background: rgba(10,10,12,.55); color: #fff; opacity: 0; transition: opacity .15s;
 }
 .preset-x svg { width: 13px; height: 13px; stroke-width: 2.2; }
-.preset:hover .preset-x, .preset-x:focus-visible { opacity: 1; }
+.preset:hover .preset-x, .preset:focus-within .preset-x, .preset-x:focus-visible { opacity: 1; }
+.preset-x:focus-visible { outline-color: #fff; outline-offset: 1px; }
 .preset-x:hover { background: rgba(10,10,12,.85); }
 .preset-add {
   height: 92px; border-radius: 14px; border: 1.5px dashed var(--line-2); background: transparent; color: var(--muted);
@@ -447,8 +453,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .chips { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .chip { position: relative; width: 38px; height: 38px; border-radius: 50%; border: 0; padding: 0; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
 .chip-x {
-  position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0;
-  background: var(--card-2); color: var(--text); font-size: 12px; line-height: 18px; box-shadow: 0 0 0 1px var(--line-2);
+  position: absolute; top: -9px; right: -9px; width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0;
+  background: var(--card-2); color: var(--text); font-size: 13px; line-height: 24px; box-shadow: 0 0 0 1px var(--line-2);
 }
 .chip-x:hover { background: var(--hover); }
 .chip-x:focus-visible, .chip-add:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -466,7 +472,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 }
 .control-hint { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin-top: -2px; }
 .link-btn {
-  background: none; border: 0; padding: 0; font: inherit; color: var(--text); cursor: pointer;
+  min-height: 24px; background: none; border: 0; padding: 0; font: inherit; color: var(--text); cursor: pointer;
   text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(255,255,255,.35);
 }
 .link-btn:hover { text-decoration-color: currentColor; }
@@ -530,12 +536,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   height: 34px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--card);
   min-width: 0; transition: border-color .15s;
 }
-.text-input:focus { border-color: var(--muted); outline: none; }
+.text-input:focus { border-color: var(--muted); }
+.text-input:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
 .hex-input { width: 120px; text-transform: uppercase; }
 .pipette-btn { margin-left: 8px; }
 .pipette-btn svg { width: 15px; height: 15px; }
 select { height: 34px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--card); min-width: 0; }
-input[type="range"] { flex: 1; margin: 0; accent-color: var(--text); min-width: 0; }
+input[type="range"] { flex: 1; margin: 0; accent-color: var(--text); min-width: 0; min-height: 24px; }   /* (the track stays thin; the area to grab is 24 px) */
 /* Setup → Lights → Balance */
 .balance-dialog .control-head { margin-top: 14px; }
 .balance-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; font-size: 12.5px; }
@@ -733,12 +740,26 @@ input[type="range"] { flex: 1; margin: 0; accent-color: var(--text); min-width: 
   .readout-value { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+/* very narrow windows (or big text): the page wraps instead of cutting off, and the color panel floats over it */
+@media (max-width: 860px) {
+  .sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; width: min(var(--sheet-w), 100%); box-shadow: -12px 0 30px rgba(0,0,0,.45); }
+  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* checkboxes that aren't switches: big enough to hit */
+input[type="checkbox"]:not(.switch) { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--text); }
+/* Windows' high-contrast colors: the custom controls keep an edge and a visible state */
+@media (forced-colors: active) {
+  .slider, .kelvin-track, .switch, .seg button[aria-checked="true"], .fx-card[aria-pressed="true"], .preset.is-active { outline: 1px solid CanvasText; }
+  .switch:checked { background: Highlight; }
+  .switch::after { background: ButtonText; }
+  .slider-fill { background: Highlight; }
 }
 
 /* Setup → Schedule → Night limit */
 .night-part { margin-top: 18px; }
 .night-part h4 { margin: 0 0 6px; }
 .night-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 4px; }
-.night-row.is-off { opacity: .55; }
+.night-row.is-off { opacity: .8; }
 .night-time { width: auto; min-width: 7.5em; }

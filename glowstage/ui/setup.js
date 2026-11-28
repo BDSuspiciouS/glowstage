@@ -38,6 +38,9 @@ function renderSettings(force = false) {
   S.settingsSig = sig;
   const scroll = body.scrollTop;
   fill(body, lightsSection(), hubsSection(), addSection(), openrgbSection(), genreSection(), gamesSection(), automaticSection(), scheduleSection(), phoneSection(), backupSection(), appSection());
+  // (the page title is a level 1: the sections are level 2 and what's inside them level 3, whatever their size)
+  for (const hd of body.querySelectorAll("h3")) hd.setAttribute("aria-level", "2");
+  for (const hd of body.querySelectorAll("h4")) hd.setAttribute("aria-level", "3");
   body.scrollTop = scroll;
 }
 
@@ -514,7 +517,7 @@ function gamesSection() {
         onclick: async () => { if (await call("games_connect") !== undefined) toast("Connected: start CS2 and play"); refresh(true); } }) : null,
       c.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
         onclick: async () => { await call("games_disconnect"); toast("CS2 is disconnected"); refresh(true); } }) : null),
-    leagueCard(), dotaCard(), rocketLeagueCard());
+    leagueCard(), dotaCard(), rocketLeagueCard(), racingCard());
 }
 
 /* Setup → Games: League of Legends. Nothing to install: the game answers Riot's own live data API on this PC (lol.py). */
@@ -575,6 +578,38 @@ function rocketLeagueCard() {
         onclick: async () => { if (await call("games_rl_connect") !== undefined) toast("Connected: restart Rocket League if it's open, then play"); refresh(true); } }) : null,
       r.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
         onclick: async () => { await call("games_rl_disconnect"); toast("Rocket League is disconnected: restart it if it's open"); refresh(true); } }) : null));
+}
+
+/* Setup → Games: racing games (racing.py). Forza and the F1 games send their telemetry as UDP to an address typed into the game's own settings; this listens on this PC only, and only while the switch is on. */
+function racingCard() {
+  const r = ((S.data.games || {}).racing) || {};
+  const status = !r.on ? "Off"
+    : r.problem ? r.problem
+    : r.inRace ? `In a race${r.game ? " · " + r.game : ""}`
+    : "Listening · no race yet";
+  const apply = async (on, forza, f1) => {
+    const r2 = await callRaw("games_racing", on, forza, f1);
+    if (!r2 || r2.ok === false) toast((r2 && r2.error) || "Couldn't save that", true);
+    else if (on !== !!r.on) toast(on ? "On: start a race" : "Racing games are off");
+    S.settingsSig = "";
+    refresh(true);
+  };
+  const forza = h("input", { class: "text-input mono", type: "number", min: 1024, max: 65535, value: r.forzaPort || 5300,
+    style: "width:90px", "aria-label": "Forza port", onchange: () => apply(!!r.on, forza.value, f1.value) });
+  const f1 = h("input", { class: "text-input mono", type: "number", min: 1024, max: 65535, value: r.f1Port || 20777,
+    style: "width:90px", "aria-label": "F1 port", onchange: () => apply(!!r.on, forza.value, f1.value) });
+  return h("div", { class: "league-card", style: "margin-top:22px" },
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (r.on && !r.problem ? " is-on" : "") }), h("strong", { text: "Racing games (Forza, F1)" }), h("span", { class: "muted", text: " · " + status })),
+    h("p", { class: "hint", style: "margin-bottom:10px", text: "While you race, your lights are the rev lights of a real wheel: the revs fill the stage from left to right in green, yellow and red, and pulse blue at the limiter. In the F1 games the start lights come on, a yellow flag or the safety car shows as an amber band, DRS as a green edge, your fastest lap as a purple sweep and the chequered flag as a slow black and white checker." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: "Uses the telemetry these games send on purpose: the game tells this PC how the car is doing. Nothing reads or changes the game, and Glowstage only listens while this is on." }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Play along with racing games" }),
+      h("input", { type: "checkbox", checked: !!r.on, "aria-label": "Play along with racing games",
+        onchange: e => apply(e.target.checked, forza.value, f1.value) })),
+    h("div", { class: "toggle-row", style: "cursor:default" }, h("span", { text: "Forza port" }), forza),
+    h("div", { class: "toggle-row", style: "cursor:default" }, h("span", { text: "F1 port" }), f1),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:6px", text: "Forza: in Settings, open HUD and Gameplay (Gameplay and HUD in Motorsport 7), scroll down to Data out and set it to On, the IP address to 127.0.0.1 and the port to the number above. Forza Motorsport 7, Motorsport and Horizon 4 and 5 work." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:6px", text: "F1 23 and F1 24: in Settings, open Telemetry settings and set UDP telemetry to On, the IP address to 127.0.0.1, the port to the number above (the game's own is 20777) and the UDP format to 2023 or 2024. F1 25 works too, with its format set to 2025." }),
+    h("p", { class: "hint", style: "font-size:12px", text: "Both games send only while you drive. If the status says a port is busy, another program is using it: pick another number here and in the game." }));
 }
 
 function automaticSection() {
@@ -1189,7 +1224,7 @@ function openDmxEditor(hub) {
           el.addEventListener("input", () => { f[key] = type === "number" ? Number(el.value) : el.value; });
           return el;
         };
-        const sel = h("select", {}, layouts.map(l => h("option", { value: l, text: l, selected: (f.layout || "RGB") === l })));
+        const sel = h("select", { "aria-label": "Channel layout" }, layouts.map(l => h("option", { value: l, text: l, selected: (f.layout || "RGB") === l })));
         sel.addEventListener("change", () => { f.layout = sel.value; });
         return [inp("name", "text", { "aria-label": "Fixture name", placeholder: `Fixture ${i + 1}` }),
           inp("start", "number", { min: 1, max: 512, "aria-label": "First DMX channel" }),
@@ -1243,14 +1278,19 @@ function openWizard() {
   S.wiz.open = true;
   S.wiz.step = 0;
   S.wiz.sig = "";
+  S.wiz.from = document.activeElement;       // (it gets the focus back when the tour closes)
   $("#wizard").hidden = false;
   call("search");
   renderWizard(true);
+  $("#wizard-next").focus();
 }
 
 async function finishWizard() {
   S.wiz.open = false;
   $("#wizard").hidden = true;
+  const back = S.wiz.from;
+  S.wiz.from = null;
+  if (back && back.isConnected && back !== document.body && typeof back.focus === "function") back.focus();
   await call("set_setting", "setup_done", true);
   refresh(true);
 }

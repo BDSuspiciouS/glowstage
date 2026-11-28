@@ -1018,7 +1018,7 @@ class Connecting(unittest.TestCase):
 
     def test_the_describe_follows_the_match(self):
         d = self.g.describe()
-        self.assertEqual(set(d), {"cs2", "lol", "dota", "rl"})
+        self.assertEqual(set(d), {"cs2", "lol", "dota", "rl", "racing"})
         self.assertEqual(set(d["rl"]), {"found", "connected", "fileThere", "receiving", "inMatch", "team", "boost"})
         self.g.connect_rl()
         self.g.rl.state.feed("UpdateState", update(boost=40, target=RIVAL), time.monotonic())
@@ -1196,7 +1196,7 @@ class Automatic(unittest.TestCase):
         self.m.games.dota_active = lambda now: False
         self.m.games.rl_active = lambda now: True
         self.a._stop = Stop(2)
-        with mock.patch.object(Automations, "step", lambda s, *args: seen.append(args)):
+        with mock.patch.object(Automations, "step", lambda s, *args, **kw: seen.append(args)):
             self.a._run()
         self.assertTrue(seen and all(args[9] is True and args[8] is False for args in seen))   # (rl is the tenth, after dota)
 

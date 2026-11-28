@@ -678,6 +678,11 @@ class Api:
         self._app.manager.games.disconnect_rl()
 
     @_safe
+    def games_racing(self, on, forza_port, f1_port):
+        """Racing games: listen for what Forza and the F1 games send to this PC (or not), and on which ports."""
+        self._app.manager.games.set_racing(on, forza_port, f1_port)
+
+    @_safe
     def games_lol(self, on):
         """League of Legends: switch asking the game's own live data on or off (nothing is installed)."""
         self._app.manager.games.set_lol(bool(on))

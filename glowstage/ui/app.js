@@ -15,6 +15,7 @@ function h(tag, attrs = {}, ...kids) {
     else if (k === "style") node.style.cssText = v;
     else node.setAttribute(k, v === true ? "" : v);
   }
+  if (tag === "input" && node.type === "checkbox" && node.classList.contains("switch")) node.setAttribute("role", "switch");   // (a switch, for screen readers)
   for (const kid of kids.flat()) if (kid != null) node.append(kid);
   return node;
 }
@@ -258,6 +259,7 @@ const AUTO_NOTES = {
   lol: { icon: "spark", title: "League of Legends is on", text: "Your lights play along with the match and go back when you leave it." },
   dota: { icon: "spark", title: "Dota 2 is on", text: "Your lights play along with the match and go back when you leave it." },
   rl: { icon: "spark", title: "Rocket League is on", text: "Your lights play along with the match and go back when you leave it." },
+  racing: { icon: "spark", title: "A racing game is on", text: "Your lights are the rev lights while you race and go back when you leave the race." },
   game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
   video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
   music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
@@ -447,14 +449,14 @@ function showNew(where) {
   if (where === "show:colors") {         // the Light show page, at its Colors choice
     go("show");
     const pick = $("#show-colors-mine");
-    setTimeout(() => { pick.scrollIntoView({ block: "center", behavior: "smooth" }); pick.focus({ preventScroll: true });
+    setTimeout(() => { pick.scrollIntoView({ block: "center", behavior: smoothScroll() }); pick.focus({ preventScroll: true });
       pick.classList.add("btn-pulse"); setTimeout(() => pick.classList.remove("btn-pulse"), 1600); }, 200);   // (after the page is shown)
     return;
   }
   if (where === "search") return openSearch();
   if (where.startsWith("setup:")) {
     go("setup");
-    setTimeout(() => { const s = $("#set-" + where.slice(6)); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+    setTimeout(() => { const s = $("#set-" + where.slice(6)); if (s) s.scrollIntoView({ block: "start", behavior: smoothScroll() }); }, 60);
     return;
   }
   if (where.startsWith("presets:")) {     // the Presets page, at the button that does the new thing
@@ -468,7 +470,7 @@ function showNew(where) {
     switchTab("effects");
     setTimeout(() => {
       const card = document.querySelector(`#fx-grid [data-fx="${where.slice(7)}"]`);
-      if (card) { card.scrollIntoView({ block: "center", behavior: "smooth" }); card.focus({ preventScroll: true }); }
+      if (card) { card.scrollIntoView({ block: "center", behavior: smoothScroll() }); card.focus({ preventScroll: true }); }
     }, 120);
   }
 }
@@ -776,7 +778,8 @@ function renderHome() {
 }
 
 function makeTile(id) {
-  const tile = h("div", { class: "tile", "data-id": id, role: "button", tabindex: "0" });
+  // (a group of controls, not one big button around them: the name and the details are the button that opens the panel)
+  const tile = h("div", { class: "tile", "data-id": id, role: "group" });
   const power = h("button", { class: "tile-power", type: "button" }, icon("power"));
   const pair = h("button", { class: "tile-pair", type: "button", text: "Pair" });
   const slider = h("div", { class: "slider", role: "slider", tabindex: "0", "aria-valuemin": "0", "aria-valuemax": "100" },
@@ -784,15 +787,12 @@ function makeTile(id) {
   tile.append(
     h("div", { class: "tile-top" },
       h("span", { class: "tile-icon" }),
-      h("div", { class: "tile-text" }, h("span", { class: "tile-name" }), h("span", { class: "tile-meta" })),
+      h("button", { class: "tile-text tile-open", type: "button" }, h("span", { class: "tile-name" }), h("span", { class: "tile-meta" })),
       pair, power),
     slider);
   tile.addEventListener("click", e => {
     if (e.target.closest(".tile-power, .tile-pair")) return;
     selectStrip(id, e.ctrlKey || e.shiftKey || e.metaKey);
-  });
-  tile.addEventListener("keydown", e => {
-    if (e.target === tile && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectStrip(id, false); }
   });
   power.addEventListener("click", () => toggleStrip(id));
   pair.addEventListener("click", () => openPairDialog(byId(id)));
@@ -810,7 +810,10 @@ function updateTile(node, d) {
   const ic = typeIcon(d), box = $(".tile-icon", node);
   if (box.dataset.icon !== ic) { box.dataset.icon = ic; fill(box, icon(ic)); }
   $(".tile-name", node).textContent = d.name;
-  node.setAttribute("aria-label", `${d.name}, open color and effects`);
+  node.setAttribute("aria-label", d.name);
+  const open = $(".tile-open", node);
+  open.setAttribute("aria-label", `${d.name}, open color and effects`);
+  open.setAttribute("aria-pressed", String(!!S.selected && S.selected.includes(d.id)));
   const meta = stripMeta(d), metaEl = $(".tile-meta", node);
   metaEl.textContent = meta.text;
   metaEl.title = meta.text;
@@ -1076,22 +1079,24 @@ function presetDrag(card, p) {
 
 function presetCard(p) {
   const active = S.data && S.data.activePreset === p.name;
-  return presetDrag(h("button", {
-    class: "preset" + (active ? " is-active" : ""), type: "button", "aria-pressed": active ? "true" : "false",
-    title: `Apply ${p.name}` + (p.split ? " (one look for your PC, another for your room)" : ""),
-    onclick: () => applyPreset(p),
-  },
-    h("span", { class: "preset-art", style: `background:${presetArt(p)}` }),
-    active ? h("span", { class: "preset-on", text: "On" }) : null,
-    h("span", { class: "preset-name", text: p.name }),
-    isMusicPreset(p) ? h("span", { class: "preset-kind", title: "Moves to the music" }, icon("music")) : null,
-    p.lights ? h("span", { class: "preset-some" + (isMusicPreset(p) ? " with-kind" : ""), text: String(p.lights),
-      title: `Sets ${p.lights} of ${visible().length} lights` }) : null,
-    h("span", {
-      class: "preset-x", role: "button", tabindex: "0", "aria-label": `More for ${p.name}: rename, update, move, delete`,
+  // (two real buttons side by side, not one inside the other: the card applies it, the dots open its menu)
+  return presetDrag(h("div", { class: "preset" + (active ? " is-active" : "") },
+    h("button", {
+      class: "preset-main", type: "button", "aria-pressed": active ? "true" : "false",
+      "aria-label": p.name + (p.lights ? `, sets ${p.lights} of ${visible().length} lights` : "") + (isMusicPreset(p) ? ", moves to the music" : ""),
+      title: `Apply ${p.name}` + (p.split ? " (one look for your PC, another for your room)" : ""),
+      onclick: () => applyPreset(p),
+    },
+      h("span", { class: "preset-art", style: `background:${presetArt(p)}` }),
+      active ? h("span", { class: "preset-on", text: "On" }) : null,
+      h("span", { class: "preset-name", text: p.name }),
+      isMusicPreset(p) ? h("span", { class: "preset-kind", title: "Moves to the music" }, icon("music")) : null,
+      p.lights ? h("span", { class: "preset-some" + (isMusicPreset(p) ? " with-kind" : ""), text: String(p.lights),
+        title: `Sets ${p.lights} of ${visible().length} lights` }) : null),
+    h("button", {
+      class: "preset-x", type: "button", "aria-label": `More for ${p.name}: rename, update, move, delete`,
       title: "Rename, update, move or delete",
-      onclick: e => { e.stopPropagation(); openPresetMenu(p); },
-      onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openPresetMenu(p); } },
+      onclick: () => openPresetMenu(p),
     }, icon("more"))), p);
 }
 
@@ -1337,17 +1342,25 @@ function showPictureColors({ colors, name, thumb }, isWallpaper) {
 
 /* ============================== the panel ============================== */
 
+let sheetFrom = null;      // what had the focus before the panel opened: it gets it back
 function openSheet() {
+  const opening = !S.sheetOpen;
+  if (opening) sheetFrom = document.activeElement;
   S.sheetOpen = true;
   $("#sheet").hidden = false;
   render();
+  if (opening) $("#sheet-close").focus({ preventScroll: true });   // (the panel sits after the page: keys start in it)
 }
 function closeSheet() {
+  const was = S.sheetOpen, back = sheetFrom;
+  sheetFrom = null;
   S.sheetOpen = false;
   S.selected = null;
   S.targetName = "";
   $("#sheet").hidden = true;
   render();
+  const lost = document.activeElement === document.body || $("#sheet").contains(document.activeElement);
+  if (was && lost && back && back.isConnected && typeof back.focus === "function") back.focus({ preventScroll: true });
 }
 
 function renderTarget() {
@@ -1412,6 +1425,23 @@ function bindWheel() {
   wrap.addEventListener("pointermove", e => { if (wrap.hasPointerCapture(e.pointerId)) pick(e); });
   wrap.addEventListener("pointerup", done);
   wrap.addEventListener("pointercancel", done);
+  // The keyboard: left and right turn the hue, up and down change the saturation (Shift: small steps).
+  const KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown"];
+  wrap.addEventListener("keydown", e => {
+    if (!KEYS.includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    const p = primary();
+    const [hh, s] = rgbToHsv(hexToRgb(p && hexToRgb(p.state.color) ? p.state.color : "#ffffff"));
+    const big = e.shiftKey ? 1 : 5;
+    let nh = hh, ns = s;
+    if (e.key === "ArrowRight") nh += big / 360;
+    else if (e.key === "ArrowLeft") nh -= big / 360;
+    else if (e.key === "ArrowUp" || e.key === "PageUp") ns = clamp(s + big * (e.key === "PageUp" ? 4 : 1) / 100, 0, 1);
+    else ns = clamp(s - big * (e.key === "PageDown" ? 4 : 1) / 100, 0, 1);
+    handColor = rgbToHex(hsvToRgb(nh, ns, 1));
+    sendTargets({ mode: "color", on: true, color: handColor }, "color");
+  });
+  wrap.addEventListener("keyup", e => { if (KEYS.includes(e.key)) done(); });
 }
 
 /** A color set by hand goes to the front of the recent colors (kept by the app; once per pick, not per drag step). */
@@ -1484,6 +1514,9 @@ function renderColor() {
   const handle = $("#wheel-handle");
   handle.style.left = `${50 + Math.cos(hh * 2 * Math.PI) * s * 50}%`;
   handle.style.top = `${50 + Math.sin(hh * 2 * Math.PI) * s * 50}%`;
+  const wheel = $(".wheel-wrap"), deg = Math.round(hh * 360) % 360;
+  wheel.setAttribute("aria-valuenow", String(deg));
+  wheel.setAttribute("aria-valuetext", `${color.toUpperCase()}, hue ${deg} degrees, saturation ${Math.round(s * 100)} percent`);
   const hex = $("#hex");
   if (document.activeElement !== hex) hex.value = color.toUpperCase();
   const active = p && p.state.mode === "color" ? color.toLowerCase() : "";
@@ -2138,6 +2171,7 @@ function renderListen(audio) {
   const mic = !!audio.source;
   $("#show-listen-pc").setAttribute("aria-checked", String(!mic));
   $("#show-listen-mic").setAttribute("aria-checked", String(mic));
+  rovingRadios($("#show-listen-pc").parentElement);
   $("#show-listen-sub").textContent = mic
     ? "A microphone hears the room: for a record player, a party or a band."
     : "The sound this PC plays, as it always has. No microphone.";
@@ -2171,6 +2205,7 @@ function renderShowColors() {
   const list = showColors(), mine = list.length >= SHOW_COLORS_MIN;
   $("#show-colors-music").setAttribute("aria-checked", String(!mine));
   $("#show-colors-mine").setAttribute("aria-checked", String(mine));
+  rovingRadios($("#show-colors-music").parentElement);
   $("#show-colors-sub").textContent = mine
     ? "Every color of the show comes from yours; the moves stay the same. Dark and grey picks are brightened for LEDs."
     : "The music picks them: each style has its own, and they follow the chords.";
@@ -2250,6 +2285,7 @@ function renderSync(audio) {
    cards and the stage follow the lights a few times a second instead of smoothly. */
 const STILL = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
 
+const smoothScroll = () => STILL.matches ? "auto" : "smooth";   // (no gliding when animations are off)
 let fxFrame = 0;
 function animatePreviews(ts) {
   requestAnimationFrame(animatePreviews);
@@ -2358,14 +2394,17 @@ function closeModal() {
 
 /** Tab and Shift+Tab stay inside an open window (it covers the page). */
 function trapFocus(e) {
-  if (e.key !== "Tab" || $("#modal").hidden) return;
-  const all = [...$(".modal-card").querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")]
+  if (e.key !== "Tab" || QS.open) return;
+  // a window in front (the welcome tour is one too, until a window opens above it)
+  const card = !$("#modal").hidden ? $(".modal-card") : !$("#wizard").hidden ? $(".wizard-card") : null;
+  if (!card) return;
+  const all = [...card.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")]
     .filter(el => !el.disabled && !el.hidden && el.offsetParent !== null);
   if (!all.length) return;
   const first = all[0], last = all[all.length - 1];
-  if (e.shiftKey && (document.activeElement === first || !$(".modal-card").contains(document.activeElement))) {
+  if (e.shiftKey && (document.activeElement === first || !card.contains(document.activeElement))) {
     e.preventDefault(); last.focus();
-  } else if (!e.shiftKey && (document.activeElement === last || !$(".modal-card").contains(document.activeElement))) {
+  } else if (!e.shiftKey && (document.activeElement === last || !card.contains(document.activeElement))) {
     e.preventDefault(); first.focus();
   }
 }
@@ -2388,9 +2427,37 @@ const undoable = msg => { S.undoReady = true; toast(msg, false, { label: "Undo",
 
 /* ============================== wiring ============================== */
 
+/** One tab stop for a group of choices: the one that's picked (or the first). */
+function rovingRadios(group) {
+  const all = [...group.querySelectorAll('[role="radio"]')];
+  const on = all.find(b => b.getAttribute("aria-checked") === "true") || all[0];
+  for (const b of all) b.tabIndex = b === on ? 0 : -1;
+}
+
+/** Arrow keys in a row of tabs or a group of choices move to the next one and pick it (Home and End: first and last). */
+function bindRovingKeys() {
+  document.addEventListener("keydown", e => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const item = e.target.closest && e.target.closest('[role="tab"], [role="radio"]');
+    const group = item && item.closest('[role="tablist"], [role="radiogroup"]');
+    if (!group) return;
+    const all = [...group.querySelectorAll(`[role="${item.getAttribute("role")}"]`)].filter(x => !x.disabled && !x.hidden);
+    const at = all.indexOf(item);
+    const to = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (to == null || at < 0) return;
+    e.preventDefault();
+    const next = all[(to + all.length) % all.length];
+    next.focus();
+    next.click();
+  });
+}
+
 function switchTab(tab) {
   S.tab = tab;
-  for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+  for (const b of document.querySelectorAll(".tabs button")) {
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+    b.tabIndex = b.dataset.tab === tab ? 0 : -1;      // (one stop in the row; the arrow keys move between the tabs)
+  }
   for (const id of ["color", "effects", "native"]) $(`#tab-${id}`).hidden = id !== tab;
   render();
 }
@@ -2413,6 +2480,7 @@ function bindStatic() {
   bindSlider($("#sheet-slider"), "__sheet", v => sendTargets({ brightness: v }, "bri:sheet"));
 
   for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => switchTab(b.dataset.tab));
+  bindRovingKeys();
   $("#tab-native").addEventListener("input", e => { if (e.target.id === "native-search") renderNative(); });
 
   drawWheel();
@@ -2511,7 +2579,7 @@ function bindStatic() {
   $("#show-ai-get").addEventListener("click", () => {
     go("setup");
     const sec = $("#set-genre");
-    if (sec) { sec.scrollIntoView({ behavior: "smooth", block: "center" }); sec.classList.add("is-flash"); setTimeout(() => sec.classList.remove("is-flash"), 1600); }
+    if (sec) { sec.scrollIntoView({ behavior: smoothScroll(), block: "center" }); sec.classList.add("is-flash"); setTimeout(() => sec.classList.remove("is-flash"), 1600); }
   });
   bindSetup();
   bindSearch();
@@ -2530,6 +2598,7 @@ function bindStatic() {
     trapFocus(e);
     if (e.key !== "Escape") return;
     if (!$("#modal").hidden) closeModal();
+    else if (S.wiz && S.wiz.open) finishWizard();         // (the same as "Skip the tour")
     else if (S.arrange) { S.arrange = false; renderStage(); }
     else if (S.sheetOpen) closeSheet();
   });
@@ -2609,7 +2678,7 @@ async function switchMyGroup(name, on) {
 /** Setup, scrolled to one section (the sections that have no "set-" name). */
 function goToSection(id) {
   go("setup");
-  setTimeout(() => { const s = document.getElementById(id); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); }, 60);
+  setTimeout(() => { const s = document.getElementById(id); if (s) s.scrollIntoView({ block: "start", behavior: smoothScroll() }); }, 60);
 }
 
 /** Names that start with the letters first, then names with a word that does, then names that contain them. */

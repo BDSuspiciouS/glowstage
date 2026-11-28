@@ -6,6 +6,7 @@ itself" switch is the music one).
 - A League of Legends match, once its switch is on (games.py, lol.py): the same.
 - A Dota 2 match, once Dota 2 is connected (games.py): the same.
 - A Rocket League match, once Rocket League is connected (games.py, rocket_league.py): the same.
+- A race in Forza or an F1 game, once the racing games' switch is on (games.py, racing.py): the rev lights.
 - An app you chose is open (Setup → Automatic → Apps): its look, e.g. Focus while Photoshop is.
 - A game in full screen: the look chosen for games (Screen sync, or a preset such as Gaming).
 - A video in full screen, in a browser or a video player: the look chosen for videos.
@@ -15,7 +16,7 @@ itself" switch is the music one).
   sets one light red. It sits right after the call.
 
 A call wins over everything (it has to last a few seconds, and be over for a while before
-the lights go back, so a quick voice message doesn't flick them). Then a CS2, League, Dota 2 or Rocket League match, then your apps (the first in the list), then a full-screen
+the lights go back, so a quick voice message doesn't flick them). Then a CS2, League, Dota 2, Rocket League or racing game match, then your apps (the first in the list), then a full-screen
 game or video, then music. When you take over (change a light, pick a preset,
 switch off; from the window, the tray, a hotkey or a schedule) Glowstage keeps its hands off
 until whatever it reacted to is over.
@@ -55,7 +56,7 @@ from . import calls
 
 log = logging.getLogger(__name__)
 
-RULES = ("live", "call", "cs2", "lol", "dota", "rl", "game", "video", "music")   # first wins; your apps ("app:<exe>") come after the games
+RULES = ("live", "call", "cs2", "lol", "dota", "rl", "racing", "game", "video", "music")   # first wins; your apps ("app:<exe>") come after the games
 APP_LOOKS_MAX = 30
 PAUSE_CHOICES = (60, 180)    # minutes, as offered; or "tomorrow": until MORNING the next morning
 MORNING = 6                  # o'clock: when "until tomorrow" is over
@@ -72,6 +73,7 @@ CS2_ON, CS2_OFF = 1.0, 6.0   # seconds a CS2 match has to be on / off (CS2 sends
 DOTA_ON, DOTA_OFF = 1.0, 6.0   # the same for a Dota 2 match (it sends many times a second, and a heartbeat every 10 s)
 LOL_ON, LOL_OFF = 1.0, 6.0   # the same for a League of Legends match (the game is asked once a second, so a match shows within a moment)
 RL_ON, RL_OFF = 1.0, 6.0     # the same for a Rocket League match (it sends 30 times a second)
+RACING_ON, RACING_OFF = 1.0, 6.0   # the same for a race in a racing game (Forza says when you pause: a pause shouldn't flick the lights)
 CALL_ON, CALL_OFF = 5.0, 10.0   # seconds the camera or microphone has to be in use / free: a quick voice
                                 # message shouldn't flick the lights, a short pause in a call shouldn't end it
 LIVE_ON, LIVE_OFF = 1.0, 3.0   # seconds OBS has to be streaming or recording / not: the state comes from OBS itself, so a short settle does
@@ -366,6 +368,8 @@ class Automations:
         self._dota = False                  # ... once that settled
         self._rl_seen: tuple[bool, float] = (False, 0.0)   # in a Rocket League match, since
         self._rl = False                    # ... once that settled
+        self._racing_seen: tuple[bool, float] = (False, 0.0)   # in a race in a racing game, since
+        self._racing = False                # ... once that settled
         self._call_seen: tuple[bool, float] = (False, 0.0)   # camera or microphone in use, since
         self._call = False                  # ... once that settled
         self._live_seen: tuple[bool, float] = (False, 0.0)   # streaming or recording in OBS, since
@@ -390,7 +394,8 @@ class Automations:
                 "cs2": "game:cs2" if self.manager.games.settings.get("cs2") else "",
                 "lol": "game:lol" if self.manager.games.settings.get("lol") else "",
                 "dota": "game:dota" if self.manager.games.settings.get("dota") else "",
-                "rl": "game:rl" if self.manager.games.settings.get("rl") else "", **apps,
+                "rl": "game:rl" if self.manager.games.settings.get("rl") else "",
+                "racing": "game:racing" if (self.manager.games.settings.get("racing") or {}).get("on") else "", **apps,
                 "game": s.get("auto_game") or "", "call": s.get("auto_call") or "",
                 "video": s.get("auto_video") or "", "music": "show" if s.get("auto_show") else ""}
 
@@ -465,6 +470,7 @@ class Automations:
             lol = bool(rules["lol"]) and self.manager.games.lol_active(now)
             dota = bool(rules["dota"]) and self.manager.games.dota_active(now)
             rl = bool(rules["rl"]) and self.manager.games.rl_active(now)
+            racing = bool(rules["racing"]) and self.manager.games.racing_active(now)
             if rules["call"]:
                 if now - call_at >= CALL_POLL:
                     call_at = now
@@ -503,7 +509,7 @@ class Automations:
                 meter.close()
                 meter = None
             try:
-                self.step(now, rules, kind, peak, cs2, apps, on_call, lol, dota, rl, live)
+                self.step(now, rules, kind, peak, cs2, apps, on_call, lol, dota, rl, live, racing=racing)
             except Exception:
                 log.exception("Automatic look failed")
         if meter:
@@ -512,15 +518,15 @@ class Automations:
     # (separate from the thread, for tests)
     def step(self, now: float, rules: dict[str, str], kind: str | None, peak: float, cs2: bool = False,
              apps: set[str] | frozenset = frozenset(), call: bool = False, lol: bool = False, dota: bool = False, rl: bool = False,
-             live: bool = False) -> None:
+             live: bool = False, racing: bool = False) -> None:
         """One look at the PC: `rules` in order of priority (see rules()), `kind` what's full
         screen, `peak` the sound level, `cs2` in a CS2 match, `apps` the exes with a window open,
         `call` the camera or microphone is in use, `lol` in a League of Legends match, `dota` in a Dota 2 match,
-        `rl` in a Rocket League match, `live` OBS streams or records."""
+        `rl` in a Rocket League match, `live` OBS streams or records, `racing` in a race in a racing game."""
         m = self.manager
         if not any(rules.values()):     # all switched off: forget, leave the lights as they are
             self.active, self._saved, self._set, self._hands_off = None, None, None, False
-            self._music, self._checks, self._screen, self._cs2, self._lol, self._dota, self._rl, self._call = False, 0, None, False, False, False, False, False
+            self._music, self._checks, self._screen, self._cs2, self._lol, self._dota, self._rl, self._racing, self._call = False, 0, None, False, False, False, False, False, False
             self._call_seen = self._live_seen = (False, now)
             self._live = False
             self._app_seen, self._apps = {}, set()
@@ -546,6 +552,11 @@ class Automations:
         if now - self._rl_seen[1] >= (RL_ON if rl else RL_OFF):
             self._rl = rl
 
+        if racing != self._racing_seen[0]:
+            self._racing_seen = (racing, now)
+        if now - self._racing_seen[1] >= (RACING_ON if racing else RACING_OFF):
+            self._racing = racing
+
         if call != self._call_seen[0]:
             self._call_seen = (call, now)
         if now - self._call_seen[1] >= (CALL_ON if call else CALL_OFF):
@@ -570,7 +581,7 @@ class Automations:
                     (self._apps.add if is_open else self._apps.discard)(exe)
         self._listen(now, rules, peak)
 
-        holds = {"call": self._call, "live": self._live, "cs2": self._cs2, "lol": self._lol, "dota": self._dota, "rl": self._rl, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
+        holds = {"call": self._call, "live": self._live, "cs2": self._cs2, "lol": self._lol, "dota": self._dota, "rl": self._rl, "racing": self._racing, "game": self._screen == "game", "video": self._screen == "video", "music": self._music,
                  **{r: r[4:] in self._apps for r in rules if r.startswith("app:")}}
         want = next((r for r in rules if rules[r] and holds.get(r)), None)
         if want is not None and self.paused_until():
@@ -615,7 +626,7 @@ class Automations:
             self._music = False
         if self._music:
             return
-        busy = (self._call or self._live or self._cs2 or self._lol or self._dota or self._rl or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
+        busy = (self._call or self._live or self._cs2 or self._lol or self._dota or self._rl or self._racing or (self._screen is not None and rules.get(self._screen))   # a game or video goes first
                 or any(rules.get(f"app:{exe}") for exe in self._apps))                # so do your apps
         if self._sound_since is None or now - self._sound_since < SOUND_FIRST or busy or self._hands_off:
             self._checks = 0
@@ -643,6 +654,8 @@ class Automations:
             m.game_lights("game_dota")
         elif action == "game:rl":
             m.game_lights("game_rl")
+        elif action == "game:racing":
+            m.game_lights("game_racing")
         elif action == "game:cs2":
             m.game_lights("game_cs2")
         elif action in ("screen", "screen_sound"):

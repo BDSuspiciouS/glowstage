@@ -8,8 +8,6 @@ import logging
 import socket
 import threading
 
-from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
-
 from .registry import Driver, Found, drivers
 
 log = logging.getLogger(__name__)
@@ -17,30 +15,55 @@ log = logging.getLogger(__name__)
 SCAN_EVERY = 60.0
 
 
-class Discovery(ServiceListener):
+class Discovery:
     def __init__(self, on_found):
         self.on_found = on_found  # (Found) -> None
-        self._zc: Zeroconf | None = None
-        self._browsers: list[ServiceBrowser] = []
+        self._zc = None           # the zeroconf.Zeroconf, once the mDNS thread has made it
+        self._browsers: list = []
         self._by_service: dict[str, list[Driver]] = {}
         self._stop = threading.Event()
+        self._zc_lock = threading.Lock()
 
     def start(self) -> None:
         for d in drivers().values():
             for service in d.mdns:
                 self._by_service.setdefault(service, []).append(d)
+        # zeroconf is slow to import and to start, and the tray icon and the lights don't wait for
+        # it: it starts on its own thread.
+        threading.Thread(target=self._start_mdns, name="mdns", daemon=True).start()
+        threading.Thread(target=self._scan_loop, name="scan", daemon=True).start()
+
+    def _start_mdns(self) -> None:
         try:
-            self._zc = Zeroconf()
-            self._browsers = [ServiceBrowser(self._zc, t, self) for t in self._by_service]
+            from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+
+            discovery = self
+
+            class Listener(ServiceListener):     # (zeroconf wants its own base class; this one hands over)
+                def add_service(self, zc, type_, name):
+                    discovery.add_service(zc, type_, name)
+
+                def update_service(self, zc, type_, name):
+                    discovery.update_service(zc, type_, name)
+
+                def remove_service(self, zc, type_, name):
+                    discovery.remove_service(zc, type_, name)
+
+            with self._zc_lock:
+                if self._stop.is_set():
+                    return
+                self._zc = Zeroconf()
+                listener = Listener()
+                self._browsers = [ServiceBrowser(self._zc, t, listener) for t in self._by_service]
         except OSError as e:
             log.warning("mDNS discovery unavailable: %s", e)
-        threading.Thread(target=self._scan_loop, name="scan", daemon=True).start()
 
     def stop(self) -> None:
         self._stop.set()
-        if self._zc:
-            self._zc.close()
-            self._zc = None
+        with self._zc_lock:
+            zc, self._zc = self._zc, None
+        if zc:
+            zc.close()
 
     def scan_now(self) -> None:
         """Run every brand's broadcast scan once, right away (the setup wizard's "Search")."""
@@ -48,16 +71,16 @@ class Discovery(ServiceListener):
 
     # ---- mDNS ----------------------------------------------------------------------------
 
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+    def add_service(self, zc, type_: str, name: str) -> None:
         self._resolve(zc, type_, name)
 
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+    def update_service(self, zc, type_: str, name: str) -> None:
         self._resolve(zc, type_, name)
 
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+    def remove_service(self, zc, type_: str, name: str) -> None:
         pass
 
-    def _resolve(self, zc: Zeroconf, type_: str, name: str) -> None:
+    def _resolve(self, zc, type_: str, name: str) -> None:
         info = zc.get_service_info(type_, name, timeout=3000)
         if not info or not info.addresses:
             return

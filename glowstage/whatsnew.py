@@ -19,6 +19,14 @@ GOES = ("sleep", "focus", "search", "show:colors", "setup:automatic", "setup:pho
         "setup:games", "setup:lights", "setup:app", "presets:picture", "presets:turns")
 
 NOTES: dict[str, list[dict]] = {
+    "0.9.9": [
+        {"title": "Rev lights for racing games", "go": "setup:games",
+         "text": "Forza and F1 fill your room like a rev counter, and F1's five red start lights come on above your desk."},
+        {"title": "Your phone remote as an app", "go": "setup:phone",
+         "text": "Add the page to your phone's home screen: it gets the Glowstage icon and opens full screen."},
+        {"title": "Quicker, and easier with a keyboard", "go": "setup:app",
+         "text": "Glowstage starts faster and uses less memory, and the color wheel, the stage and every dialog work with the keys."},
+    ],
     "0.9.8": [
         {"title": "Snowfall, Holiday lights, Candy cane", "go": "effect:snow",
          "text": "Three looks for December, and Fireflies, Rain, Plasma and Sunset for any evening."},

@@ -617,7 +617,7 @@ class Connecting(unittest.TestCase):
 
     def test_the_describe_has_all_the_games(self):
         d = self.g.describe()
-        self.assertEqual(set(d), {"cs2", "lol", "dota", "rl"})
+        self.assertEqual(set(d), {"cs2", "lol", "dota", "rl", "racing"})
         self.assertEqual(set(d["dota"]), {"found", "connected", "fileThere", "receiving", "inMatch", "team", "health"})
 
     def test_describe_follows_the_match(self):
@@ -785,7 +785,7 @@ class Automatic(unittest.TestCase):
         self.m.games.lol_active = lambda now: False
         self.m.games.dota_active = lambda now: True
         self.a._stop = Stop(2)
-        with mock.patch.object(Automations, "step", lambda s, *args: seen.append(args)):
+        with mock.patch.object(Automations, "step", lambda s, *args, **kw: seen.append(args)):
             self.a._run()
         self.assertTrue(seen and all(args[8] is True for args in seen))   # (the ninth: now, rules, kind, peak, cs2, apps, call, lol, dota)
 

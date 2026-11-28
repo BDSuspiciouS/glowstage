@@ -11,6 +11,7 @@ networks.
 
 from __future__ import annotations
 
+import functools
 import hmac
 import json
 import logging
@@ -20,7 +21,7 @@ import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import effects
 from .paths import UI_DIR
@@ -33,6 +34,7 @@ PHOTO_PATH = "/api/picture"     # a photo from the phone (shrunk there first; pa
 PRESET_NAME = 40                # the longest preset name the phone can give
 LINK_STEP = 10                  # "brighter" and "darker" by link (the same step as the hotkeys)
 GROUPS = (("pc", "PC"), ("room", "Room"))
+ICON_SIZES = ("180", "192", "512")   # the home screen icon: iPhone, Android, and the large one
 MINE = "g:"                     # the key of one of your own groups on the phone: "g:" and its name
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
 
@@ -181,6 +183,11 @@ class Remote:
                     return self._send(200, remote.page(), "text/html; charset=utf-8")
                 if path == "/api/state":
                     return self._json(remote.state())
+                if path == "/manifest.webmanifest":
+                    return self._send(200, remote.manifest(), "application/manifest+json")
+                if path == "/icon.png":
+                    size = (parse_qs(urlparse(self.path).query).get("s") or [""])[0]
+                    return self._send(200, home_icon(int(size) if size in ICON_SIZES else 192), "image/png")
                 self._send(404, b"", "text/plain")
 
             def do_POST(self):
@@ -245,6 +252,17 @@ class Remote:
 
     def page(self) -> bytes:
         return PAGE.read_bytes()
+
+    def manifest(self) -> bytes:
+        """What a phone needs to put the page on its home screen as "Glowstage", with the app's
+        icon, opening full screen like an app. It carries the key like the link itself does: the
+        icon on the home screen opens the page with it."""
+        k = quote(self.settings.get("token") or "", safe="")
+        icons = [{"src": f"/icon.png?k={k}&s={s}", "sizes": f"{s}x{s}", "type": "image/png", "purpose": "any maskable"}
+                 for s in ("192", "512")]
+        return json.dumps({"name": "Glowstage", "short_name": "Glowstage", "start_url": f"/?k={k}", "scope": "/",
+                           "display": "standalone", "background_color": "#0f1013", "theme_color": "#0f1013",
+                           "icons": icons}).encode()
 
     def state(self) -> dict:
         m = self.manager
@@ -564,6 +582,22 @@ def _current(on: list) -> dict:
     solid = len(colors) == 1 and all(st.mode == "color" for st in on)
     moving = len(looks) == 1 and all(st.mode == "effect" for st in on)
     return {"color": next(iter(colors)) if solid else "", "effect": next(iter(looks)) if moving else ""}
+
+
+@functools.lru_cache(maxsize=None)
+def home_icon(size: int) -> bytes:
+    """The app's lamp icon on the page's dark background, with room around it (a phone may cut
+    the corners off, round or square), as a PNG."""
+    import io
+    from PIL import Image
+    from .icon import icon_image
+    out = Image.new("RGBA", (size, size), (15, 16, 19, 255))
+    lamp = icon_image(256).resize((round(size * 0.7),) * 2, Image.LANCZOS)
+    at = (size - lamp.width) // 2
+    out.alpha_composite(lamp, (at, at))
+    buf = io.BytesIO()
+    out.convert("RGB").save(buf, "PNG", optimize=True)
+    return buf.getvalue()
 
 
 def _group_of(device) -> str:

@@ -35,6 +35,7 @@ CLASS_MAP = MODEL_DIR / "yamnet_class_map.csv"
 SR = 16000
 INTERVAL = 2.0        # seconds between two looks at the music
 WINDOW = 2.0          # seconds of sound per look (3 overlapping YAMNet patches)
+RELEASE_AFTER = 60.0  # seconds without the light show asking, then the model is let go of (memory)
 
 # Light-show style -> the AudioSet genres that point to it, with how much each one counts.
 # "Electronic music" and "Dance music" are very broad, so they count for less.
@@ -170,10 +171,10 @@ class GenreDetector:
 
     def request(self) -> dict:
         self._wanted_until = time.monotonic() + 3.0
-        if self._thread is None and not self.error:
-            self._thread = threading.Thread(target=self._run, name="genre", daemon=True)
-            self._thread.start()
         with self._lock:
+            if self._thread is None and not self.error:
+                self._thread = threading.Thread(target=self._run, name="genre", daemon=True)
+                self._thread.start()
             return dict(self._snap)
 
     def _settle(self, best: int, styles: np.ndarray) -> None:
@@ -207,8 +208,22 @@ class GenreDetector:
             if self._reload:
                 self._swap()
             if time.monotonic() > self._wanted_until:
+                if time.monotonic() > self._wanted_until + RELEASE_AFTER and self._release():
+                    return
                 continue
             self.look(self.audio.recent(self._model.window))
+
+    def _release(self) -> bool:
+        """The light show has been off for a while: let go of the model (tens of MB) and end the
+        thread. The next request() starts it again and loads the model afresh."""
+        with self._lock:
+            if time.monotonic() <= self._wanted_until + RELEASE_AFTER:     # (asked again just now)
+                return False
+            self._model, self._thread = None, None
+            self._ema, self._looks, self._style, self._challenger = None, 0, None, (-1, 0)
+            self._snap = {}
+        log.info("AI genre detection idle: model released")
+        return True
 
     def _swap(self) -> None:
         """Another model: its labels differ, so what was heard so far starts over."""

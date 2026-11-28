@@ -40,7 +40,7 @@
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
     update: /[?&]update\b/.test(location.search)
-      ? { version: "0.9.9", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.9" } : null,
+      ? { version: "0.9.10", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.10" } : null,
     askSupport: /[?&]support\b/.test(location.search),
     offlineAge: OFFLINE ? 120 : 0,   // with ?offline the lights count as already gone for two minutes
     activePreset: "",
@@ -89,7 +89,7 @@
       "openrgb:QCK": { start: 0.91, end: 1, layer: "front", custom: false },
       "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
     },
-    about: { name: "Glowstage", version: "0.9.8", repo: "https://github.com/example/glowstage",
+    about: { name: "Glowstage", version: "0.9.9", repo: "https://github.com/example/glowstage",
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
@@ -134,16 +134,16 @@
     autoPaused: /[?&]paused/.test(location.search) ? Date.now() / 1000 + 50 * 60 : 0,
     night: { on: /[?&]night/.test(location.search), from: "23:00", to: "07:00", max: 30, choices: [5, 10, 15, 20, 30, 40, 50, 60, 75],
       active: /[?&]night/.test(location.search), until: (() => { const d = new Date(); d.setDate(d.getDate() + (d.getHours() >= 7 ? 1 : 0)); d.setHours(7, 0, 0, 0); return d.getTime() / 1000; })() },
-    auto: (location.search.match(/[?&]auto=(cs2|lol|dota|rl|call|live|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
+    auto: (location.search.match(/[?&]auto=(cs2|lol|dota|rl|racing|call|live|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
-    whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
+    whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.9", since: "0.9.7", items: [
+      { title: "Rev lights for racing games", go: "setup:games", text: "Forza and F1 fill your room like a rev counter, and F1's five red start lights come on above your desk." },
+      { title: "Your phone remote as an app", go: "setup:phone", text: "Add the page to your phone's home screen: it gets the Glowstage icon and opens full screen." },
+      { title: "Quicker, and easier with a keyboard", go: "setup:app", text: "Glowstage starts faster and uses less memory, and the color wheel, the stage and every dialog work with the keys." },
       { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Fireflies, Rain, Plasma and Sunset for any evening." },
       { title: "Your own groups", go: "setup:lights", text: "Desk, Bed, Living room: each with its own switch, brightness and colors, on Home and your phone." },
       { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors." },
-      { title: "The light show in your colors", go: "show:colors", text: "Pick 2 to 5 colors and the show keeps all of its moves. It can listen to a microphone too, if you like." },
-      { title: "League of Legends, Dota 2, Rocket League", go: "setup:games", text: "Your side's color, your health or boost across the lights, a flash for every kill or goal." },
-      { title: "On air with OBS", go: "setup:automatic", text: "While you stream or record, your lights take a preset: one light red like an ON AIR sign." },
-      { title: "A night limit, and softer flashes", go: "setup:schedule", text: "Keep every light dim at night, whatever switches it on, or turn every flash into a soft swell." }] } : null,
+      { title: "The light show in your colors", go: "show:colors", text: "Pick 2 to 5 colors and the show keeps all of its moves. It can listen to a microphone too, if you like." }] } : null,
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
       api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
@@ -164,7 +164,9 @@
       dota: { found: true, connected: /[?&]dota\b/.test(location.search), fileThere: true, receiving: /[?&]dota\b/.test(location.search),
         inMatch: /[?&]dota\b/.test(location.search), team: "radiant", health: 64 },
       rl: { found: true, connected: /[?&]rl\b/.test(location.search), fileThere: true, receiving: /[?&]rl\b/.test(location.search),
-        inMatch: /[?&]rl\b/.test(location.search), team: "orange", boost: 64 } },
+        inMatch: /[?&]rl\b/.test(location.search), team: "orange", boost: 64 },
+      racing: { on: /[?&]racing\b/.test(location.search), forzaPort: 5300, f1Port: 20777, receiving: /[?&]racing\b/.test(location.search),
+        inRace: /[?&]racing\b/.test(location.search), game: "Forza", problem: "" } },
     settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, glide: "smooth", show_colors: /[?&]mycolors/.test(location.search) ? ["#ff3ca0", "#00d9ff", "#ffd000"] : [], soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), show_input: micAsked === "usb" ? "mic-usb" : micAsked, auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "", auto_live: /[?&](auto=live|obs)/.test(location.search) ? "preset:Focus" : "",
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
@@ -381,7 +383,7 @@
       data.presets.splice(i + 1, 0, { ...data.presets[i], name: n }); data.revision++; return ok(n); },
     nudge_brightness: delta => { for (const d of data.devices) if (d.state.on) d.state.brightness = Math.max(1, Math.min(100, d.state.brightness + delta));
       data.revision++; return ok(); },
-    diagnostics: () => ok("Glowstage 0.9.8 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off (16 keys set), schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
+    diagnostics: () => ok("Glowstage 0.9.9 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off (16 keys set), schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
     report_problem: () => ok(),
     list_backups: () => ok(/[?&]nobackups\b/.test(location.search) ? [] : [
       { file: "config-2026-11-27-141203-before.json", saved: "2026-11-27T14:09", before: true, ok: true, presets: 39, lights: 13 },
@@ -426,6 +428,12 @@
       data.obs.hasPassword = true; obsFake(); data.revision++; return ok(); },
     obs_clear_password: () => { data.obs.hasPassword = false; obsFake(); data.revision++; return ok(); },
     games_connect: () => { Object.assign(data.games.cs2, { connected: true }); data.revision++; return ok(); },
+    games_racing: (on, forza, f1) => { forza = Number(forza); f1 = Number(f1);
+      if (!(forza >= 1024 && forza <= 65535 && f1 >= 1024 && f1 <= 65535)) return Promise.resolve({ ok: false, error: "A port is a number from 1024 to 65535" });
+      if (forza === f1) return Promise.resolve({ ok: false, error: "Forza and F1 need two different ports" });
+      const here = /[?&]racing\b/.test(location.search);
+      Object.assign(data.games.racing, { on: !!on, forzaPort: forza, f1Port: f1, receiving: !!on && here, inRace: !!on && here });
+      data.revision++; return ok(); },
     games_lol: on => { Object.assign(data.games.lol, { on: !!on, receiving: !!on && /[?&]lol\b/.test(location.search), inMatch: !!on && /[?&]lol\b/.test(location.search) }); data.revision++; return ok(); },
     games_dota_connect: () => { Object.assign(data.games.dota, { connected: true }); data.revision++; return ok(); },
     games_dota_disconnect: () => { Object.assign(data.games.dota, { connected: false, receiving: false, inMatch: false }); data.revision++; return ok(); },

@@ -44,12 +44,21 @@ def _context() -> ssl.SSLContext:
     return ctx
 
 
-_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=_context()))
+_opener = None
+
+
+def _get_opener():
+    """Made at the first look for a match, not at startup: loading the certificates takes a while."""
+    global _opener
+    if _opener is None:
+        _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+                                              urllib.request.HTTPSHandler(context=_context()))
+    return _opener
 
 
 def fetch_live(timeout: float = 1.0) -> dict:
     """The match as the game tells it now. Raises (refused, 404, timeout) while there is none."""
-    with _OPENER.open(URL, timeout=timeout) as r:
+    with _get_opener().open(URL, timeout=timeout) as r:
         return json.loads(r.read(8_000_000))
 
 

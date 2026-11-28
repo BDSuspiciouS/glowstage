@@ -93,7 +93,8 @@ DEFAULTS = {
     "schedules": [],      # [{"time": "23:00" | "sunrise" | "sunset", "offset": minutes (-180..180, sun times only),
                           #   "days": [0..6] (Monday = 0), "action": "off" | "on" | "show" | "preset:<name>", "enabled": true}]
     "games": {"cs2": False, "lol": False, "dota": False, "rl": False, "port": 0, "token": "",   # game lighting (games.py): CS2, Dota 2 and Rocket League connected, League switched on, where CS2 and Dota send to
-              "rl_port": 49123, "rl_original": None},   # Rocket League's Stats API: the port its ini names, and what PacketSendRate and Port held before we switched it on (put back when disconnecting)
+              "rl_port": 49123, "rl_original": None,
+              "racing": {"on": False, "forza_port": 5300, "f1_port": 20777}},   # racing games (racing.py): the switch and the two UDP ports the games send to. Rocket League's Stats API: the port its ini names, and what PacketSendRate and Port held before we switched it on (put back when disconnecting)
     "remote": {"on": False, "port": 0, "token": ""},   # the phone remote (remote.py)
     "obs": {"on": False, "port": 4455, "password": "", "when": "both"},   # OBS Studio (obs.py): "when" is stream, record or both; the password is kept protected by Windows, never as text
     "app_looks": [],      # [{"exe": "photoshop.exe", "name": "Adobe Photoshop", "action": "preset:Focus"}]: while open

@@ -123,6 +123,8 @@ class EffectEngine:
             ctx["dota"] = self.manager.games.dota.snapshot(now)
         if any(st.effect == "game_rl" for _, st in targets):
             ctx["rl"] = self.manager.games.rl.snapshot(now)
+        if any(st.effect == "game_racing" for _, st in targets):
+            ctx["racing"] = self.manager.games.racing.snapshot(now)
         if any(st.effect == "typing" for _, st in targets):
             ctx["keys"] = self.keys.recent(now)
         if any(st.effect == "pc_load" for _, st in targets):

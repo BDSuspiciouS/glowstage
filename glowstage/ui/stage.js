@@ -374,10 +374,20 @@ function renderInspector() {
   $("#arrange").setAttribute("aria-pressed", String(!!S.arrange));
   $("#arrange span").textContent = S.arrange ? "Done" : "Arrange";
   $("#stage-reset").hidden = !S.arrange;
-  $("#plot-hint").textContent = S.arrange
+  const hint = $("#plot-hint"), hintText = S.arrange
     ? "Drag each light to where it is, as seen from your chair"
     : "Click a light to edit it · Ctrl+click for several";
+  if (hint.textContent !== hintText) hint.textContent = hintText;     // (a live line: only a real change is read out)
   box.hidden = !S.arrange;
+  // The canvas is a picture until Arrange starts; then it takes the keys (and Tab stops there).
+  const cv = ST.canvas;
+  if (cv) {
+    cv.tabIndex = S.arrange ? 0 : -1;
+    cv.setAttribute("role", S.arrange ? "application" : "img");
+    cv.setAttribute("aria-label", S.arrange
+      ? "Stage editor. Up and Down pick a light, Left and Right move it, Shift for small steps."
+      : "Your lights on the stage, as seen from your chair");
+  }
   if (!S.arrange) return;
   const d = ST.focus && byId(ST.focus);
   const sig = d ? JSON.stringify([d.id, d.name, stageOf(d)]) : "none";
@@ -385,7 +395,7 @@ function renderInspector() {
   box.dataset.sig = sig;
   if (!d) {
     fill(box, h("span", { class: "hint",
-      text: "Click a light to pick it, drag it sideways to move it, drag its ends to make it wider or narrower. Lights on the back wall glow together as one wash behind you." }));
+      text: "Click a light to pick it, drag it sideways to move it, drag its ends to make it wider or narrower. Lights on the back wall glow together as one wash behind you. With the keyboard: Tab to the stage, Up and Down pick a light, Left and Right move it." }));
     return;
   }
   const s = stageOf(d), type = fixtureType(d), back = s.layer === "back";
@@ -400,6 +410,22 @@ function renderInspector() {
       onclick: () => put(back ? [0.3, 0.7, "front"] : [0, 1, "back"]) }),
     s.custom ? h("button", { class: "btn btn-quiet", type: "button", text: "Auto place", title: "Put it where Glowstage would",
       onclick: () => put(null) }) : null);
+}
+
+/** Where a light stands, in words: the stage drawing has no text of its own for a screen reader. */
+function stageWords(d) {
+  if (!d) return "";
+  const s = stageOf(d);
+  if (s.layer === "back") return `${d.name}, on the back wall`;
+  const a = Math.round(Math.min(s.start, s.end) * 100), b = Math.round(Math.max(s.start, s.end) * 100);
+  return `${d.name}, in front of you, from ${a} to ${b} percent across, left to right`;
+}
+
+/** Says something to screen readers (the stage's own live line; nothing shows). */
+function stageSay(text) {
+  const live = $("#stage-live");
+  live.textContent = "";
+  setTimeout(() => { live.textContent = text; }, 40);     // (a changed text is read again, even when it's the same words)
 }
 
 async function setStage(id, span) {
@@ -427,7 +453,7 @@ const toStage = x => clamp((x - ST.bands.padX) / ST.bands.usable, 0, 1);
 function bindStage() {
   ST.canvas = $("#plot-canvas");
   ST.ctx = ST.canvas.getContext("2d");
-  ST.canvas.tabIndex = 0;
+  ST.canvas.tabIndex = -1;       // (renderInspector makes it a Tab stop while Arrange is on)
   const floor = $("#plot-floor");
   const fit = () => {
     const r = floor.getBoundingClientRect();
@@ -501,17 +527,32 @@ function bindStage() {
   };
   ST.canvas.addEventListener("pointerup", end);
   ST.canvas.addEventListener("pointercancel", end);
-  ST.canvas.addEventListener("keydown", e => {
-    if (!S.arrange || !ST.focus) return;
-    const d = byId(ST.focus);
-    if (!d) return;
-    const s = stageOf(d), step = e.shiftKey ? 0.01 : 0.03;
+  // The keyboard (Arrange mode): Up and Down pick a light, Left and Right move it along the stage.
+  ST.canvas.addEventListener("keydown", async e => {
+    if (!S.arrange || e.altKey || e.ctrlKey || e.metaKey) return;
+    const pick = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+    if (pick || e.key === "Home" || e.key === "End") {
+      const ids = [...new Set(ST.fixtures.slice().sort((p, q) => p.x0 - q.x0).map(f => f.d.id))];
+      if (!ids.length) return;
+      e.preventDefault();
+      const at = ids.indexOf(ST.focus);
+      ST.focus = e.key === "Home" ? ids[0] : e.key === "End" ? ids[ids.length - 1]
+        : ids[at < 0 ? (pick > 0 ? 0 : ids.length - 1) : (at + pick + ids.length) % ids.length];
+      ST.lastDraw = 0;
+      renderInspector();
+      stageSay(stageWords(byId(ST.focus)));
+      return;
+    }
+    const d = ST.focus && byId(ST.focus);
     const dir = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
-    if (!dir || s.layer === "back") return;
+    if (!d || !dir) return;
     e.preventDefault();
+    const s = stageOf(d), step = e.shiftKey ? 0.01 : 0.03;
+    if (s.layer === "back") { stageSay(`${d.name} is on the back wall and glows as one wash. Use Move to the front to place it.`); return; }
     const a = Math.min(s.start, s.end), b = Math.max(s.start, s.end), w = b - a;
     const na = clamp(a + dir * step, 0, 1 - w), nb = na + w;
-    setStage(d.id, s.start > s.end ? [nb, na, s.layer] : [na, nb, s.layer]);
+    await setStage(d.id, s.start > s.end ? [nb, na, s.layer] : [na, nb, s.layer]);
+    stageSay(stageWords(d));
   });
 
   $("#arrange").addEventListener("click", () => {

@@ -14,6 +14,6 @@ function Shot($url, $file, $w, $h) {
 }
 Shot ("file:///" + (Join-Path $PSScriptRoot "banner.html").Replace('\', '/')) "banner.png" 1280 400
 Shot "http://localhost:$Port/?page=show" "light-show.png" 1360 860
-Shot "http://localhost:$Port/?page=home" "home.png" 1360 860
+Shot "http://localhost:$Port/?page=home&groups" "home.png" 1360 860
 Shot "http://localhost:$Port/?page=presets" "presets.png" 1360 860
 Get-ChildItem $out -Filter *.png | ForEach-Object { "{0} {1:N0} KB" -f $_.Name, ($_.Length / 1KB) }

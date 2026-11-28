@@ -42,14 +42,14 @@
       <span class="brand-name">Glowstage</span>
     </div>
     <div class="nav">
-      <button class="nav-item" data-page="home" data-tip="Home" type="button"><svg><use href="#i-home"/></svg><span>Home</span></button>
-      <button class="nav-item" data-page="presets" data-tip="Presets" type="button"><svg><use href="#i-presets"/></svg><span>Presets</span></button>
-      <button class="nav-item" data-page="show" data-tip="Light show" type="button"><svg><use href="#i-show"/></svg><span>Light show</span><i id="nav-live" class="live-dot" hidden></i></button>
-      <button class="nav-item" data-page="setup" data-tip="Setup" type="button"><svg><use href="#i-setup"/></svg><span>Setup</span><i id="nav-badge" class="nav-badge" hidden></i></button>
-      <button id="search-open" class="nav-item" data-tip="Search (Ctrl+K)" type="button"><svg><use href="#i-search"/></svg><span>Search</span></button>
+      <button class="nav-item" data-page="home" data-tip="Home" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-home"/></svg><span>Home</span></button>
+      <button class="nav-item" data-page="presets" data-tip="Presets" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-presets"/></svg><span>Presets</span></button>
+      <button class="nav-item" data-page="show" data-tip="Light show" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-show"/></svg><span>Light show</span><i id="nav-live" class="live-dot" hidden></i></button>
+      <button class="nav-item" data-page="setup" data-tip="Setup" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-setup"/></svg><span>Setup</span><i id="nav-badge" class="nav-badge" hidden></i></button>
+      <button id="search-open" class="nav-item" data-tip="Search (Ctrl+K)" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-search"/></svg><span>Search</span></button>
     </div>
     <div class="side-foot">
-      <button id="support" class="nav-item nav-support" data-tip="Support Glowstage" type="button" hidden><svg><use href="#i-heart"/></svg><span>Support Glowstage</span></button>
+      <button id="support" class="nav-item nav-support" data-tip="Support Glowstage" type="button" hidden><svg aria-hidden="true" focusable="false"><use href="#i-heart"/></svg><span>Support Glowstage</span></button>
       <span id="version" class="side-version"></span>
     </div>
   </nav>
@@ -63,10 +63,10 @@
           <p id="home-sub" class="page-sub"></p>
         </div>
         <div class="head-actions">
-          <button id="all-color" class="btn" type="button"><svg><use href="#i-palette"/></svg>Color &amp; effects</button>
-          <button id="focus-timer" class="btn" type="button" title="Work and break rounds: your lights show the break"><svg><use href="#i-timer"/></svg>Focus timer</button>
-          <button id="sleep-timer" class="btn" type="button" title="Fade out and switch off after a while"><svg><use href="#i-moon"/></svg>Sleep timer</button>
-          <button id="all-power" class="btn btn-power" type="button"><svg><use href="#i-power"/></svg><span>All off</span></button>
+          <button id="all-color" class="btn" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-palette"/></svg>Color &amp; effects</button>
+          <button id="focus-timer" class="btn" type="button" title="Work and break rounds: your lights show the break"><svg aria-hidden="true" focusable="false"><use href="#i-timer"/></svg>Focus timer</button>
+          <button id="sleep-timer" class="btn" type="button" title="Fade out and switch off after a while"><svg aria-hidden="true" focusable="false"><use href="#i-moon"/></svg>Sleep timer</button>
+          <button id="all-power" class="btn btn-power" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-power"/></svg><span>All off</span></button>
         </div>
       </header>
 
@@ -84,7 +84,7 @@
 
       <div class="section-head">
         <h2>Presets</h2>
-        <button id="see-presets" class="link" type="button">All presets<svg><use href="#i-chevron"/></svg></button>
+        <button id="see-presets" class="link" type="button">All presets<svg aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></button>
       </div>
       <div id="quick-presets" class="preset-grid preset-grid-quick"></div>
 
@@ -104,9 +104,9 @@
           <p class="page-sub">One click sets every light. Presets also show up in the tray menu. Drag one to change the order.</p>
         </div>
         <div class="head-actions">
-          <button id="take-turns" class="btn" type="button" title="Switch between a few presets by itself, every few minutes"><svg><use href="#i-presets"/></svg>Take turns</button>
-          <button id="from-picture" class="btn" type="button" title="Your lights take the main colors of a photo, left to right as they stand"><svg><use href="#i-palette"/></svg>From a picture</button>
-          <button id="save-preset" class="btn" type="button"><svg><use href="#i-plus"/></svg>Save current as preset</button>
+          <button id="take-turns" class="btn" type="button" title="Switch between a few presets by itself, every few minutes"><svg aria-hidden="true" focusable="false"><use href="#i-presets"/></svg>Take turns</button>
+          <button id="from-picture" class="btn" type="button" title="Your lights take the main colors of a photo, left to right as they stand"><svg aria-hidden="true" focusable="false"><use href="#i-palette"/></svg>From a picture</button>
+          <button id="save-preset" class="btn" type="button"><svg aria-hidden="true" focusable="false"><use href="#i-plus"/></svg>Save current as preset</button>
         </div>
       </header>
       <div id="preset-list"></div>
@@ -127,13 +127,13 @@
 
       <div class="stage card">
         <div class="stage-bar">
-          <span id="plot-hint" class="stage-hint"></span>
+          <span id="plot-hint" class="stage-hint" aria-live="polite"></span>
           <span class="spacer"></span>
           <button id="stage-reset" class="btn btn-quiet btn-sm" type="button" hidden>Reset layout</button>
-          <button id="arrange" class="btn btn-sm" type="button" aria-pressed="false"><svg><use href="#i-move"/></svg><span>Arrange</span></button>
+          <button id="arrange" class="btn btn-sm" type="button" aria-pressed="false"><svg aria-hidden="true" focusable="false"><use href="#i-move"/></svg><span>Arrange</span></button>
         </div>
         <div id="plot-floor" class="plot-floor">
-          <canvas id="plot-canvas" aria-label="Your lights on the stage, as seen from your chair"></canvas>
+          <canvas id="plot-canvas" role="img" aria-label="Your lights on the stage, as seen from your chair"></canvas>
           <div id="plot-empty" class="empty-state plot-empty" hidden>
             <p class="empty-title">No lights yet</p>
             <p>Glowstage looks for lights on your network and in your PC all the time.</p>
@@ -141,6 +141,7 @@
           </div>
         </div>
         <div id="inspector" class="inspector" hidden></div>
+        <div id="stage-live" class="sr-only" role="status"></div>
         <div id="plot-hud" class="readout" hidden></div>
       </div>
 
@@ -159,11 +160,11 @@
         <div class="card control control-switches">
           <label class="switch-row">
             <span class="control-text"><span class="control-title">Strobe</span><span class="muted">On the big moments</span></span>
-            <input type="checkbox" id="show-strobe" class="switch">
+            <input type="checkbox" id="show-strobe" class="switch" role="switch">
           </label>
           <label class="switch-row" title="Starts the show when music with a beat plays, and puts your lights back after 30 seconds of quiet">
             <span class="control-text"><span class="control-title">Start by itself</span><span class="muted">When music plays</span></span>
-            <input type="checkbox" id="show-auto" class="switch">
+            <input type="checkbox" id="show-auto" class="switch" role="switch">
           </label>
         </div>
         <div class="card control control-listen">
@@ -225,21 +226,21 @@
           <span id="target-meta" class="muted"></span>
         </div>
       </div>
-      <button id="sheet-close" class="icon-btn" type="button" aria-label="Close"><svg><use href="#i-x"/></svg></button>
+      <button id="sheet-close" class="icon-btn" type="button" aria-label="Close"><svg aria-hidden="true" focusable="false"><use href="#i-x"/></svg></button>
     </header>
     <div class="sheet-controls">
       <div id="sheet-slider" class="slider" role="slider" tabindex="0" aria-label="Brightness" aria-valuemin="0" aria-valuemax="100"><div class="slider-fill"></div></div>
-      <button id="sheet-power" class="icon-btn icon-btn-power" type="button" aria-label="On or off"><svg><use href="#i-power"/></svg></button>
+      <button id="sheet-power" class="icon-btn icon-btn-power" type="button" aria-label="On or off"><svg aria-hidden="true" focusable="false"><use href="#i-power"/></svg></button>
     </div>
     <div class="tabs" role="tablist" aria-label="What the lights do">
-      <button role="tab" type="button" data-tab="color" aria-selected="true">Color</button>
-      <button role="tab" type="button" data-tab="effects" aria-selected="false">Effects</button>
-      <button role="tab" type="button" data-tab="native" aria-selected="false">Built-in</button>
+      <button role="tab" type="button" id="tabbtn-color" data-tab="color" aria-controls="tab-color" aria-selected="true">Color</button>
+      <button role="tab" type="button" id="tabbtn-effects" data-tab="effects" aria-controls="tab-effects" aria-selected="false" tabindex="-1">Effects</button>
+      <button role="tab" type="button" id="tabbtn-native" data-tab="native" aria-controls="tab-native" aria-selected="false" tabindex="-1">Built-in</button>
     </div>
 
-    <section id="tab-color" class="tab-panel" role="tabpanel">
-      <div class="wheel-wrap">
-        <canvas id="wheel" width="560" height="560" aria-label="Color wheel"></canvas>
+    <section id="tab-color" class="tab-panel" role="tabpanel" aria-labelledby="tabbtn-color">
+      <div class="wheel-wrap" role="slider" tabindex="0" aria-roledescription="color wheel" aria-label="Color: hue and saturation" aria-valuemin="0" aria-valuemax="359" aria-valuenow="0" title="Arrow keys: left and right change the hue, up and down the saturation (Shift for small steps)">
+        <canvas id="wheel" width="560" height="560" aria-hidden="true"></canvas>
         <div id="wheel-handle" class="wheel-handle" aria-hidden="true"></div>
       </div>
       <div id="swatches" class="swatches"></div>
@@ -256,11 +257,11 @@
       <div class="field-row">
         <span class="field-label">Hex</span>
         <input id="hex" class="text-input hex-input num" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Color code, like #ff8800">
-        <button id="eyedropper" class="btn pipette-btn" type="button" title="Pick a color from anywhere on your screen" hidden><svg><use href="#i-pipette"/></svg>Pick from screen</button>
+        <button id="eyedropper" class="btn pipette-btn" type="button" title="Pick a color from anywhere on your screen" hidden><svg aria-hidden="true" focusable="false"><use href="#i-pipette"/></svg>Pick from screen</button>
       </div>
     </section>
 
-    <section id="tab-effects" class="tab-panel" role="tabpanel" hidden>
+    <section id="tab-effects" class="tab-panel" role="tabpanel" aria-labelledby="tabbtn-effects" hidden>
       <div class="field-row">
         <span class="field-label">Speed</span>
         <input type="range" id="fx-speed" min="1" max="100" aria-label="Speed">
@@ -276,7 +277,7 @@
       <label id="fx-flow" class="field-row fx-flow" hidden>
         <span class="field-label">Flow</span>
         <span class="fx-flow-text">From light to light, along the stage</span>
-        <input type="checkbox" id="fx-flow-on" class="switch" aria-label="Flow from light to light">
+        <input type="checkbox" id="fx-flow-on" class="switch" role="switch" aria-label="Flow from light to light">
       </label>
       <p id="fx-note" class="hint fx-note"></p>
       <div id="fx-screen" hidden>
@@ -289,13 +290,13 @@
       <div id="fx-grid" class="fx-grid"></div>
     </section>
 
-    <section id="tab-native" class="tab-panel" role="tabpanel" hidden>
+    <section id="tab-native" class="tab-panel" role="tabpanel" aria-labelledby="tabbtn-native" hidden>
       <div id="native-empty" class="empty-state">
         <p class="empty-title">Pick one strip or panel set</p>
         <p>Built-in effects run on the light itself. Open a single WLED strip or Nanoleaf panel set.</p>
       </div>
       <div id="native-body" class="native-layout" hidden>
-        <input id="native-search" class="text-input search" type="search" placeholder="Search effects" autocomplete="off">
+        <input id="native-search" class="text-input search" type="search" placeholder="Search effects" aria-label="Search effects" autocomplete="off">
         <div class="native-tools">
           <label id="native-speed-wrap" class="field-row"><span class="field-label">Speed</span>
             <input type="range" id="native-speed" min="1" max="100"></label>
@@ -324,7 +325,7 @@
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <h2 id="modal-title"></h2>
       <div id="modal-body"></div>
-      <p id="modal-error" class="modal-error" hidden></p>
+      <p id="modal-error" class="modal-error" role="alert" hidden></p>
       <div class="modal-actions">
         <button id="modal-cancel" class="btn" type="button">Cancel</button>
         <button id="modal-ok" class="btn btn-primary" type="button"></button>

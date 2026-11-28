@@ -1,6 +1,14 @@
-Glowstage 0.9.8: your own groups of lights, snow and holiday lights and eight more looks, the light show in your own colors, League of Legends, Dota 2 and Rocket League, an ON AIR light for OBS, a focus timer, a night limit, colors from a photo or your wallpaper, your own hotkeys, and much more.
+Glowstage 0.9.9: rev lights for Forza and F1 in your room, your phone remote as an app on your home screen, a faster start, and a window that works well with a keyboard and a screen reader.
 
-**Install:** download `Glowstage-0.9.8-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
+**Install:** download `Glowstage-0.9.9-windows.zip`, unzip it anywhere and run `Glowstage.exe`. It adds itself to the Start menu. Windows may say the publisher is unknown: choose *More info → Run anyway*. **Updating?** From 0.9.4, click *Update now* on Home. From an older version, quit Glowstage from its tray icon and unzip over the old folder: your lights and settings stay.
+
+**New**
+- Rev lights for racing games (Setup → Games → *Racing games*): Forza (Motorsport and Horizon) and EA Sports F1 23 and F1 24 can send their telemetry to your PC, an option in the game's own settings. Your lights then fill up like a rev counter from left to right, green, yellow and red, and pulse blue at the limiter (never more than three times a second). In F1 the five red start lights come on across your setup and go out together at lights out, a yellow flag or the safety car shows as a slow amber band, your fastest lap as a purple sweep, and the chequered flag as a slow black and white scroll. Slow lights like Hue show a calm green to red instead. Nothing reads the game: it sends, Glowstage listens on this PC only, and only while the switch is on.
+- Your phone remote as an app: add the page to your phone's home screen and it gets the Glowstage icon and its name, and on an iPhone it opens full screen like an app.
+- A faster start: Glowstage loads about a sixth faster and holds less memory while it waits in the tray, and the genre AI lets go of its memory a minute after the light show stops.
+- Easier with a keyboard and a screen reader: the color wheel, the stage editor (pick a light with the arrow keys and move it), the welcome tour and every dialog work with the keys, focus is always visible, switches and tabs say what they are, and faint text is easier to read. Bigger targets for small buttons, and smooth scrolling stops when Windows is set to show less animation.
+
+**New in 0.9.8**
 
 **Your lights, your way**
 - Your own groups (Setup → Lights → *Your groups*): put lights together as *Desk*, *Bed*, *Living room*, up to 12 groups, and a light can be in more than one. Each group gets a card on Home with its own switch, brightness and *Color & effects*, and it's on the phone remote, in the tray, in Ctrl+K and in the links for Stream Deck and Home Assistant. Saving a preset can tick a group's lights in one click.
@@ -47,7 +55,7 @@ Glowstage 0.9.8: your own groups of lights, snow and holiday lights and eight mo
 - Soften flashes (Setup → App), for people who are sensitive to flashing light: no look flashes any more. Every light brightens and dims over a fraction of a second, so lightning, a kill in a game or the beat of the light show becomes a soft swell, and the light show leaves out its strobes. Every look already kept to three flashes a second at most; this takes the flashes out altogether.
 - Skipped a version? The *What's new* card on Home shows what's new since the version you had, not only in the latest one.
 
-**Fixed**
+**Fixed in 0.9.8**
 - The window no longer freezes for a few seconds now and then: it looked for OpenRGB on your disk every second, and a disk that had gone to sleep (or a virus scanner busy with the folder) made it wait. It now looks once a minute, in the background.
 
 **New in 0.9.7**

@@ -9,7 +9,9 @@ The app has to run with WebView2's debugging port open (a developer check, on th
 
 It reloads the page, collects every error and warning the page reports, runs a few checks on
 Home, the effects panel and Setup, and prints a summary (exit code 1 when something is wrong).
---a11y also lists every control a screen reader can't name, from Chromium's accessibility tree.
+--a11y also lists every control a screen reader can't name, from Chromium's accessibility tree, and what the page's
+own markup gives away: switches without role=switch, controls nested in controls, targets under 24 px, and
+controls that show no focus ring when reached with Tab.
 Only the standard library: a tiny WebSocket client for the DevTools protocol.
 """
 
@@ -167,6 +169,61 @@ def unnamed_controls(d: DevTools) -> list[str]:
     return out
 
 
+# What the markup alone shows, per view: run in the page (the keyboard walk uses real Tab key presses).
+MARKUP_CHECKS = r"""
+(() => {
+  const vis = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+  const tag = el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && el.className.baseVal === undefined ? '.' + String(el.className).split(' ')[0] : '');
+  const out = [];
+  const controls = [...document.querySelectorAll('button, input, select, textarea, [role=button], [role=slider], [role=tab], [role=radio], [tabindex="0"]')]
+    .filter(el => vis(el) && el.type !== 'hidden');
+  for (const el of controls) {
+    const r = el.getBoundingClientRect();
+    if ((r.width < 24 || r.height < 24) && el.type !== 'color' && !el.closest('label')) out.push(`small target ${Math.round(r.width)}x${Math.round(r.height)}: ${tag(el)}`);
+    if (el.matches('input[type=checkbox].switch') && el.getAttribute('role') !== 'switch') out.push('switch without role=switch: ' + tag(el));
+    if (el.parentElement && el.parentElement.closest('button, [role=button]')) out.push('control inside a button: ' + tag(el));
+  }
+  for (const el of document.querySelectorAll('svg')) {
+    if (vis(el) && !el.closest('[aria-hidden=true], [role=img]') && !el.getAttribute('aria-label')) out.push('svg not hidden from screen readers: ' + tag(el.parentElement));
+  }
+  return [...new Set(out)];
+})()
+"""
+
+FOCUS_WALK = r"""
+(() => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return null;
+  window.__walked = window.__walked || new WeakSet();
+  if (window.__walked.has(el)) return { repeat: true };
+  window.__walked.add(el);
+  const cs = getComputedStyle(el);
+  const ring = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0;
+  const shadow = cs.boxShadow !== 'none';
+  return { ok: ring || shadow, name: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + '.' + String(el.className).split(' ')[0] };
+})()
+"""
+
+
+def key_press(d: DevTools, key: str, code: str, vk: int, shift: bool = False) -> None:
+    for kind in ("rawKeyDown", "keyUp"):
+        d.call("Input.dispatchKeyEvent", type=kind, key=key, code=code, windowsVirtualKeyCode=vk, modifiers=8 if shift else 0)
+
+
+def focus_walk(d: DevTools, limit: int = 120) -> list[str]:
+    """Tab through the current view with real key presses and list controls that show no focus ring."""
+    d.js("document.activeElement && document.activeElement.blur(); window.__walked = new WeakSet(); true")
+    missing = []
+    for _ in range(limit):
+        key_press(d, "Tab", "Tab", 9)
+        info = d.js(FOCUS_WALK)
+        if info and info.get("repeat"):
+            break                                    # (the order came round again)
+        if info and not info["ok"]:
+            missing.append(info["name"])
+    return missing
+
+
 VIEWS = {
     "home": "go('home')",
     "effects": "(async () => { document.querySelector('#all-color').click(); await new Promise(r => setTimeout(r, 300)); switchTab('effects'); })()",
@@ -211,6 +268,10 @@ def main() -> int:
             time.sleep(0.8)
             for line in dict.fromkeys(unnamed_controls(d)):
                 problems.append(f"no name ({view}) {line}")
+            for line in d.js(MARKUP_CHECKS) or []:
+                problems.append(f"markup ({view}) {line}")
+            for name in focus_walk(d):
+                problems.append(f"no focus ring ({view}) {name}")
         d.js("(async () => { closeSheet(); go('home'); })()")
     if shot:
         try:
