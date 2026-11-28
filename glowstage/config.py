@@ -103,6 +103,7 @@ DEFAULTS = {
                  "auto_show": False,     # start the light show by itself when music plays (automations.py)
                  "auto_game": "",        # a game in full screen: "", "screen" or "preset:<name>"
                  "auto_video": "",       # a video in full screen: the same
+                 "screen_display": "",   # the display Screen sync follows: "" main, "auto" (where a full-screen window is) or a device name (screen.py)
                  "auto_call": "",        # the camera or microphone in use (a call): "" or "preset:<name>"
                  "away_lights": "",      # locked, screen off or asleep: "" nothing, "pc" or "all" off (away.py)
                  "flow": False,          # animations run from light to light along the stage (effects._places)

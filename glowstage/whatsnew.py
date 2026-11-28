@@ -7,6 +7,8 @@ the card's "Got it" marks the version as seen.
 
 from __future__ import annotations
 
+import re
+
 from .paths import VERSION
 
 # go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups), "effect:<id>"
@@ -14,6 +16,16 @@ from .paths import VERSION
 GOES = ("sleep", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups")
 
 NOTES: dict[str, list[dict]] = {
+    "0.9.8": [
+        {"title": "PC load", "go": "effect:pc_load",
+         "text": "Your lights fill up like a bar as your PC gets busy, and the graphics card shows its own load."},
+        {"title": "Gradient", "go": "effect:gradient",
+         "text": "Two colors blended along each light, through the colors between them, or one blend across your whole setup."},
+        {"title": "Use from other apps", "go": "setup:phone",
+         "text": "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link."},
+        {"title": "Screen sync on any display", "go": "effect:screen",
+         "text": "Follow your main display, another one, or the one where your game or video is full screen."},
+    ],
     "0.9.7": [
         {"title": "Quick search", "go": "search",
          "text": "Press Ctrl+K and type a few letters: switch on a preset, open a light, jump to any setting. Press ? for every shortcut."},
@@ -33,12 +45,31 @@ NOTES: dict[str, list[dict]] = {
 }
 
 
+LIMIT = 7       # lines on the card: more and it stops being a glance
+
+
+def _key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", version))
+
+
 def card(settings: dict, version: str = VERSION) -> dict | None:
-    """The card to show now, or None: {"version", "items"}."""
-    items = NOTES.get(version)
-    if not items or settings.get("seen_version") == version:
+    """The card to show now, or None: {"version", "items"}, and "since" when it covers more than
+    one version. Someone who skipped a version (0.9.6 straight to 0.9.8) sees what's new in both,
+    the newest first."""
+    seen = settings.get("seen_version") or ""
+    if seen == version:
         return None
-    return {"version": version, "items": items}
+    if seen:
+        versions = sorted((v for v in NOTES if _key(seen) < _key(v) <= _key(version)), key=_key, reverse=True)
+    else:   # from before versions were noted: only this one's news
+        versions = [version] if version in NOTES else []
+    items = [item for v in versions for item in NOTES[v]][:LIMIT]
+    if not items:
+        return None
+    out = {"version": version, "items": items}
+    if len(versions) > 1:
+        out["since"] = seen
+    return out
 
 
 def first_run(settings: dict, version: str = VERSION) -> bool:

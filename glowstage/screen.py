@@ -1,10 +1,14 @@
-"""Samples the main display for the "Screen sync" effect: the vivid colors in each slice of the
+"""Samples a display for the "Screen sync" effect: the vivid colors in each slice of the
 screen from left to right, so every light can take the part of the screen where it sits on the
 stage (a strip above the monitor runs along with the picture; a bulb takes the screen's color as a
 whole). Runs only while some light is using that effect.
 
 The screen is read with one GDI StretchBlt into a 128 x 72 bitmap: half the processor time of the
-full-size screenshot it used to take (on a 3456 x 2169 screen ~15 ms per sample against ~34 ms)."""
+full-size screenshot it used to take (on a 3456 x 2169 screen ~15 ms per sample against ~34 ms).
+
+Which display: the main one, one picked by its Windows name (DISPLAY2), or "auto" for where a
+full-screen game or video is. The cost is the same either way: only the rectangle that is stretched
+changes."""
 
 from __future__ import annotations
 
@@ -12,7 +16,9 @@ import ctypes
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from ctypes import wintypes as w
+from typing import Callable, NamedTuple
 
 import numpy as np
 
@@ -20,6 +26,153 @@ log = logging.getLogger(__name__)
 
 COLS = 32          # slices of the screen from left to right
 W, H = 128, 72     # the size the screen is sampled at
+REFRESH = 2.0      # seconds between looks at which displays there are (and where a full-screen window is)
+AUTO_HOLD = 5.0    # seconds "auto" stays on a display after its full-screen window went (a quick alt-tab)
+
+
+# ---- which displays there are ----------------------------------------------------------------------
+
+class Monitor(NamedTuple):
+    device: str                       # Windows' name for it, e.g. "\\.\DISPLAY2"
+    rect: tuple[int, int, int, int]   # left, top, right, bottom on the virtual screen, in pixels
+    primary: bool
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.rect[2] - self.rect[0], self.rect[3] - self.rect[1]
+
+
+def names(monitors: list[Monitor]) -> dict[str, str]:
+    """A name for each display that says where it stands: "Main display", "Right display \u00b7
+    2560 \u00d7 1440". (Windows' own numbers, DISPLAY129 and the like, mean nothing to anyone and
+    change when a driver is reinstalled.) Two on the same side get a number, left to right."""
+    main = next((m for m in monitors if m.primary), None)
+    if main is None:
+        return {m.device: f"Display {i} \u00b7 {m.size[0]} \u00d7 {m.size[1]}" for i, m in enumerate(monitors, 1)}
+    mx, my = (main.rect[0] + main.rect[2]) / 2, (main.rect[1] + main.rect[3]) / 2
+    side = {}
+    for m in monitors:
+        if m is not main:
+            dx, dy = (m.rect[0] + m.rect[2]) / 2 - mx, (m.rect[1] + m.rect[3]) / 2 - my
+            side[m.device] = ("Right" if dx > 0 else "Left") if abs(dx) >= abs(dy) else ("Lower" if dy > 0 else "Upper")
+    out = {main.device: "Main display"}
+    others = sorted((m for m in monitors if m is not main), key=lambda m: (m.rect[0], m.rect[1]))
+    for m in others:
+        same = [x.device for x in others if side[x.device] == side[m.device]]
+        count = f" {same.index(m.device) + 1}" if len(same) > 1 else ""
+        out[m.device] = f"{side[m.device]} display{count} \u00b7 {m.size[0]} \u00d7 {m.size[1]}"
+    return out
+
+
+class Choice(NamedTuple):
+    monitor: Monitor | None   # what is sampled (None: no display found at all)
+    missing: str              # the display that was asked for but isn't connected ("" if none)
+
+
+def choose(setting: str, monitors: list[Monitor], full_screen: str | None = None) -> Choice:
+    """The display to sample. "" is the main one; a device name is that display, or the main one if
+    it isn't connected (never an error: a monitor that is switched off must not stop the lights);
+    "auto" is the display with a full-screen window (`full_screen`, its device name), else the main
+    one."""
+    main = next((m for m in monitors if m.primary), monitors[0] if monitors else None)
+    if setting == "auto":
+        return Choice(next((m for m in monitors if m.device == full_screen), main), "")
+    if setting:
+        found = next((m for m in monitors if m.device == setting), None)
+        return Choice(found, "") if found else Choice(main, setting)
+    return Choice(main, "")
+
+
+def describe(setting: str, monitors: list[Monitor], choice: Choice) -> dict:
+    """What the window shows for the "Screen" choice: the options (the main display, each other
+    display by where it stands and its size, then "where the game or video is"), which one is
+    saved, which display is followed now, and a note when the chosen display isn't connected."""
+    label = names(monitors)
+    options = [{"id": "", "name": "Main display", "primary": True}]
+    options += [{"id": m.device, "name": label[m.device], "primary": False} for m in monitors if not m.primary]
+    if setting not in ("", "auto") and not any(o["id"] == setting for o in options):
+        # (a display that is unplugged stays in the list, so the choice is kept for when it's back)
+        options.append({"id": setting, "name": "The display you picked (not connected)", "primary": False,
+                        "missing": True})
+    options.append({"id": "auto", "name": "Where the game or video is", "primary": False})
+    note = "The display you picked isn't connected: following the main display" if choice.missing else ""
+    using = choice.monitor
+    return {"options": options, "current": setting, "count": len(monitors),
+            "using": {"id": using.device, "name": label.get(using.device, "Main display")} if using else None,
+            "note": note}
+
+
+@contextmanager
+def _physical_pixels():
+    """Windows hands out coordinates in the units the calling thread is aware of. The window library
+    (pywebview) makes this process "system DPI aware" (SetProcessDPIAware, in its winforms backend;
+    this app never sets it itself), which on a second monitor with another scaling gives scaled
+    coordinates. Per-monitor awareness for this thread only (-4: per-monitor v2) makes the monitor
+    rectangles and the screen DC both physical pixels, whatever the process was told."""
+    u32 = ctypes.WinDLL("user32")
+    old = None
+    try:
+        u32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        u32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        old = u32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    except (AttributeError, OSError):
+        pass   # Windows before 10 1703: the numbers stay as they are
+    try:
+        yield
+    finally:
+        if old:
+            u32.SetThreadDpiAwarenessContext(ctypes.c_void_p(old))
+
+
+class _MonitorInfo(ctypes.Structure):   # MONITORINFOEXW
+    _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD),
+                ("szDevice", ctypes.c_wchar * 32)]
+
+
+def _info(u32, handle) -> Monitor | None:
+    info = _MonitorInfo()
+    info.cbSize = ctypes.sizeof(_MonitorInfo)
+    if not u32.GetMonitorInfoW(handle, ctypes.byref(info)):
+        return None
+    r = info.rcMonitor
+    return Monitor(info.szDevice, (r.left, r.top, r.right, r.bottom), bool(info.dwFlags & 1))   # MONITORINFOF_PRIMARY
+
+
+def list_monitors() -> list[Monitor]:
+    """The connected displays from Windows: the main one first, then left to right."""
+    u32 = ctypes.WinDLL("user32")
+    proc = ctypes.WINFUNCTYPE(w.BOOL, w.HANDLE, w.HDC, ctypes.POINTER(w.RECT), w.LPARAM)
+    u32.EnumDisplayMonitors.argtypes = [w.HDC, ctypes.c_void_p, proc, w.LPARAM]
+    u32.GetMonitorInfoW.argtypes = [w.HANDLE, ctypes.POINTER(_MonitorInfo)]
+    found: list[Monitor] = []
+
+    def each(handle, _dc, _rect, _data):
+        m = _info(u32, handle)
+        if m:
+            found.append(m)
+        return True
+
+    with _physical_pixels():
+        u32.EnumDisplayMonitors(None, None, proc(each), 0)
+    return sorted(found, key=lambda m: (not m.primary, m.rect[0], m.rect[1]))
+
+
+def full_screen_device() -> str | None:
+    """The display that holds a full-screen window now (its device name), or None. Windows' own test,
+    the one automations.full_screen uses: SHQueryUserNotificationState says "busy" (2) or "a
+    full-screen Direct3D program" (3); the window in front is the one that holds it."""
+    state = ctypes.c_int()
+    if ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) != 0 or state.value not in (2, 3):
+        return None
+    u32 = ctypes.WinDLL("user32")
+    u32.GetForegroundWindow.restype = w.HWND
+    u32.MonitorFromWindow.restype, u32.MonitorFromWindow.argtypes = w.HANDLE, [w.HWND, w.DWORD]
+    u32.GetMonitorInfoW.argtypes = [w.HANDLE, ctypes.POINTER(_MonitorInfo)]
+    hwnd = u32.GetForegroundWindow()
+    if not hwnd:
+        return None
+    m = _info(u32, u32.MonitorFromWindow(hwnd, 2))   # MONITOR_DEFAULTTONEAREST
+    return m.device if m else None
 
 
 class Shot:
@@ -78,7 +231,7 @@ def weigh(img: np.ndarray) -> Shot:
 
 
 class _Grabber:
-    """Reads the main display into a small bitmap with GDI (kept for the thread's lifetime)."""
+    """Reads a display into a small bitmap with GDI (kept for the thread's lifetime)."""
 
     def __init__(self):
         self.u32, self.g32 = ctypes.WinDLL("user32"), ctypes.WinDLL("gdi32")
@@ -114,9 +267,13 @@ class _Grabber:
         g32.SetStretchBltMode(self.dst, 3)   # COLORONCOLOR: fast; the slices average it out anyway
         self.pixels = np.ctypeslib.as_array(ctypes.cast(bits, ctypes.POINTER(ctypes.c_uint8)), (H, W, 4))
 
-    def grab(self) -> np.ndarray:
-        sw, sh = self.u32.GetSystemMetrics(0), self.u32.GetSystemMetrics(1)
-        if not self.g32.StretchBlt(self.dst, 0, 0, W, H, self.src, 0, 0, sw, sh, 0x00CC0020):   # SRCCOPY
+    def grab(self, rect: tuple[int, int, int, int] | None = None) -> np.ndarray:
+        """`rect` is left, top, right, bottom on the virtual screen; without it the main display."""
+        if rect is None:
+            rect = (0, 0, self.u32.GetSystemMetrics(0), self.u32.GetSystemMetrics(1))
+        left, top, right, bottom = rect
+        if not self.g32.StretchBlt(self.dst, 0, 0, W, H, self.src, left, top, right - left, bottom - top,
+                                   0x00CC0020):   # SRCCOPY
             raise OSError("screen capture failed")   # e.g. the lock screen
         return self.pixels[:, :, 2::-1].copy()        # BGRA -> RGB
 
@@ -132,35 +289,83 @@ class _Grabber:
 
 
 class ScreenSampler:
-    def __init__(self, fps: float = 15):
+    def __init__(self, fps: float = 15, display: Callable[[], str] = lambda: "",
+                 monitors: Callable[[], list[Monitor]] = list_monitors,
+                 full_screen: Callable[[], str | None] = full_screen_device,
+                 grabber: Callable[[], object] = _Grabber, clock: Callable[[], float] = time.monotonic):
         self.interval = 1 / fps
         self.shot: Shot | None = None
+        self._display = display          # the setting: "", "auto" or a display's device name
+        self._monitors, self._full_screen, self._make_grabber, self._clock = monitors, full_screen, grabber, clock
         self._wanted_until = 0.0
         self._thread: threading.Thread | None = None
+        self._list: list[Monitor] = []
+        self._looked = float("-inf")
+        self._held: str | None = None    # "auto": the display of the last full-screen window ...
+        self._held_at = float("-inf")    # ... and when it was last seen
+        self.choice = Choice(None, "")   # what is being sampled (for the window to say so)
 
     def request(self) -> Shot | None:
         """Keep sampling for the next couple of seconds and return the latest sample (None until
         the first one)."""
-        self._wanted_until = time.monotonic() + 2.0
+        self._wanted_until = self._clock() + 2.0
         if self._thread is None or not self._thread.is_alive():
             self._thread = threading.Thread(target=self._run, name="screen", daemon=True)
             self._thread.start()
         return self.shot
 
+    def running(self) -> bool:
+        return self._clock() < self._wanted_until
+
+    def pick(self, force: bool = False) -> Choice:
+        """The display to sample now. The displays (and for "auto" the full-screen window) are
+        looked up every REFRESH seconds, or at once with `force` (a grab failed: a display may have
+        gone, at most twice a second).
+
+        "auto" is meant to be calm: it stays on the main display and only moves when a full-screen
+        window appears on another display (the game or film you play there). Clicking in another
+        window never moves it, and it stays on that display AUTO_HOLD seconds after the full-screen
+        window goes, so a quick alt-tab doesn't send the lights back and forth."""
+        now = self._clock()
+        setting = self._display() or ""
+        if now - self._looked >= (0.5 if force else REFRESH):   # (a lock screen fails every sample: not 15 looks a second)
+            self._looked = now
+            try:
+                self._list = self._monitors()
+            except Exception as e:   # (never a reason to stop the lights)
+                log.debug("Can't list the displays: %s", e)
+            if setting == "auto":
+                try:
+                    seen = self._full_screen()
+                except Exception as e:
+                    log.debug("Can't tell where the full-screen window is: %s", e)
+                    seen = None
+                if seen:
+                    self._held, self._held_at = seen, now
+        held = self._held if setting == "auto" and now - self._held_at < AUTO_HOLD else None
+        self.choice = choose(setting, self._list, held)
+        return self.choice
+
     def _run(self) -> None:
         try:
-            grabber = _Grabber()
+            with _physical_pixels():   # (this thread only)
+                grabber = self._make_grabber()
+                self._loop(grabber)
         except Exception as e:
             log.warning("Screen sync unavailable: %s", e)
             time.sleep(5)   # (request() starts a new try after this one ends)
-            return
+
+    def _loop(self, grabber) -> None:
         try:
-            while time.monotonic() < self._wanted_until:
-                start = time.monotonic()
+            force = True
+            while self._clock() < self._wanted_until:
+                start = self._clock()
+                choice = self.pick(force)
+                force = False
                 try:
-                    self.shot = weigh(grabber.grab())
+                    self.shot = weigh(grabber.grab(choice.monitor.rect if choice.monitor else None))
                 except OSError:
-                    pass  # e.g. secure desktop / lock screen: keep the last picture
-                time.sleep(max(0.0, self.interval - (time.monotonic() - start)))
+                    force = True   # the lock screen, or a display just unplugged: keep the last picture, look again
+                time.sleep(max(0.0, self.interval - (self._clock() - start)))
         finally:
             grabber.close()

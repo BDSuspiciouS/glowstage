@@ -9,7 +9,7 @@ from pathlib import Path
 
 APP_NAME = "Glowstage"
 APP_ID = "Glowstage.App"            # Windows AppUserModelID: taskbar grouping and Start menu pins
-VERSION = "0.9.7"
+VERSION = "0.9.8"
 REPO = "BDSuspiciouS/glowstage"
 DONATE = {                          # shown as "Support Glowstage" in the app when set
     "GitHub Sponsors": "https://github.com/sponsors/BDSuspiciouS",

@@ -138,6 +138,8 @@ CHECKS = r"""
     .filter(id => !document.getElementById(id));
   const b = await window.pywebview.api.list_backups();
   out.backups = b.ok ? b.result.map(x => `${x.file}: ${x.ok ? x.presets + ' presets' : 'unreadable'}`) : b.error;
+  const dsp = await window.pywebview.api.list_displays();
+  out.displays = dsp.ok ? dsp.result.options.map(o => o.name) : dsp.error;
   go('home'); await wait(200);
   return out;
 })()

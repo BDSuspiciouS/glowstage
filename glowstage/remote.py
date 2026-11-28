@@ -18,7 +18,7 @@ import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .paths import UI_DIR
 
@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 PAGE = UI_DIR / "phone.html"
 MAX_BODY = 4096
+LINK_STEP = 10                  # "brighter" and "darker" by link (the same step as the hotkeys)
 GROUPS = (("pc", "PC"), ("room", "Room"))
 
 
@@ -95,7 +96,10 @@ class Remote:
     def describe(self) -> dict:
         url = self.url()
         error = self.error or ("" if url or not self._server else "This PC isn't on a network")
-        return {"on": bool(self.settings.get("on")), "url": url, "error": error}
+        # `api` + "/<action>?k=" + `key` is a link other apps can call (Setup builds them from this)
+        api = url.split("/?k=")[0] + "/do" if url else ""
+        return {"on": bool(self.settings.get("on")), "url": url, "error": error,
+                "api": api, "key": self.settings.get("token", "") if url else ""}
 
     def qr_svg(self) -> str:
         """The link as a QR code (made once per link)."""
@@ -135,6 +139,8 @@ class Remote:
                 path = urlparse(self.path).path
                 if not self._key_ok():
                     return self._send(403, OLD_LINK, "text/html; charset=utf-8")
+                if path.startswith("/do/"):
+                    return self._link(path)
                 if path == "/":
                     return self._send(200, remote.page(), "text/html; charset=utf-8")
                 if path == "/api/state":
@@ -149,13 +155,25 @@ class Remote:
                 body = self.rfile.read(size) if size else b""   # (read first: an answer before that resets the connection)
                 if not self._key_ok():
                     return self._json({"ok": False, "error": "This link is no longer valid"}, 403)
-                if urlparse(self.path).path != "/api/do":
+                path = urlparse(self.path).path
+                if path.startswith("/do/"):
+                    return self._link(path)
+                if path != "/api/do":
                     return self._send(404, b"", "text/plain")
                 try:
                     remote.act(json.loads(body or b"{}"))
                 except (ValueError, TypeError) as e:
                     return self._json({"ok": False, "error": str(e)}, 400)
                 self._json({"ok": True, "state": remote.state()})
+
+            def _link(self, path: str) -> None:
+                """A plain action link for other apps (Stream Deck, AutoHotkey, Home Assistant)."""
+                try:
+                    code, data = remote.link([unquote(p) for p in path[len("/do/"):].split("/")])
+                except Exception:
+                    log.exception("Phone remote: a link failed")     # (a bad request never ends the server)
+                    code, data = 500, {"ok": False, "error": "Something went wrong"}
+                self._json(data, code)
 
             def log_message(self, *args):   # (no line per request)
                 pass
@@ -238,6 +256,62 @@ class Remote:
             m.sleep.start(minutes) if minutes else m.sleep.cancel()
         else:
             raise ValueError("Unknown action")
+
+    def link(self, parts: list[str]) -> tuple[int, dict]:
+        """An action link, /do/<action>[/<value>]: the same calls as the tray and the hotkeys
+        (so Undo covers it too). Gives the HTTP status and the answer."""
+        m = self.manager
+        while parts and parts[-1] == "":
+            parts = parts[:-1]                      # (a slash at the end is fine)
+        action, args = (parts[0] if parts else ""), parts[1:]
+
+        def fail(code: int, error: str) -> tuple[int, dict]:
+            return code, {"ok": False, "error": error}
+
+        def number(text: str) -> int | None:
+            return int(text) if text.isascii() and text.isdigit() and len(text) <= 4 else None
+
+        if action in ("on", "off", "toggle", "brighter", "darker", "undo") and not args:
+            if action == "undo":
+                if not m.undo():
+                    return fail(409, "There's nothing to undo")
+            elif action in ("brighter", "darker"):
+                m.nudge_brightness(LINK_STEP if action == "brighter" else -LINK_STEP)
+            else:
+                m.remember()
+                m.set_power_all(not m.any_on() if action == "toggle" else action == "on")
+        elif action == "preset" and len(args) == 1:
+            names = m.preset_names()
+            if args[0] not in names:        # typed by hand ("cozy" for Cozy): any case will do
+                same = [n for n in names if n.casefold() == args[0].casefold()]
+                if len(same) != 1:
+                    return fail(404, f"No preset called {args[0]}")
+                args = same
+            m.remember()
+            m.apply_preset(args[0])
+        elif action == "brightness" and len(args) == 1:
+            value = number(args[0])
+            if value is None or value > 100:
+                return fail(400, "Brightness goes from 0 to 100")
+            m.remember()
+            m.set_brightness_on(value)              # (0 is the lowest light, not off)
+        elif action == "show" and len(args) == 1 and args[0] in ("start", "stop"):
+            m.remember()
+            m.start_show() if args[0] == "start" else m.stop_show()
+        elif action == "sleep" and len(args) == 1:
+            if args[0] == "cancel":
+                m.sleep.cancel()
+            else:
+                minutes = number(args[0])
+                if minutes is None:
+                    return fail(400, "Minutes must be a number")
+                try:
+                    m.sleep.start(minutes)
+                except ValueError as e:
+                    return fail(400, str(e))
+        else:
+            return fail(404, "Unknown action")
+        return 200, {"ok": True, "action": "/".join([action, *args])}
 
     def _act_lights(self, what: str, req: dict) -> None:
         """The groups and single lights: everything is checked before anything changes."""

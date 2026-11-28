@@ -357,7 +357,7 @@ function renderHomeNotes() {
           await call("stop_automation"); refresh(true); } }))) : null,
     news ? h("div", { class: "note card note-new", role: "status" },
       h("span", { class: "note-icon" }, icon("spark")),
-      h("div", { class: "note-text" }, h("strong", { text: `New in Glowstage ${news.version}` }),
+      h("div", { class: "note-text" }, h("strong", { text: news.since ? `New since Glowstage ${news.since}` : `New in Glowstage ${news.version}` }),
         h("ul", { class: "new-list" }, news.items.map(it => h("li", {},
           h("span", { class: "new-title", text: it.title }), h("span", { class: "muted", text: it.text }),
           h("button", { class: "link-btn", type: "button", text: "Show me", onclick: () => showNew(it.go) }))))),
@@ -468,6 +468,7 @@ const FX_LOOK = {
   screen_sound: "linear-gradient(90deg, #fff0dc, #3a6bff 30%, #2bd3c4 70%, #ff8a3a)",
   daylight: "linear-gradient(90deg, #ff9a45, #ffe0c7, #ffb06a)",
   typing: "linear-gradient(90deg, #1b1430, #00e5ff 28%, #1b1430 48%, #7c4dff 72%, #1b1430)",
+  pc_load: "linear-gradient(90deg, #2bff6a 0%, #ffd23a 35%, #ff3a2a 70%, #1b2a20 70%)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
   music_show: "linear-gradient(90deg, #00e5ff, #2a4bff, #ff00c8, #ff0040)",
 };
@@ -491,6 +492,8 @@ function fillFor(d) {
   const st = d.state, live = lightColors(d);
   if (live) return live.length > 1 ? `linear-gradient(90deg, ${live.join(", ")})` : live[0];
   if (st.mode === "effect" && FX_LOOK[st.effect]) return FX_LOOK[st.effect];
+  // (the Gradient look blends through the hues between its colors, as CSS does in oklch)
+  if (st.mode === "effect" && st.effect === "gradient") return `linear-gradient(90deg in oklch, ${st.color}, ${st.color2 || st.color})`;
   if (st.mode === "effect" || st.mode === "native") return `linear-gradient(90deg, ${st.color}, ${st.color2 || st.color})`;
   return hexToRgb(st.color) ? st.color : "#ffffff";
 }
@@ -1145,6 +1148,27 @@ const SCREEN_DEMO = [[40, 90, 255], [255, 130, 50], [30, 200, 190], [200, 60, 12
 const SUN_DAY = [[51, 26, 0], [158, 98, 43], [194, 114, 54], [255, 224, 199], [255, 224, 199], [198, 118, 56], [158, 98, 43], [104, 59, 15]];
 
 /* Same math as glowstage/effects.py, so the previews match what the lights do. */
+/** The Gradient look's colors from a to b (as effects.py blend): through the hues between them
+ *  in OKLab, lightness and colorfulness changing evenly. */
+const OK_LMS = [[0.4122214708, 0.5363325363, 0.0514459929], [0.2119034982, 0.6806995451, 0.1073969566], [0.0883024619, 0.2817188376, 0.6299787005]];
+const OK_LAB = [[0.2104542553, 0.7936177850, -0.0040720468], [1.9779984951, -2.4285922050, 0.4505937099], [0.0259040371, 0.7827717662, -0.8086757660]];
+const OK_LAB_INV = [[1, 0.3963377774, 0.2158037573], [1, -0.1055613458, -0.0638541728], [1, -0.0894841775, -1.2914855480]];
+const OK_LMS_INV = [[4.0767416621, -3.3077115913, 0.2309699292], [-1.2684380046, 2.6097574011, -0.3413193965], [-0.0041960863, -0.7034186147, 1.7076147010]];
+const mulM = (m, v) => m.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+function oklch(rgb) {
+  const lin = rgb.map(c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+  const [l, a, b] = mulM(OK_LAB, mulM(OK_LMS, lin).map(Math.cbrt));
+  return [l, Math.hypot(a, b), Math.atan2(b, a)];
+}
+function blendOk(a, b, u) {
+  let [la, ca, ha] = oklch(a), [lb, cb, hb] = oklch(b);
+  if (ca < 0.02) ha = hb;
+  if (cb < 0.02) hb = ha;
+  const dh = ((hb - ha + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  const l = la + (lb - la) * u, c = ca + (cb - ca) * u, h = ha + dh * u;
+  const lin = mulM(OK_LMS_INV, mulM(OK_LAB_INV, [l, c * Math.cos(h), c * Math.sin(h)]).map(v => v ** 3));
+  return lin.map(v => { v = clamp(v, 0, 1); return Math.round(255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055)); });
+}
 const PREVIEW = {
   rainbow: (t, n, st) => Array.from({ length: n }, (_, i) => hsvToRgb(i / n - t * rate(st.speed) * 0.5, 1, 1)),
   spectrum: (t, n, st) => Array(n).fill(hsvToRgb(t * rate(st.speed) * 0.25, 1, 1)),
@@ -1155,6 +1179,10 @@ const PREVIEW = {
   wave: (t, n, st) => {
     const a = hexToRgb(st.color), b = hexToRgb(st.color2), sh = t * rate(st.speed) * 0.5;
     return Array.from({ length: n }, (_, i) => lerp(a, b, (Math.sin(2 * Math.PI * (i / n - sh)) + 1) / 2));
+  },
+  gradient: (t, n, st) => {
+    const a = hexToRgb(st.color), b = hexToRgb(st.color2);
+    return Array.from({ length: n }, (_, i) => blendOk(a, b, n > 1 ? i / (n - 1) : 0));
   },
   comet: (t, n, st) => {
     const head = (t * rate(st.speed) * 0.5 % 1) * n, tail = Math.max(2, n * 0.3);
@@ -1196,6 +1224,11 @@ const PREVIEW = {
       }
     }
     return level.map(v => lerp(bg, c, Math.min(1, v)));
+  },
+  pc_load: (t, n, st) => {   /* a made-up load that swells and settles, with a busy burst now and then */
+    const load = clamp(0.3 + 0.2 * Math.sin(t * 0.7) + 0.5 * Math.max(0, Math.sin(t * 0.35)) ** 3, 0, 1);
+    const idle = hexToRgb(st.color), busy = hexToRgb(st.color2), fill = lerp(idle, busy, load), dim = scaleRgb(idle, 0.12);
+    return Array.from({ length: n }, (_, i) => lerp(dim, fill, load * n - i));
   },
   daylight: (t, n) => {
     const k = (t * 1.0) % SUN_DAY.length, i = Math.floor(k);
@@ -1385,13 +1418,54 @@ function renderEffects() {
   $("#fx-flow-on").checked = !!(S.data.settings || {}).flow;
   const audio = S.data.audio || {};
   $("#fx-note").textContent = !fx ? "Pick an effect to start it."
-    : fx.id === "screen" ? "Follows the main colors on your primary display. Great for the monitor strip during games and films."
+    : fx.id === "screen" ? "Follows the main colors on your screen, every light the part where it sits. Great for the monitor strip during games and films."
     : fx.id === "screen_sound" ? `Follows your screen, and every shot or explosion in the game flashes the lights on the side it came from. Listening to ${audio.device || "your PC's sound output"}.`
     : fx.id === "daylight" ? sunNote(S.data.sun)
+    : fx.id === "gradient" ? "A still blend from the first color to the second along each light, through the colors between them. With Flow on, one blend runs across your whole setup and every light takes the part where it stands."
     : fx.id === "typing" ? "Every key you press lights up and sends a ripple across your keyboard; your other lights glow where the key sits, left to right. Speed sets how quickly it fades. Glowstage only looks at which key is down while this runs, keeps that for three seconds, and saves and sends nothing."
+    : fx.id === "pc_load" ? "Your lights fill up as your PC gets busy, from the first color when it's idle to the second when it's working hard. The graphics card shows its own load. Glowstage asks Windows twice a second while this runs and keeps nothing."
     : fx.id === "music_show" ? showNote(S.data.show, audio)
     : fx.group === "music" ? `Listening to ${audio.device || "your PC's sound output"}. Speed sets how punchy it is; when the music stops, the lights glow softly.`
     : fx.uses.includes("color") ? "" : "This effect uses its own colors.";
+  renderScreenPick(fx);
+}
+
+/* Screen sync and Screen + sound: which display to follow. Only worth showing with two or more displays;
+   the list is asked for now and then (displays get plugged in and out), not on every render. */
+function renderScreenPick(fx) {
+  const box = $("#fx-screen"), note = $("#fx-screen-note"), pick = $("#fx-screen-pick");
+  const wanted = !!fx && (fx.id === "screen" || fx.id === "screen_sound");
+  if (wanted && Date.now() - (S.displaysAt || 0) > 5000) loadDisplays();
+  const d = wanted && S.displays && S.displays.count > 1 ? S.displays : null;
+  box.hidden = !d;
+  if (!d) return;
+  const sig = JSON.stringify([d.options, d.current]);
+  if (pick.dataset.sig !== sig && document.activeElement !== pick) {
+    pick.dataset.sig = sig;
+    fill(pick, ...d.options.map(o => h("option", { value: o.id, text: o.name, selected: o.id === d.current })));
+    pick.value = d.current;
+  }
+  const where = d.using ? d.using.name.split(" · ")[0] : "";     // "Right display · 2560 × 1440" -> "the right display"
+  const text = d.note || (d.current === "auto" && where ? `Following the ${where.charAt(0).toLowerCase() + where.slice(1)} now` : "");
+  note.textContent = text;
+  note.hidden = !text;
+}
+
+async function loadDisplays() {
+  if (S.displaysBusy) return;
+  S.displaysBusy = true;
+  S.displaysAt = Date.now();   // (also after a failed try: don't ask again every second)
+  try {
+    const r = await callRaw("list_displays");
+    if (r && r.ok !== false) { S.displays = r.result; if (S.data) renderScreenPick(currentFxEffect()); }
+  } finally {
+    S.displaysBusy = false;
+  }
+}
+
+function currentFxEffect() {
+  const st = currentFxState();
+  return st.mode === "effect" && S.data.effects.find(e => e.id === st.effect);
 }
 
 function sunNote(sun) {
@@ -1701,6 +1775,11 @@ function bindStatic() {
     await call("set_setting", "flow", e.target.checked);
     toast(e.target.checked ? "Your animations now run from light to light. Light show → Arrange sets where each light is"
       : "Each light runs its own animation again");
+    refresh(true);
+  });
+  $("#fx-screen-pick").addEventListener("change", async e => {   // saved right away; the list is asked for again
+    await call("set_setting", "screen_display", e.target.value);
+    S.displaysAt = 0;
     refresh(true);
   });
   $("#fx-c1").addEventListener("input", e => sendTargets({ color: e.target.value }, "c1"));

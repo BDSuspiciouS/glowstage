@@ -441,7 +441,41 @@ function phoneSection() {
           h("div", { class: "form-actions" },
             h("button", { class: "btn", type: "button", text: "Copy link", onclick: copy }),
             h("button", { class: "btn btn-quiet", type: "button", text: "New link", title: "The old link stops working",
-              onclick: async () => { await call("remote_new_link"); toast("New link: a phone with the old one has to scan again"); S.settingsSig = ""; refresh(true); } })))));
+              onclick: async () => { await call("remote_new_link"); toast("New link: a phone with the old one has to scan again"); S.settingsSig = ""; refresh(true); } })))),
+    linksPart(r));
+}
+
+/* "Use from other apps": plain links (remote.py's /do/...) for Stream Deck, AutoHotkey, Home Assistant. */
+let linkPick = "on";                                   // (kept while the page redraws)
+function linksPart(r) {
+  const part = h("div", { class: "phone-links" }, h("h4", { text: "Use from other apps" }));
+  if (!r.on || !r.api) {
+    part.append(h("p", { class: "hint", text: "Switch the phone remote on to use these links." }));
+    return part;
+  }
+  const actions = [["on", "All on"], ["off", "All off"], ["toggle", "Switch all on or off"],
+    ...(S.data.presets || []).map(p => ["preset/" + encodeURIComponent(p.name), `Preset: ${p.name}`]),
+    ...[100, 75, 50, 25, 10].map(v => ["brightness/" + v, `Brightness ${v} %`]),
+    ["brighter", "Brighter"], ["darker", "Darker"],
+    ["show/start", "Start the light show"], ["show/stop", "Stop the light show"],
+    ["sleep/30", "Sleep timer 30 min"], ["sleep/cancel", "Cancel the sleep timer"], ["undo", "Undo"]];
+  if (!actions.some(([v]) => v === linkPick)) linkPick = "on";
+  const linkFor = v => `${r.api}/${v}?k=${r.key}`;
+  const field = h("input", { class: "phone-link", type: "text", readonly: true, id: "phone-link", value: linkFor(linkPick) });
+  const pick = h("select", { id: "phone-action", onchange: e => { linkPick = e.target.value; field.value = linkFor(linkPick); } },
+    actions.map(([v, t]) => h("option", { value: v, text: t, selected: v === linkPick })));
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(field.value); toast("Link copied"); }
+    catch { field.select(); toast("Couldn't copy it: it's selected, press Ctrl+C", true); }
+  };
+  part.append(
+    h("p", { class: "hint", text: "Stream Deck (Website or API request), AutoHotkey, Home Assistant and other apps can switch your lights with a link." }),
+    h("label", { class: "toggle-row", for: "phone-action" }, h("span", { text: "What the link does" }), pick),
+    h("label", { class: "sr-only", for: "phone-link", text: "Link for this action" }),
+    field,
+    h("div", { class: "form-actions" }, h("button", { class: "btn", type: "button", text: "Copy link", onclick: copy })),
+    h("p", { class: "hint", text: "Anyone with a link can switch your lights on this network. New link above shuts out every old link." }));
+  return part;
 }
 
 /* Backups: a copy for each day, to go back to; a file of it all, to take to another PC. */

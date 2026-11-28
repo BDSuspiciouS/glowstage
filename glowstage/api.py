@@ -12,7 +12,7 @@ from pathlib import Path
 
 import webview
 
-from . import automations, backups, diagnostics, genre_install, online, webfix, whatsnew, winutil
+from . import automations, backups, diagnostics, genre_install, online, screen, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -397,6 +397,10 @@ class Api:
             if value not in ("", "screen", "screen_sound") and not (value.startswith("preset:")
                                                     and value[7:] in self._app.manager.preset_names()):
                 raise ValueError("Choose a look from the list")
+        if key == "screen_display":   # "" (main), "auto" or a display's device name, e.g. \\.\DISPLAY2
+            value = str(value or "")
+            if value not in ("", "auto") and not re.fullmatch(r"\\\\\.\\DISPLAY\d{1,3}", value):
+                raise ValueError("Choose a display from the list")
         if key == "auto_call":   # "" or "preset:<name>"
             value = str(value or "")
             if value and not (value.startswith("preset:") and value[7:] in self._app.manager.preset_names()):
@@ -407,6 +411,19 @@ class Api:
         self._app.config.save_soon()
         if key == "hotkeys":
             self._app.hotkeys.set_enabled(bool(value))
+
+    @_safe
+    def list_displays(self):
+        """The choices for what Screen sync follows (Color & effects): the main display, each other
+        display by number and size, and "where the game or video is". `current` is the saved choice,
+        `using` the name of the display being followed now, `note` says when the chosen one is gone."""
+        setting = self._app.config["settings"].get("screen_display") or ""
+        sampler, monitors = self._m.engine.screen, screen.list_monitors()
+        if sampler.running() and sampler.choice.monitor:   # what it follows right now ("auto" holds a display a while)
+            choice = sampler.choice
+        else:
+            choice = screen.choose(setting, monitors, screen.full_screen_device() if setting == "auto" else None)
+        return screen.describe(setting, monitors, choice)
 
     @_safe
     def install_update(self):

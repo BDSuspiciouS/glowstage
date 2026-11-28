@@ -27,7 +27,7 @@ class Effects(unittest.TestCase):
             self.assertNotEqual(self.frame(fx, (0.0, 0.3, "front")), self.frame(fx, (0.7, 1.0, "front")), fx)
 
     def test_only_these_flow(self):
-        self.assertEqual({e.id for e in EFFECTS.values() if e.flows}, set(FLOWING))
+        self.assertEqual({e.id for e in EFFECTS.values() if e.flows}, set(FLOWING) | {"pc_load", "gradient"})   # (tested in test_load, test_gradient)
 
     def test_the_comet_travels_from_light_to_light(self):
         left, right = (0.0, 0.3, "front"), (0.7, 1.0, "front")

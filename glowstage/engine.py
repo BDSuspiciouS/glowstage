@@ -12,6 +12,7 @@ from .colors import scale
 from .effects import EFFECTS, GAME_EFFECTS, HEARING_EFFECTS, SCREEN_EFFECTS
 from .genre import DiscogsDetector
 from .keys import KeyWatcher
+from .load import LoadWatcher
 from .screen import ScreenSampler
 from .show import SLOW_FPS, ShowDirector, stage_spans
 
@@ -20,13 +21,21 @@ log = logging.getLogger(__name__)
 SHOW_FPS = 50   # the light show's chases need more frames than the other effects
 
 
+def is_gpu(dev) -> bool:
+    """A light that is the graphics card: the ASRock card, or an OpenRGB device of type GPU."""
+    if dev.kind == "asrock_gpu":
+        return True
+    return getattr(getattr(getattr(dev, "_dev", None), "type", None), "name", "") == "GPU"
+
+
 class EffectEngine:
     def __init__(self, manager, fps: int = 30):
         self.manager = manager
         self.fps = fps
-        self.screen = ScreenSampler()
+        self.screen = ScreenSampler(display=lambda: manager.config["settings"].get("screen_display") or "")
         self.audio = AudioAnalyzer()
         self.keys = KeyWatcher()
+        self.load = LoadWatcher()
         self.show = ShowDirector(DiscogsDetector(self.audio))
         self.show_active = False
         self._epoch = time.monotonic()
@@ -105,6 +114,8 @@ class EffectEngine:
             ctx["game"] = self.manager.games.cs2.snapshot(now)
         if any(st.effect == "typing" for _, st in targets):
             ctx["keys"] = self.keys.recent(now)
+        if any(st.effect == "pc_load" for _, st in targets):
+            ctx["load"] = self.load.request(now)
         if any(st.effect in HEARING_EFFECTS for _, st in targets):
             heard = self.audio.request()  # one snapshot per frame keeps every light on the same beat
             sync = self.manager.show_sync()["ms"] / 1000
@@ -127,6 +138,7 @@ class EffectEngine:
                 continue
             ctx["span"] = spans.get(dev.id, (0.0, 1.0, "front"))
             ctx["fixture"] = getattr(dev, "fixture", None)
+            ctx["gpu"] = is_gpu(dev)
             ctx["slow"] = slow
             effect = EFFECTS.get(st.effect) or EFFECTS["rainbow"]
             colors = effect.render(t, dev.pixel_count, st, self._mem.setdefault((dev.id, effect.id), {}), ctx)

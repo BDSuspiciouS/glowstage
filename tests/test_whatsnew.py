@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from glowstage import whatsnew
@@ -26,6 +27,31 @@ class WhatsNew(unittest.TestCase):
 
     def test_a_version_without_notes(self):
         self.assertIsNone(whatsnew.card({"setup_done": True}, "0.0.1"))
+
+    def test_a_skipped_version_is_on_the_card_too(self):
+        notes = {"0.9.7": [{"title": "Old", "go": "search", "text": "a"}],
+                 "0.9.8": [{"title": "New", "go": "sleep", "text": "b"}],
+                 "0.9.10": [{"title": "Later", "go": "sleep", "text": "c"}]}
+        with mock.patch.object(whatsnew, "NOTES", notes):
+            card = whatsnew.card({"setup_done": True, "seen_version": "0.9.6"}, "0.9.8")
+            self.assertEqual([it["title"] for it in card["items"]], ["New", "Old"])   # newest first
+            self.assertEqual(card["since"], "0.9.6")
+            card = whatsnew.card({"setup_done": True, "seen_version": "0.9.7"}, "0.9.8")
+            self.assertEqual([it["title"] for it in card["items"]], ["New"])
+            self.assertNotIn("since", card)
+            card = whatsnew.card({"setup_done": True, "seen_version": "0.9.8"}, "0.9.10")   # 10 > 8
+            self.assertEqual([it["title"] for it in card["items"]], ["Later"])
+
+    def test_the_card_stays_short(self):
+        notes = {v: [{"title": f"{v}-{i}", "go": "sleep", "text": "x"} for i in range(5)] for v in ("0.9.7", "0.9.8")}
+        with mock.patch.object(whatsnew, "NOTES", notes):
+            card = whatsnew.card({"setup_done": True, "seen_version": "0.9.6"}, "0.9.8")
+        self.assertEqual(len(card["items"]), whatsnew.LIMIT)
+        self.assertEqual(card["items"][0]["title"], "0.9.8-0")
+
+    def test_the_running_version_has_notes(self):
+        from glowstage.paths import VERSION
+        self.assertIn(VERSION, whatsnew.NOTES)
 
     def test_every_line_goes_somewhere_real(self):
         for version, items in whatsnew.NOTES.items():

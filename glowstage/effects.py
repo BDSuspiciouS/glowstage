@@ -105,6 +105,64 @@ class Wave(Effect):
         return [lerp(a, b, (math.sin(2 * math.pi * (u - shift)) + 1) / 2) for u in _places(n, ctx)]
 
 
+# OKLab (Björn Ottosson, 2020): a color space where equal steps look equal. A gradient goes
+# from one color to the other through the hues between them on the color wheel (the shorter
+# way round), with lightness and colorfulness changing evenly: red to blue passes a clear
+# magenta, not the dark, muddy purple a blend of the RGB numbers gives, and not the grey that
+# a straight line through OKLab gives between colors far apart on the wheel.
+_LMS = np.array([[0.4122214708, 0.5363325363, 0.0514459929],
+                 [0.2119034982, 0.6806995451, 0.1073969566],
+                 [0.0883024619, 0.2817188376, 0.6299787005]])
+_LAB = np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                 [1.9779984951, -2.4285922050, 0.4505937099],
+                 [0.0259040371, 0.7827717662, -0.8086757660]])
+_LMS_INV, _LAB_INV = np.linalg.inv(_LMS), np.linalg.inv(_LAB)
+GREY = 0.02     # colorfulness below which a color (white, grey, black) has no hue of its own
+
+
+def _oklch(rgb: RGB) -> tuple[float, float, float]:
+    c = np.array(rgb, float) / 255
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    lab = _LAB @ np.cbrt(_LMS @ lin)
+    return float(lab[0]), float(np.hypot(lab[1], lab[2])), float(np.arctan2(lab[2], lab[1]))
+
+
+def blend(a: RGB, b: RGB, u) -> np.ndarray:
+    """Colors from a (u = 0) to b (u = 1) as an (n, 3) array of 0..255 (see OKLab above)."""
+    u = np.clip(np.asarray(u, float), 0.0, 1.0)
+    (la, ca, ha), (lb, cb, hb) = _oklch(a), _oklch(b)
+    if ca < GREY:           # white to red: only the red has a hue, so the white takes it on
+        ha = hb
+    if cb < GREY:
+        hb = ha
+    dh = (hb - ha + math.pi) % (2 * math.pi) - math.pi
+    lum, chroma, hue = la + (lb - la) * u, ca + (cb - ca) * u, ha + dh * u
+    lab = np.stack([lum, chroma * np.cos(hue), chroma * np.sin(hue)], axis=1)
+    lin = np.clip((lab @ _LAB_INV.T) ** 3 @ _LMS_INV.T, 0.0, 1.0)
+    return np.rint(np.where(lin <= 0.0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - 0.055) * 255)
+
+
+class Gradient(Effect):
+    """A still blend from the first color to the second along each light; with Flow one blend
+    across the whole stage, every light taking the part where it stands (a bulb its one color).
+    It doesn't move, so a light's colors are worked out once and kept until something changes."""
+    id, name = "gradient", "Gradient"
+    uses = ("color", "color2")
+    flows = True
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        if ctx.get("flow"):
+            places = tuple(_places(n, ctx))
+        else:   # end to end: the last LED is the second color (a bulb takes the first)
+            places = tuple(i / (n - 1) for i in range(n)) if n > 1 else (0.0,)
+        key = (st.color, st.color2, places)
+        if mem.get("key") != key:
+            mem["key"], mem["colors"] = key, _rgb(blend(hex_to_rgb(st.color), hex_to_rgb(st.color2), places))
+        return mem["colors"]
+
+
 class Comet(Effect):
     id, name = "comet", "Comet"
     uses = ("speed", "color", "color2")
@@ -197,6 +255,42 @@ class Typing(Effect):
             level += glow + ring
         level = np.clip(level, 0.0, 1.0)[:, None]
         out = bg + (color - bg) * level
+        return [(int(r), int(g), int(b)) for r, g, b in out]
+
+
+class PcLoad(Effect):
+    """How busy the PC is, as a bar along each light: filled up to the load, from the first color
+    (idle) towards the second (busy) as the load rises; the rest glows dimly in the first color.
+    With "Flow across all lights" one bar runs across the whole stage. The graphics card (ctx["gpu"])
+    shows its own load, every other light the processor's. Loads from load.py."""
+    id, name = "pc_load", "PC load"
+    uses = ("color", "color2")
+    flows = True
+    GLIDE = 0.15        # seconds: the bar settles on a new load in ~0.4 s, so it never jitters
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        cpu, gpu = ctx.get("load") or (None, None)
+        target = gpu if ctx.get("gpu") and gpu is not None else cpu
+        target = min(1.0, max(0.0, target or 0.0))
+        level = mem.get("level")
+        if level is None:
+            level = target
+        else:
+            level += (target - level) * (1 - math.exp(-max(0.0, t - mem.get("t", t)) / self.GLIDE))
+        mem["level"], mem["t"] = level, t
+        idle, busy = hex_to_rgb(st.color), hex_to_rgb(st.color2)
+        fill, dim = lerp(idle, busy, level), scale(idle, 0.12)
+        if ctx.get("flow"):                 # the bar spans the stage; each LED is a slice of it
+            start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+            width = (end - start) / n
+            cover = [(level - (start + i * width)) / width for i in range(n)]
+        else:
+            cover = [level * n - i for i in range(n)]
+        out = []
+        for c in cover:                     # the LED at the bar's tip is only partly lit
+            out.append(lerp(dim, fill, min(1.0, max(0.0, c))))
         return [(int(r), int(g), int(b)) for r, g, b in out]
 
 
@@ -684,7 +778,8 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Comet(), Twinkle(), Fire(), Aurora(), Typing(), Daylight(), Screen(), ScreenSound(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Typing(), PcLoad(), Daylight(),
+    Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),
 )}

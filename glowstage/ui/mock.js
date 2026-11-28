@@ -6,8 +6,9 @@
     effect: "rainbow", speed: 50, native: null, palette: null, ...o });
   const effects = [["rainbow", "Rainbow wave", ["speed"]], ["spectrum", "Spectrum cycle", ["speed"]],
     ["breathing", "Breathing", ["speed", "color", "color2"]], ["wave", "Color wave", ["speed", "color", "color2"]],
+    ["gradient", "Gradient", ["color", "color2"]],
     ["comet", "Comet", ["speed", "color", "color2"]], ["twinkle", "Starlight", ["speed", "color", "color2"]],
-    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
+    ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
     ["music_show", "Light show", ["speed"], "music"],
     ["music_party", "Party", ["speed"], "music"], ["music_ripple", "Bass ripple", ["speed"], "music"],
     ["music_spectrum", "Spectrum", ["speed"], "music"], ["music_pulse", "Beat pulse", ["speed", "color", "color2"], "music"],
@@ -17,7 +18,7 @@
     ["music_fire", "Music fire", ["speed"], "music"], ["music_aurora", "Northern lights", ["speed"], "music"],
     ["music_heart", "Heartbeat", ["speed", "color", "color2"], "music"]]
     .map(([id, name, uses, group]) => ({ id, name, uses, group: group || "animation",
-      flows: ["rainbow", "spectrum", "breathing", "wave", "comet", "aurora"].includes(id) }));
+      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "pc_load"].includes(id) }));
   const zones = [{ index: 0, name: "Pump", leds: 29, min: 29, max: 29, resizable: false, detected: -1 },
     ...[1, 2, 3, 4, 5, 6].map(i => ({ index: i, name: `Corsair Fan Header ${i}`, leds: i <= 3 ? 8 : 0, min: 0, max: 34,
       resizable: true, detected: i <= 3 ? 8 : null }))];
@@ -30,7 +31,7 @@
       { time: "01:00", days: [0, 1, 2, 3, 6], action: "off", enabled: true }],
     hotkeysTaken: [],
     update: /[?&]update\b/.test(location.search)
-      ? { version: "0.9.8", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.8" } : null,
+      ? { version: "0.9.9", url: "https://github.com/BDSuspiciouS/glowstage/releases/tag/v0.9.9" } : null,
     askSupport: /[?&]support\b/.test(location.search),
     offlineAge: OFFLINE ? 120 : 0,   // with ?offline the lights count as already gone for two minutes
     activePreset: "",
@@ -79,7 +80,7 @@
       "openrgb:QCK": { start: 0.91, end: 1, layer: "front", custom: false },
       "nanoleaf:1": { start: 0, end: 1, layer: "back", custom: false }, "hue:001788:3": { start: 0, end: 1, layer: "back", custom: false },
     },
-    about: { name: "Glowstage", version: "0.9.7", repo: "https://github.com/example/glowstage",
+    about: { name: "Glowstage", version: "0.9.8", repo: "https://github.com/example/glowstage",
       donate: [{ name: "GitHub Sponsors", url: "https://github.com/sponsors/example" }, { name: "Card or iDEAL", url: "https://buy.stripe.com/example" }, { name: "PayPal", url: "https://paypal.me/example" }] },
     openrgb: { status: "connected", message: "Connected · 2 devices", path: "C:\\Program Files\\Glowstage\\tools\\OpenRGB\\OpenRGB.exe",
       bundled: true, elevated: false, pawnio: true, autoLaunch: true, install: { state: "idle", progress: 0, message: "", version: "1.1" } },
@@ -120,15 +121,13 @@
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
     auto: (location.search.match(/[?&]auto=(cs2|call|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
-    whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.7", items: [
-      { title: "Quick search", go: "search", text: "Press Ctrl+K and type a few letters: switch on a preset, open a light, jump to any setting. Press ? for every shortcut." },
-      { title: "Phone remote", go: "setup:phone", text: "Scan a code and control every light from your phone, on the same Wi-Fi." },
-      { title: "Wake up with a sunrise", go: "setup:schedule", text: "Your room's lights come up slowly before you get up, and schedules can follow sunset all year." },
-      { title: "Screen + sound", go: "setup:automatic", text: "In any game your lights follow the screen and flash with every shot or explosion, on the side it came from." },
-      { title: "Typing ripples", go: "effect:typing", text: "Every key you press lights up and sends a ripple across your keyboard." },
-      { title: "A look per app, and for calls", go: "setup:automatic", text: "Focus while Photoshop is open, a soft light while you're on a call: back to your own look afterwards." },
-      { title: "Backups", go: "setup:backups", text: "A copy of your presets and settings for each day, and a file to take them to another PC." }] } : null,
-    remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "" } : { on: false, url: "", error: "" },
+    whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
+      { title: "PC load", go: "effect:pc_load", text: "Your lights fill up like a bar as your PC gets busy, and the graphics card shows its own load." },
+      { title: "Gradient", go: "effect:gradient", text: "Two colors blended along each light, through the colors between them, or one blend across your whole setup." },
+      { title: "Use from other apps", go: "setup:phone", text: "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link." },
+      { title: "Screen sync on any display", go: "effect:screen", text: "Follow your main display, another one, or the one where your game or video is full screen." }] } : null,
+    remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
+      api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
     wake: /[?&]wake/.test(location.search) ? { until: Date.now() / 1000 + 900, minutes: 30 } : null,
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
@@ -150,7 +149,8 @@
     const c = pal[Math.floor(beat / 4) % 3], pump = Math.exp(-(beat % 1) * 3);
     const out = {};
     for (const d of data.devices) {
-      if (!d.online || !d.state.on || d.state.mode !== "effect") continue;
+      // (only the music looks are simulated here; the rest show their own colors)
+      if (!d.online || !d.state.on || d.state.mode !== "effect" || !d.state.effect.startsWith("music")) continue;
       const s = data.stage[d.id] || { start: 0, end: 1, layer: "front" }, n = Math.min(24, Math.max(1, d.pixels));
       out[d.id] = Array.from({ length: n }, (_, i) => {
         let v;
@@ -176,6 +176,11 @@
     add_device: () => ok(), rename: () => ok(), set_hidden: () => ok(), forget: () => ok(), identify: () => ok(), resize_zone: () => ok(),
     openrgb_restart: () => ok(), openrgb_stop: () => ok(), set_openrgb_option: () => ok(),
     remember_color: c => { const l = data.settings.recent_colors; data.settings.recent_colors = [c.toLowerCase(), ...l.filter(x => x !== c.toLowerCase())].slice(0, 8); data.revision++; return ok(); },
+    list_displays: () => { const cur = data.settings.screen_display || ""; return ok({ count: 2, current: cur,
+      options: [{ id: "", name: "Main display", primary: true }, { id: "\\\\.\\DISPLAY2", name: "Right display · 2560 × 1440", primary: false },
+        { id: "auto", name: "Where the game or video is", primary: false }],
+      using: cur === "\\\\.\\DISPLAY2" ? { id: cur, name: "Right display · 2560 × 1440" } : { id: "\\\\.\\DISPLAY1", name: "Main display" },
+      note: "" }); },
     set_setting: (k, v) => { data.settings[k] = v; data.revision++; return ok(); },
     stop_automation: () => { data.auto = null; data.revision++; return ok(); },
     start_sleep_timer: minutes => { const now = Date.now() / 1000; data.sleep = { started: now, until: now + minutes * 60, lights: 7 }; return ok(); },
@@ -191,7 +196,7 @@
       data.presets.splice(i + 1, 0, { ...data.presets[i], name: n }); data.revision++; return ok(n); },
     nudge_brightness: delta => { for (const d of data.devices) if (d.state.on) d.state.brightness = Math.max(1, Math.min(100, d.state.brightness + delta));
       data.revision++; return ok(); },
-    diagnostics: () => ok("Glowstage 0.9.7 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off, schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
+    diagnostics: () => ok("Glowstage 0.9.8 (app) on Windows 11 (build 26300)\nLights: 8 (7 answering)\n- Commander Core (openrgb, pc, 32 LEDs): answering\n- Graphics card (asrock_gpu, pc, 80 LEDs): answering\n- Shapes (nanoleaf, room, 9 LEDs): not answering: Not responding\nOpenRGB: running\nAutomatic: games preset:Gaming, videos off, music off, away off, apps 1, CS2 off\nAlso: phone remote off, hotkeys off, schedules 2, sound Headphones (WH-1000XM4)\nLast warnings in the log:\n2026-11-27 14:18:53,884 WARNING glowstage.manager: Shapes: Not responding"),
     report_problem: () => ok(),
     list_backups: () => ok(/[?&]nobackups\b/.test(location.search) ? [] : [
       { file: "config-2026-11-27-141203-before.json", saved: "2026-11-27T14:09", before: true, ok: true, presets: 39, lights: 13 },
