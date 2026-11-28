@@ -120,27 +120,31 @@
     audio: { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", sync: { ms: 200, auto: true } },
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: "Am in C" },
-    auto: (location.search.match(/[?&]auto=(cs2|call|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
+    auto: (location.search.match(/[?&]auto=(cs2|lol|call|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
     whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
-      { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo and your lights take its main colors, left to right as they stand." },
+      { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors." },
+      { title: "Focus timer", go: "focus", text: "Work for a while, then a short break: your room turns soft green, so you see it's time to get up." },
+      { title: "League of Legends", go: "setup:games", text: "Your team's color, your health across the lights, a flash for every kill, dragon and baron." },
       { title: "Presets in turn", go: "presets:turns", text: "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes." },
       { title: "Candle, Ocean, Lava lamp, Thunderstorm", go: "effect:storm", text: "Four calm looks for the evening. The storm never flashes more than three times a second." },
-      { title: "PC load", go: "effect:pc_load", text: "Your lights fill up like a bar as your PC gets busy, and the graphics card shows its own load." },
-      { title: "Gradient", go: "effect:gradient", text: "Two colors blended along each light, through the colors between them, or one blend across your whole setup." },
-      { title: "Use from other apps", go: "setup:phone", text: "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link." },
-      { title: "Screen sync on any display", go: "effect:screen", text: "Follow your main display, another one, or the one where your game or video is full screen." }] } : null,
+      { title: "PC load and Gradient", go: "effect:pc_load", text: "Your lights fill up like a bar as your PC gets busy, or blend two colors across your setup." },
+      { title: "Use from other apps", go: "setup:phone", text: "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link." }] } : null,
     remote: /[?&]phone/.test(location.search) ? { on: true, url: "http://192.168.178.23:52341/?k=q7Jd0aXv3K_bS9mPwE2yTg", error: "",
       api: "http://192.168.178.23:52341/do", key: "q7Jd0aXv3K_bS9mPwE2yTg" } : { on: false, url: "", error: "", api: "", key: "" },
     sleep: /[?&]sleep/.test(location.search) ? { started: Date.now() / 1000 - 300, until: Date.now() / 1000 + 1500, lights: 7 } : null,
     cycle: /[?&]cycle/.test(location.search) ? { names: ["Cozy", "Reading", "Late night"], minutes: 10, shuffle: false,
       now: "Cozy", next: "Reading", at: Date.now() / 1000 + 600 } : null,
+    focus: /[?&]focus/.test(location.search) ? { phase: "work", round: 2, rounds: 4, work: 25, rest: 5, look: "Focus", at: Date.now() / 1000 + 18 * 60 } : null,
+    wallpaper: /[?&]wallpaper/.test(location.search) ? { since: Date.now() / 1000 - 120 } : null,
     wake: /[?&]wake/.test(location.search) ? { until: Date.now() / 1000 + 900, minutes: 30 } : null,
     sun: { place: "Netherlands", sunrise: "08:18", sunset: "16:31", phase: "golden hour", kelvin: 3640, level: 0.9 },
     updateResult: (location.search.match(/[?&]result=(updated|update-failed)/) || [])[1] || "",
     recovered: /[?&]recovered\b/.test(location.search) ? "2026-11-26" : "",
     games: { cs2: { found: true, connected: /[?&]cs2\b/.test(location.search), fileThere: true, receiving: /[?&]cs2\b/.test(location.search),
-      inMatch: /[?&]cs2\b/.test(location.search), team: "CT", health: 87 } },
+      inMatch: /[?&]cs2\b/.test(location.search), team: "CT", health: 87 },
+      lol: { on: /[?&]lol\b/.test(location.search), receiving: /[?&]lol\b/.test(location.search),
+        inMatch: /[?&]lol\b/.test(location.search), team: "ORDER", health: 72 } },
     settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "",
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
@@ -171,7 +175,15 @@
     return out;
   };
   window.pywebview = { api: {
-    get_state: () => ok(JSON.parse(JSON.stringify(data))),
+    get_state: () => { const state = JSON.parse(JSON.stringify(data)), f = state.focus;
+      if (f) {   // (what focus.py's describe() says: the minutes left count down here too)
+        const left = Math.max(1, Math.ceil((f.at - Date.now() / 1000) / 60));
+        f.left = left;
+        f.label = f.phase === "work" ? `Focus · ${left} min left` + (f.rounds > 1 ? ` · round ${f.round} of ${f.rounds}` : "") : `Break · ${left} min left`;
+        f.text = f.phase === "break" ? "Your lights go back to your work light when it's over."
+          : f.round >= f.rounds ? "Then your lights go back to how they were." : `Then a break of ${f.rest} minutes: your lights turn soft green.`;
+      }
+      return ok(state); },
     update: (ids, patch) => {
       for (const d of data.devices) if (!ids || ids.includes(d.id)) Object.assign(d.state, patch);
       return ok();
@@ -195,6 +207,15 @@
       data.activePreset = names[0]; data.cycle = { names, minutes, shuffle, now: names[0], next: names[1], at: Date.now() / 1000 + minutes * 60 };
       data.settings.cycle_last = { names, minutes, shuffle }; data.revision++; return ok(); },
     stop_cycle: () => { data.cycle = null; data.revision++; return ok(); },
+    start_focus: (work, rest, rounds, look) => { const now = Date.now() / 1000;
+      data.focus = { phase: "work", round: 1, rounds, work, rest, look, at: now + work * 60 };
+      if (look) data.activePreset = look;
+      data.settings.focus_last = { work, rest, rounds, look }; data.revision++; return ok(); },
+    skip_focus: () => { const f = data.focus; if (!f) return ok(); const now = Date.now() / 1000;
+      if (f.phase === "work") { if (f.round >= f.rounds) data.focus = null; else { f.phase = "break"; f.at = now + f.rest * 60; } }
+      else { f.phase = "work"; f.round++; f.at = now + f.work * 60; }
+      data.revision++; return ok(); },
+    stop_focus: () => { data.focus = null; data.revision++; return ok(); },
     cancel_wake: () => { data.wake = null; return ok(); },
     whats_new_seen: () => { data.whatsNew = null; return ok(); },
     undo: () => ok(),
@@ -217,6 +238,9 @@
     export_settings: () => ok("Glowstage settings 2026-11-27.json"),
     pick_settings_file: () => ok({ file: "Glowstage settings 2026-11-20.json", saved: "2026-11-20T18:30", before: false, ok: true, presets: 31, lights: 11 }),
     load_settings_file: () => ok(),
+    colors_from_wallpaper: () => window.pywebview.api.colors_from_picture().then(r => ({ ...r, result: { ...r.result, name: "My wallpaper" } })),
+    start_wallpaper_follow: () => { data.wallpaper = { since: Date.now() / 1000 }; data.revision++; return ok(); },
+    stop_wallpaper_follow: () => { data.wallpaper = null; data.revision++; return ok(); },
     pick_picture: () => ok("C:\\Users\\You\\Pictures\\sunset_over_the_bay.jpg"),
     colors_from_picture: () => {
       const colors = ["#ff5a1f", "#ff2e63", "#c11fd6", "#3b5bff", "#1fd2c8"];
@@ -242,6 +266,7 @@
       tick(); return ok();
     },
     games_connect: () => { Object.assign(data.games.cs2, { connected: true }); data.revision++; return ok(); },
+    games_lol: on => { Object.assign(data.games.lol, { on: !!on, receiving: !!on && /[?&]lol\b/.test(location.search), inMatch: !!on && /[?&]lol\b/.test(location.search) }); data.revision++; return ok(); },
     games_disconnect: () => { Object.assign(data.games.cs2, { connected: false, receiving: false, inMatch: false }); data.revision++; return ok(); },
     hide_window: () => ok(),
     get_live: () => ok(live()),

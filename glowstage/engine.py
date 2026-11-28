@@ -110,8 +110,10 @@ class EffectEngine:
         if screen:
             ctx["screen"] = self.screen.request()
         game = any(st.effect in GAME_EFFECTS for _, st in targets)
-        if game:
+        if any(st.effect == "game_cs2" for _, st in targets):
             ctx["game"] = self.manager.games.cs2.snapshot(now)
+        if any(st.effect == "game_lol" for _, st in targets):
+            ctx["lol"] = self.manager.games.lol.snapshot(now)
         if any(st.effect == "typing" for _, st in targets):
             ctx["keys"] = self.keys.recent(now)
         if any(st.effect == "pc_load" for _, st in targets):

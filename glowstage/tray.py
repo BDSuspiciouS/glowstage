@@ -159,6 +159,12 @@ class Tray:
         yield MenuItem("Sleep timer", Menu(*self._sleep_items()))
         if m.cycle.active:
             yield MenuItem("Stop presets in turn", lambda: m.cycle.cancel())
+        if m.focus.active:
+            yield MenuItem("Stop focus timer", lambda: m.focus.cancel())
+        else:
+            yield MenuItem("Start focus timer", self._focus_start)
+        if m.wallpaper.active:
+            yield MenuItem("Stop following my wallpaper", lambda: m.wallpaper.cancel())
         yield MenuItem("Undo", lambda: m.undo(), enabled=lambda item: m.can_undo())
         yield Menu.SEPARATOR
         yield MenuItem(f"Restart {APP_NAME}", lambda: self.app.restart())
@@ -201,6 +207,15 @@ class Tray:
             except ValueError:
                 pass   # no lights on: nothing to fade
         return start
+
+    def _focus_start(self) -> None:
+        """The focus timer with the choice you made last time."""
+        m = self.app.manager
+        try:
+            m.remember()
+            m.focus.start_last()
+        except ValueError:
+            pass   # no lights on: nothing to show a break with
 
     def _preset_action(self, name: str):
         m = self.app.manager

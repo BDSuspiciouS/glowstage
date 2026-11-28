@@ -107,7 +107,7 @@ class StormTest(unittest.TestCase):
         self.assertLess(slow, fast)
 
     def test_dim_between_strikes(self):
-        a = frames("storm", 120, n=12)
+        a = frames("storm", 120, n=12, mem={"seed": 7})            # (one known storm: a run's own may have only far strikes)
         bright = a.max(axis=(1, 2))
         self.assertGreater(bright.max(), 200)
         self.assertLess(np.median(bright), 60)

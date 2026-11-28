@@ -45,5 +45,46 @@ class SlowDisk(unittest.TestCase):
         self.assertFalse(self.g.describe()["cs2"]["fileThere"])
 
 
+
+class SlowOpenRGBFolder(unittest.TestCase):
+    """The window asks where OpenRGB.exe is every second: a slow folder must not hold it up."""
+
+    def setUp(self):
+        from glowstage.devices import openrgb_dev
+        self.mod = openrgb_dev
+        self.p = openrgb_dev.OpenRGBProvider({}, lambda: None)
+        self.looks = 0
+        self.p.exe_path = self.slow_exe
+
+    def slow_exe(self):
+        self.looks += 1
+        time.sleep(0.5)
+        return Path("C:/OpenRGB/OpenRGB.exe")
+
+    def test_the_answer_is_kept(self):
+        self.assertEqual(self.p.found()[0], Path("C:/OpenRGB/OpenRGB.exe"))   # (the first time: looked up)
+        started = time.monotonic()
+        for _ in range(5):
+            self.p.found()
+        self.assertLess(time.monotonic() - started, 0.1)
+        self.assertEqual(self.looks, 1)
+
+    def test_an_old_answer_is_renewed_in_the_background(self):
+        self.p.found()
+        at, key, exe, bundled = self.p._found
+        self.p._found = (at - self.mod.FIND_EVERY - 1, key, exe, bundled)
+        started = time.monotonic()
+        self.p.found()
+        self.assertLess(time.monotonic() - started, 0.1)
+        time.sleep(0.8)
+        self.assertEqual(self.looks, 2)
+
+    def test_a_path_you_set_counts_at_once(self):
+        self.p.found()
+        self.p.settings["path"] = "D:/Tools/OpenRGB.exe"
+        self.p.found()
+        self.assertEqual(self.looks, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

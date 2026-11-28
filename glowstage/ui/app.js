@@ -252,6 +252,7 @@ const dismissedUpdate = () => { try { return localStorage.getItem("glowstage.upd
 const AUTO_NOTES = {
   call: { icon: "spark", title: "You're on a call", text: "Your lights changed for it by themselves and go back when the call ends." },
   cs2: { icon: "spark", title: "Counter-Strike 2 is on", text: "Your lights play along with the match and go back when you leave it." },
+  lol: { icon: "spark", title: "League of Legends is on", text: "Your lights play along with the match and go back when you leave it." },
   game: { icon: "spark", title: "A game is full screen", text: "Your lights changed for it by themselves and go back when you leave the game." },
   video: { icon: "spark", title: "A video is full screen", text: "Your lights changed for it by themselves and go back when the video closes." },
   music: { icon: "show", title: "Music is playing", text: "The light show started by itself. Your lights go back 30 seconds after the music stops." },
@@ -330,9 +331,10 @@ function renderHomeNotes() {
   const sleep = S.data.sleep;
   const wake = S.data.wake;
   const cycle = S.data.cycle;
+  const focus = S.data.focus;
   const news = !S.newsClosed && S.data.whatsNew;
   const sig = JSON.stringify([showUpdate && up, showSupport, S.data.auto, upd.state, Math.round((upd.progress || 0) * 50), upd.message,
-    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
+    sleep && sleep.until, wake && wake.until, cycle && [cycle.now, cycle.next, cycle.at], focus && [focus.phase, focus.label, focus.text], !!S.data.wallpaper, news && news.version, showOff && gone.map(d => [d.id, d.name, d.error]), S.offChecking]);
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   fill(host,
@@ -349,6 +351,18 @@ function renderHomeNotes() {
         h("span", { class: "muted", text: `${cycle.next ? cycle.next + " next, at " : "Next one at "}${clockTime(cycle.at)}. If you change a light yourself, it stops.` })),
       h("div", { class: "note-actions" },
         h("button", { class: "btn", type: "button", text: "Stop", onclick: stopCycle }))) : null,
+    focus ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("timer")),
+      h("div", { class: "note-text" }, h("strong", { text: focus.label }), h("span", { class: "muted", text: focus.text })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Skip", onclick: skipFocus }),
+        h("button", { class: "btn", type: "button", text: "Stop", onclick: stopFocus }))) : null,
+    S.data.wallpaper ? h("div", { class: "note card", role: "status" },
+      h("span", { class: "note-icon" }, icon("palette")),
+      h("div", { class: "note-text" }, h("strong", { text: "Following your wallpaper" }),
+        h("span", { class: "muted", text: "Your lights take its colors when it changes. If you change a light yourself, it stops." })),
+      h("div", { class: "note-actions" },
+        h("button", { class: "btn", type: "button", text: "Stop", onclick: stopWallpaperFollow }))) : null,
     sleep ? h("div", { class: "note card", role: "status" },
       h("span", { class: "note-icon" }, icon("moon")),
       h("div", { class: "note-text" }, h("strong", { text: `Lights off at ${clockTime(sleep.until)}` }),
@@ -407,6 +421,7 @@ function renderHomeNotes() {
 /** "Show me" on the what's-new card: open the new thing. */
 function showNew(where) {
   if (where === "sleep") return openSleepTimer();
+  if (where === "focus") return openFocus();
   if (where === "search") return openSearch();
   if (where.startsWith("setup:")) {
     go("setup");
@@ -510,8 +525,53 @@ function openCycle() {
   setTimeout(() => { const first = boxes.values().next().value; if (first) first.focus(); }, 30);
 }
 
+async function stopWallpaperFollow() {
+  await call("stop_wallpaper_follow"); toast("No longer following your wallpaper: your lights stay as they are"); refresh(true);
+}
+
 async function stopCycle() {
   await call("stop_cycle"); toast("Presets in turn stopped: your lights stay as they are"); refresh(true);
+}
+
+/** Home → Focus timer: work for a while, then a break you see in your lights, a few rounds (focus.py). */
+function openFocus() {
+  const d = S.data, presets = d.presets || [], running = d.focus;
+  const last = (d.settings || {}).focus_last || {};
+  const have = new Set(presets.map(p => p.name));
+  const pick = (running ? running.look : last.look !== undefined ? last.look : have.has("Focus") ? "Focus" : "") || "";
+  const choose = (id, label, options, value) => {
+    const select = h("select", { id, "aria-label": label }, options.map(([v, t]) => h("option", { value: String(v), text: t, selected: v === value })));
+    return [h("label", { class: "field-label", for: id, text: label }), select];
+  };
+  const [workLabel, work] = choose("focus-work", "Work", [15, 25, 45, 50].map(m => [m, `${m} minutes`]), (running ? running.work : last.work) || 25);
+  const [restLabel, rest] = choose("focus-rest", "Break", [5, 10, 15].map(m => [m, `${m} minutes`]), (running ? running.rest : last.rest) || 5);
+  const [roundsLabel, rounds] = choose("focus-rounds", "Rounds", [1, 2, 3, 4, 5, 6, 7, 8].map(n => [n, String(n)]), (running ? running.rounds : last.rounds) || 4);
+  const [lookLabel, look] = choose("focus-look", "Work light", [["", "Keep my lights"], ...presets.map(p => [p.name, p.name])], have.has(pick) ? pick : "");
+  openModal({
+    title: "Focus timer",
+    body: h("div", {},
+      h("p", { class: "hint", text: running
+        ? `Running now: ${running.label}. Starting again begins with the first round.`
+        : "Work for a while, then a short break. In the break your lights turn soft green, so you see it without a sound. Afterwards they go back." }),
+      h("div", { class: "focus-grid" }, workLabel, work, restLabel, rest, roundsLabel, rounds, lookLabel, look)),
+    ok: "Start",
+    onOk: async () => {
+      const r = await callRaw("start_focus", +work.value, +rest.value, +rounds.value, look.value);
+      if (!r || r.ok === false) return (r && r.error) || "Couldn't start";
+      toast(`Focus timer started: ${work.value} minutes of work, then a break`);
+      refresh(true);
+      return true;
+    },
+  });
+  setTimeout(() => work.focus(), 30);
+}
+
+async function skipFocus() {
+  await call("skip_focus"); refresh(true);
+}
+
+async function stopFocus() {
+  await call("stop_focus"); toast("Focus timer stopped"); refresh(true);
 }
 
 function renderChrome() {
@@ -1045,31 +1105,72 @@ function openSavePreset() {
 
 /** "From a picture": a photo is chosen, the lights take its main colors (left to right as they stand
  *  on the stage) and a window shows what was found. Closing keeps the colors, with Undo. */
-async function fromPicture() {
+function fromPicture() {
+  if ($("#from-picture").disabled) return;
+  openModal({
+    title: "Colors from a picture",
+    body: h("div", {},
+      h("p", { class: "hint", text: "Your lights take the main colors of a picture, left to right as they stand." }),
+      h("p", { class: "hint", text: "Or use the picture on your desktop right now." }),
+      h("button", { class: "btn", type: "button", id: "use-wallpaper", text: "Use my wallpaper",
+        onclick: () => { closeModal(); fromWallpaper(); } })),
+    ok: "Choose a picture…",
+    onOk: () => { setTimeout(pickPicture, 0); return true; },
+  });
+}
+
+/** Run a read of colors with the button showing it is busy (the same for a file and the wallpaper). */
+async function readingColors(busyText, work) {
   const btn = $("#from-picture"), label = btn.lastChild;
-  if (btn.disabled) return;
   const idle = label.textContent;
-  const done = () => { btn.disabled = false; btn.removeAttribute("aria-busy"); label.textContent = idle; };
+  btn.disabled = true; btn.setAttribute("aria-busy", "true"); label.textContent = busyText;
+  const r = await work();
+  btn.disabled = false; btn.removeAttribute("aria-busy"); label.textContent = idle;
+  if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return; }
+  S.quietUntil = 0; refresh(true);
+  return r.result;
+}
+
+async function pickPicture() {
   const picked = await callRaw("pick_picture");
   if (!picked || picked.ok === false) { toast((picked && picked.error) || "That didn't work", true); return; }
   if (!picked.result) return;                              // (cancelled)
-  btn.disabled = true; btn.setAttribute("aria-busy", "true"); label.textContent = "Reading the picture…";
-  const r = await callRaw("colors_from_picture", picked.result);
-  done();
-  if (!r || r.ok === false) { toast((r && r.error) || "That didn't work", true); return; }
-  S.quietUntil = 0; refresh(true);
-  const { colors, name, thumb } = r.result;
+  const found = await readingColors("Reading the picture…", () => callRaw("colors_from_picture", picked.result));
+  if (found) showPictureColors(found, false);
+}
+
+async function fromWallpaper() {
+  const found = await readingColors("Reading your wallpaper…", () => callRaw("colors_from_wallpaper"));
+  if (found) showPictureColors(found, true);
+}
+
+/** What was found, in a window. For the wallpaper it offers to keep following it (wallpaper.py). */
+function showPictureColors({ colors, name, thumb }, isWallpaper) {
+  const what = isWallpaper ? "your wallpaper" : name;
+  let following = false;
+  const follow = isWallpaper ? h("input", { type: "checkbox", class: "switch", id: "follow-wallpaper", checked: false,
+    "aria-label": "Keep following my wallpaper",
+    onchange: async e => {
+      const box = e.target;
+      const r = await callRaw(box.checked ? "start_wallpaper_follow" : "stop_wallpaper_follow");
+      if (!r || r.ok === false) { box.checked = !box.checked; toast((r && r.error) || "That didn't work", true); return; }
+      following = box.checked; refresh(true);
+    } }) : null;
   const input = h("input", { class: "text-input", style: "width:100%", value: name, maxlength: "40", "aria-label": "Preset name" });
   let saved = false, replace = "";
   input.addEventListener("input", () => { replace = ""; $("#modal-ok").textContent = "Save as preset"; });
   openModal({
-    title: "Colors from your picture",
+    title: isWallpaper ? "Colors from your wallpaper" : "Colors from your picture",
     body: h("div", { class: "picture-colors" },
       h("div", { class: "pic-top" },
-        h("img", { class: "pic-thumb", src: thumb, alt: "Your picture" }),
+        h("img", { class: "pic-thumb", src: thumb, alt: isWallpaper ? "Your wallpaper" : "Your picture" }),
         h("div", { class: "pic-found" },
           h("div", { class: "pic-swatches" }, colors.map(c => h("span", { class: "pic-swatch", style: `background:${c}`, title: c, role: "img", "aria-label": c }))),
           h("p", { class: "hint", text: "Your lights show these colors now, left to right as they stand." }))),
+      follow ? h("label", { class: "check-row follow-row", for: "follow-wallpaper" },
+        h("span", { class: "check-text" }, h("span", { class: "check-name", text: "Keep following my wallpaper" }),
+          h("span", { class: "muted", text: "When it changes by itself, your lights take its new colors. If you change a light yourself, it stops." })),
+        follow) : null,
       h("label", { class: "field-label", text: "Preset name" }), input),
     ok: "Save as preset",
     cancelText: "Close",
@@ -1083,11 +1184,12 @@ async function fromPicture() {
       const s = await callRaw("save_preset", preset);
       if (!s || s.ok === false) return (s && s.error) || "That didn't work";
       saved = true;
+      if (following) await callRaw("start_wallpaper_follow");     // (saving makes the preset the one that is on: follow from there)
       toast(`Saved ${preset}`);
       refresh(true);
       return true;
     },
-    onClose: () => { if (!saved) undoable(`Your lights show the colors of ${name}`); },
+    onClose: () => { if (!saved) undoable(`Your lights show the colors of ${what}`); },
   });
   setTimeout(() => input.focus(), 30);
   input.addEventListener("keydown", e => { if (e.key === "Enter") $("#modal-ok").click(); });
@@ -1910,6 +2012,7 @@ function bindStatic() {
   $("#all-color").addEventListener("click", () => { S.selected = null; openSheet(); });
   $("#all-power").addEventListener("click", () => toggleStrip("__all"));
   $("#sleep-timer").addEventListener("click", openSleepTimer);
+  $("#focus-timer").addEventListener("click", openFocus);
   bindSlider($("#master-slider"), "__all", v => send(null, { brightness: v }, "bri:all"));
   $("#sheet-close").addEventListener("click", closeSheet);
   $("#sheet-power").addEventListener("click", () => {
@@ -2051,7 +2154,11 @@ function searchItems() {
   add(0, "Sleep timer", openSleepTimer);
   add(0, "Presets in turn", openCycle);
   if (d.cycle) add(0, "Stop presets in turn", stopCycle);
+  add(0, "Start a focus timer", openFocus);
+  if (d.focus) add(0, "Stop the focus timer", stopFocus);
+  if (d.wallpaper) add(0, "Stop following my wallpaper", stopWallpaperFollow);
   add(0, "Colors from a picture", fromPicture);
+  add(0, "Colors from my wallpaper", fromWallpaper);
   add(0, runningShow().length ? "Stop the light show" : "Start the light show", () => $("#show-start").click());
   // (the window can't ask the app whether there is something to undo: it knows what it just offered Undo for)
   if (d.canUndo === undefined ? S.undoReady : d.canUndo) add(0, "Undo", undoNow);

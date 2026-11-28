@@ -11,28 +11,29 @@ import re
 
 from .paths import VERSION
 
-# go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups), "effect:<id>"
-# (the effects panel, at that look), "sleep" (the sleep timer), "search" (the quick search),
-# "presets:<button>" (the Presets page, at that button: picture, turns).
-GOES = ("sleep", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups",
-        "presets:picture", "presets:turns")
+# go: "setup:<section>" (that part of Setup: automatic, phone, schedule, backups, games),
+# "effect:<id>" (the effects panel, at that look), "sleep" (the sleep timer), "focus" (the focus
+# timer), "search" (the quick search), "presets:<button>" (the Presets page, at that button:
+# picture, turns).
+GOES = ("sleep", "focus", "search", "setup:automatic", "setup:phone", "setup:schedule", "setup:backups",
+        "setup:games", "presets:picture", "presets:turns")
 
 NOTES: dict[str, list[dict]] = {
     "0.9.8": [
         {"title": "Colors from a picture", "go": "presets:picture",
-         "text": "Pick a photo and your lights take its main colors, left to right as they stand."},
+         "text": "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors."},
+        {"title": "Focus timer", "go": "focus",
+         "text": "Work for a while, then a short break: your room turns soft green, so you see it's time to get up."},
+        {"title": "League of Legends", "go": "setup:games",
+         "text": "Your team's color, your health across the lights, a flash for every kill, dragon and baron."},
         {"title": "Presets in turn", "go": "presets:turns",
          "text": "A few presets, one after the other by themselves, every few minutes: an evening that slowly changes."},
         {"title": "Candle, Ocean, Lava lamp, Thunderstorm", "go": "effect:storm",
          "text": "Four calm looks for the evening. The storm never flashes more than three times a second."},
-        {"title": "PC load", "go": "effect:pc_load",
-         "text": "Your lights fill up like a bar as your PC gets busy, and the graphics card shows its own load."},
-        {"title": "Gradient", "go": "effect:gradient",
-         "text": "Two colors blended along each light, through the colors between them, or one blend across your whole setup."},
+        {"title": "PC load and Gradient", "go": "effect:pc_load",
+         "text": "Your lights fill up like a bar as your PC gets busy, or blend two colors across your setup."},
         {"title": "Use from other apps", "go": "setup:phone",
          "text": "Stream Deck, AutoHotkey and Home Assistant can switch your lights, pick a preset or start the light show with a link."},
-        {"title": "Screen sync on any display", "go": "effect:screen",
-         "text": "Follow your main display, another one, or the one where your game or video is full screen."},
     ],
     "0.9.7": [
         {"title": "Quick search", "go": "search",

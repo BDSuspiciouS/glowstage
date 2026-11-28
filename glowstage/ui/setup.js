@@ -265,7 +265,27 @@ function gamesSection() {
       !c.connected ? h("button", { class: "btn btn-primary", type: "button", text: "Connect", disabled: !c.found,
         onclick: async () => { if (await call("games_connect") !== undefined) toast("Connected: start CS2 and play"); refresh(true); } }) : null,
       c.connected ? h("button", { class: "btn btn-quiet", type: "button", text: "Disconnect",
-        onclick: async () => { await call("games_disconnect"); toast("CS2 is disconnected"); refresh(true); } }) : null));
+        onclick: async () => { await call("games_disconnect"); toast("CS2 is disconnected"); refresh(true); } }) : null),
+    leagueCard());
+}
+
+/* Setup → Games: League of Legends. Nothing to install: the game answers Riot's own live data API on this PC (lol.py). */
+function leagueCard() {
+  const l = ((S.data.games || {}).lol) || {};
+  const status = !l.on ? "Off"
+    : l.inMatch ? `In a match now · ${l.team === "ORDER" ? "blue side" : l.team === "CHAOS" ? "red side" : "playing along"}${l.team ? ` · ${l.health}% health` : ""}`
+    : "On · starts when a match begins";
+  return h("div", { class: "league-card", style: "margin-top:22px" },
+    h("div", { class: "status-line" }, h("span", { class: "dev-dot" + (l.on ? " is-on" : "") }), h("strong", { text: "League of Legends" }), h("span", { class: "muted", text: " · " + status })),
+    h("p", { class: "hint", style: "margin-bottom:10px", text: "While you play, your room plays along: your side's color, your health across the lights, grey while you wait to respawn, a flash for your kills, your team's dragons, the baron and the herald, and gold when you win." }),
+    h("p", { class: "hint", style: "font-size:12px;margin-bottom:10px", text: "Uses Riot's own Live Client Data API: while you play, the game tells Glowstage on this PC your health and what happens in the match. Nothing reads or changes the game." }),
+    h("label", { class: "toggle-row" }, h("span", { text: "Play along with League of Legends" }),
+      h("input", { type: "checkbox", checked: !!l.on, "aria-label": "Play along with League of Legends",
+        onchange: async e => {
+          const on = e.target.checked;
+          if (await call("games_lol", on) !== undefined) toast(on ? "On: start a match and play" : "League of Legends is off");
+          refresh(true);
+        } })));
 }
 
 function automaticSection() {
@@ -429,7 +449,7 @@ function phoneSection() {
   };
   return h("section", { class: "set-section", id: "set-phone" },
     h("h3", { text: "Phone remote" }),
-    h("p", { class: "hint", text: "Switch your lights, set the brightness, pick a preset, start the light show or the sleep timer from your phone, on the same Wi-Fi. Only a phone with this code's link can: it carries a secret key." }),
+    h("p", { class: "hint", text: "Switch your lights, set the brightness, pick a preset, start the light show or the sleep timer, or light the room in the colors of a photo you take, from your phone on the same Wi-Fi. Only a phone with this code's link can: it carries a secret key." }),
     h("label", { class: "toggle-row" }, h("span", { text: "Control Glowstage from my phone" }),
       h("input", { type: "checkbox", checked: !!r.on, onchange: e => set(e.target.checked) })),
     !r.on ? null : !r.url ? h("p", { class: "hint", text: r.error || "Starting…" })

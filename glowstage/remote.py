@@ -1,5 +1,6 @@
 """Phone remote: a small page on your phone (same Wi-Fi) to switch the lights on and off, set the
-brightness, pick a preset, start the light show or the sleep timer (Setup → Phone remote).
+brightness, pick a preset, start the light show or the sleep timer, or light the room in the colors
+of a photo you take there and then (Setup → Phone remote).
 
 Off until you switch it on. Then Glowstage listens on your home network, on a port it keeps
 (a new one if that's taken), and answers only to its secret link: the code in Setup, which
@@ -26,6 +27,8 @@ log = logging.getLogger(__name__)
 
 PAGE = UI_DIR / "phone.html"
 MAX_BODY = 4096
+PHOTO_PATH = "/api/picture"     # a photo from the phone (shrunk there first; palette.PHOTO_BYTES at most)
+PRESET_NAME = 40                # the longest preset name the phone can give
 LINK_STEP = 10                  # "brighter" and "darker" by link (the same step as the hotkeys)
 GROUPS = (("pc", "PC"), ("room", "Room"))
 
@@ -148,16 +151,23 @@ class Remote:
                 self._send(404, b"", "text/plain")
 
             def do_POST(self):
+                from .palette import PHOTO_BYTES
+                path = urlparse(self.path).path
                 size = int(self.headers.get("Content-Length") or 0)
-                if size > MAX_BODY:
+                if size > (PHOTO_BYTES if path == PHOTO_PATH else MAX_BODY):
                     self.close_connection = True
                     return self._json({"ok": False, "error": "Too much"}, 413)
                 body = self.rfile.read(size) if size else b""   # (read first: an answer before that resets the connection)
                 if not self._key_ok():
                     return self._json({"ok": False, "error": "This link is no longer valid"}, 403)
-                path = urlparse(self.path).path
                 if path.startswith("/do/"):
                     return self._link(path)
+                if path == PHOTO_PATH:
+                    try:
+                        colors = remote.photo(body)
+                    except ValueError as e:
+                        return self._json({"ok": False, "error": str(e)}, 400)
+                    return self._json({"ok": True, "colors": colors, "state": remote.state()})
                 if path != "/api/do":
                     return self._send(404, b"", "text/plain")
                 try:
@@ -228,6 +238,7 @@ class Remote:
             "active": m.config["settings"].get("active_preset", ""),
             "show": m.show_running(),
             "sleep": m.sleep.describe(),
+            "canUndo": m.can_undo(),
             "now": time.time(),
         }
 
@@ -254,8 +265,35 @@ class Remote:
         elif what == "sleep":
             minutes = int(req.get("minutes") or 0)
             m.sleep.start(minutes) if minutes else m.sleep.cancel()
+        elif what == "undo":
+            if not m.undo():
+                raise ValueError("There's nothing to undo")
+        elif what == "save":
+            name = req.get("name")
+            name = name.strip() if isinstance(name, str) else ""
+            if not name:
+                raise ValueError("Give the preset a name")
+            if len(name) > PRESET_NAME:
+                raise ValueError(f"A preset name can be {PRESET_NAME} letters at most")
+            if name in m.preset_names():     # (the phone never saves over one of your presets)
+                raise ValueError(f"There's already a preset called {name}")
+            m.save_preset(name)
         else:
             raise ValueError("Unknown action")
+
+    def photo(self, data: bytes) -> list[str]:
+        """A photo from the phone: its main colors on the lights that are on, left to right as
+        they stand on the stage, like Presets → From a picture in the window (Undo puts the
+        lights back). The colors, for the phone to show."""
+        from . import palette
+        m = self.manager
+        img = palette.read_bytes(data)
+        colors = palette.main_colors(img)
+        if not m.any_on():          # (checked before remember(): a refused photo keeps the last undo)
+            raise ValueError("Switch a light on first, then try again")
+        m.remember()
+        m.light_from_colors(colors)
+        return colors
 
     def link(self, parts: list[str]) -> tuple[int, dict]:
         """An action link, /do/<action>[/<value>]: the same calls as the tray and the hotkeys

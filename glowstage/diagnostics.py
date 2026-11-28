@@ -56,10 +56,11 @@ def report(app) -> str:
     out.append("Automatic: " + ", ".join([
         f"games {s.get('auto_game') or 'off'}", f"videos {s.get('auto_video') or 'off'}",
         f"music {'on' if s.get('auto_show') else 'off'}", f"calls {s.get('auto_call') or 'off'}", f"away {s.get('away_lights') or 'off'}",
-        f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}"]))
+        f"apps {apps}", f"CS2 {'connected' if m.games.settings.get('cs2') else 'off'}",
+        f"League of Legends {'on' if m.games.settings.get('lol') else 'off'}"]))
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
-        f"hotkeys {'on' if s.get('hotkeys') else 'off'}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
+        f"hotkeys {'on' if s.get('hotkeys') else 'off'}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
         f"sound {m.engine.audio.device or 'not listening now'}"]))
     problems = recent_problems()
     out.append("Last warnings in the log:" if problems else "No warnings in the log.")

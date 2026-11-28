@@ -16,6 +16,8 @@ from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations, clean_app_looks
 from .away import Away
 from .cycle import PresetCycle
+from .focus import FocusTimer
+from .wallpaper import WallpaperFollow
 from .timer import SleepTimer
 from .wake import WakeUp, wake_minutes
 from .games import Games
@@ -168,6 +170,8 @@ class DeviceManager:
         self.sleep = SleepTimer(self)
         self.wake = WakeUp(self)
         self.cycle = PresetCycle(self)
+        self.focus = FocusTimer(self)
+        self.wallpaper = WallpaperFollow(self)
 
     # ---- lifecycle -------------------------------------------------------------------
 
@@ -201,6 +205,8 @@ class DeviceManager:
         self.sleep.stop()
         self.wake.stop()
         self.cycle.stop()
+        self.focus.stop()
+        self.wallpaper.stop()
         self.games.stop()
         self.engine.stop()
         self.discovery.stop()
@@ -715,9 +721,6 @@ class DeviceManager:
                 wait(max(0.0, deadline - time.monotonic()))
         log.info("Shutdown: switched off %d of %d %s", done, len(targets), label)
 
-    def any_on(self) -> bool:
-        return any(self.states[i].on for i in self.visible_ids() if self.devices[i].online)
-
     def rename(self, dev_id: str, name: str) -> None:
         name = name.strip()
         dev = self.devices[dev_id]
@@ -940,6 +943,7 @@ class DeviceManager:
         if new != old and new in names:
             raise ValueError(f"There's already a preset called {new}")
         self.cycle.rename(old, new)     # (before the settings change: it accepts both names for a moment)
+        self.focus.rename(old, new)
         with self.lock:
             for p in self.config["presets"]:
                 if p["name"] == old:
@@ -990,6 +994,7 @@ class DeviceManager:
     def delete_preset(self, name: str) -> None:
         self.config.data["presets"] = [p for p in self.config["presets"] if p["name"] != name]
         self.cycle.forget(name)
+        self.focus.forget(name)
         self.config.save_soon()
         self._changed()
 

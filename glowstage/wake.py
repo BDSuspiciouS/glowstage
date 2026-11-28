@@ -75,6 +75,8 @@ class WakeUp:
         m = self.manager
         m.sleep.cancel()                # a sleep timer and a wake-up don't run at once
         m.cycle.cancel()                # nor do presets in turn (they would undo the sunrise)
+        m.focus.cancel()                # nor does a focus timer (its break would undo it too)
+        m.wallpaper.cancel()            # nor does following the wallpaper
         with self._lock:
             with m.lock:
                 visible = [i for i in m.visible_ids() if i in m.states]

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 
 log = logging.getLogger(__name__)
 
 SCOPES = ("", "pc", "all")      # the setting "away_lights": nothing, the PC's lights, all lights
+SETTLE = 3.0                    # seconds after coming back that the lights still count as ours
 
 
 class Away:
@@ -22,11 +24,20 @@ class Away:
         self.manager = manager
         self.reasons: set[str] = set()          # "locked", "screen off", "asleep"
         self._off: dict[str, int] | None = None  # the lights switched off, with their change count
+        self.back_at = -1e9                      # time.monotonic() when they came back on
         self._lock = threading.Lock()
 
     @property
     def active(self) -> bool:
         return bool(self.reasons)
+
+    @property
+    def holding(self) -> bool:
+        """The lights are off because you're away, or came back on a moment ago: what changed them
+        isn't you. The modes that run by themselves (presets in turn, the focus timer, following the
+        wallpaper) wait meanwhile instead of taking it for a change by hand and stopping: a break
+        is exactly when you lock the PC and walk away."""
+        return self._off is not None or time.monotonic() - self.back_at < SETTLE
 
     def scope(self) -> str:
         value = self.manager.config["settings"].get("away_lights") or ""
@@ -46,6 +57,7 @@ class Away:
         scope = self.scope()
         if not scope:
             return
+        self._off = {}                  # (holding from now: the lights are going off)
         self._off = self.manager.away_off(scope)
         log.info("Away (%s): %d lights off", reason, len(self._off))
         if reason == "asleep" and self._off:
@@ -57,4 +69,5 @@ class Away:
             return
         back = self.manager.away_back(self._off)
         log.info("Back: %d of %d lights on again", len(back), len(self._off))
+        self.back_at = time.monotonic()
         self._off = None

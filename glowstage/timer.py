@@ -48,6 +48,8 @@ class SleepTimer:
         m = self.manager
         m.wake.cancel(put_back=False)   # a sleep timer and a wake-up don't run at once
         m.cycle.cancel()                # nor does it go on switching presets under the fade
+        m.focus.cancel()                # nor a focus timer (a green break would fight the fade)
+        m.wallpaper.cancel()            # nor follow the wallpaper
         with self._lock:
             if self.active:             # a new time: begin again from the lights as they were
                 self._put_back()

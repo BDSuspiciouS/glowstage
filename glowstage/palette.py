@@ -45,6 +45,31 @@ def read(path: str) -> Image.Image:
         raise ValueError(NOT_A_PICTURE) from e
 
 
+PHOTO_BYTES = 600 * 1024        # a photo from the phone page arrives shrunk to a few dozen KB
+PHOTO_PIXELS = 16_000_000       # more than a 16 MP photo is not what the phone page sends
+
+
+def read_bytes(data: bytes) -> Image.Image:
+    """Like read(), for a photo sent from the phone page (glowstage/ui/phone.html shrinks it on the
+    phone first). Checked before it is decoded: the size of the upload, and the picture's own size
+    from its header, so a small file that unpacks into a huge picture is refused."""
+    if len(data) > PHOTO_BYTES:
+        raise ValueError("That photo is too big")
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            if img.width * img.height > PHOTO_PIXELS:
+                raise ValueError("That photo is too big")
+            img.draft("RGB", (THUMB * 2, THUMB * 2))
+            img = ImageOps.exif_transpose(img)
+            img = img.convert("RGB")
+            img.thumbnail((THUMB, THUMB))
+            return img
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(NOT_A_PICTURE) from e
+
+
 def thumbnail_url(img: Image.Image) -> str:
     """The small picture for the window, as a data: URL."""
     out = io.BytesIO()

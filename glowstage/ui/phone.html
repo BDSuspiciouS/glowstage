@@ -70,6 +70,16 @@
   .switch[aria-checked=true]::after { background: var(--primary-ink); transform: translateX(26px); }
   .switch:disabled, input[type=range]:disabled { opacity: .4; cursor: default; }
   .item .row { gap: 12px; }
+  .hint { color: var(--muted); font-size: 14px; margin: -4px 0 12px; }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .swatches { display: flex; height: 44px; border-radius: 12px; overflow: hidden; margin: 14px 0 12px; }
+  .swatches span { flex: 1; }
+  .save-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .save-row input {
+    flex: 1 1 100%; min-width: 0; min-height: 44px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--card-2);
+    color: var(--text); font: 15px var(--f); padding: 0 12px;
+  }
+  .done { color: var(--muted); font-size: 14px; margin-top: 10px; min-height: 1.4em; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 </style>
 </head>
@@ -94,6 +104,21 @@
   <section>
     <h2>Presets</h2>
     <div class="presets" id="presets"></div>
+  </section>
+  <section>
+    <h2>From a photo</h2>
+    <p class="hint">Take a photo of a sunset, a poster or a plant, or pick one, and your lights take its colors.</p>
+    <button class="btn" id="photo-btn" type="button">Take or pick a photo</button>
+    <input type="file" id="photo" accept="image/*" hidden>
+    <div id="photo-done" hidden>
+      <div class="swatches" id="swatches" role="img" aria-label="The photo's colors"></div>
+      <div class="save-row">
+        <input type="text" id="photo-name" maxlength="40" aria-label="Preset name" autocomplete="off">
+        <button class="chip" id="photo-save" type="button">Save as preset</button>
+        <button class="chip" id="photo-undo" type="button">Undo</button>
+      </div>
+      <div class="done" id="photo-note" aria-live="polite"></div>
+    </div>
   </section>
   <section>
     <button class="btn" id="show" type="button">Start the light show</button>
@@ -275,6 +300,72 @@ function render(s) {
   }
 }
 
+// From a photo: the phone shrinks the photo itself (a few dozen KB instead of a few MB, and an
+// iPhone's HEIC arrives as a JPEG), the right way up, and Glowstage takes its main colors.
+function shrink(file) {
+  return new Promise((done, fail) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const f = Math.min(1, 320 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.naturalWidth * f));
+      c.height = Math.max(1, Math.round(img.naturalHeight * f));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? done(b) : fail(new Error()), "image/jpeg", 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(new Error()); };
+    img.src = url;
+  });
+}
+function freeName(base) {
+  const names = new Set(((state && state.presets) || []).map(p => p.name));
+  if (!names.has(base)) return base;
+  for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
+}
+$("photo-btn").onclick = () => $("photo").click();
+$("photo").onchange = async e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";                                // (the same photo again works too)
+  if (!file) return;
+  const btn = $("photo-btn");
+  btn.disabled = true;
+  btn.textContent = "Reading the photo…";
+  busyUntil = Date.now() + 4000;
+  try {
+    let blob;
+    try { blob = await shrink(file); }
+    catch { throw new Error("Your phone couldn't open that photo. Try another one."); }
+    const r = await fetch(`/api/picture?k=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 403) throw new Error("This link doesn't work any more: scan the code in Glowstage (Setup → Phone remote) again.");
+    if (!r.ok || data.ok === false) throw new Error(data.error || "Glowstage didn't answer");
+    problem("");
+    render(data.state);
+    $("swatches").replaceChildren(...data.colors.map(c => { const s = document.createElement("span"); s.style.background = c; return s; }));
+    $("photo-name").value = freeName("Phone photo");
+    $("photo-note").textContent = "Your lights have the photo's colors.";
+    $("photo-done").hidden = false;
+  } catch (err) {
+    problem(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Take or pick a photo";
+  }
+};
+$("photo-save").onclick = async () => {
+  const name = $("photo-name").value.trim();
+  busyUntil = Date.now() + 1500;
+  try {
+    render((await api("/api/do", { do: "save", name })).state);
+    problem("");
+    $("photo-note").textContent = `Saved as ${name}.`;
+  } catch (e) { problem(e.message); }
+};
+$("photo-undo").onclick = async () => {
+  await act({ do: "undo" });
+  if (!$("banner").classList.contains("show")) { $("photo-done").hidden = true; }
+};
 $("power").onclick = () => state && act({ do: "power", on: !(state.on > 0) });
 $("show").onclick = () => act({ do: "show" });
 let slide;

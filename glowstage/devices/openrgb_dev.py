@@ -45,6 +45,7 @@ def bundled_exe() -> Path | None:
 
 
 INSTALLED_EXE = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "OpenRGB" / "OpenRGB.exe"
+FIND_EVERY = 60.0       # seconds the window's answer to "where is OpenRGB.exe" is kept (see OpenRGBProvider.found)
 # Protocol 3 skips the plugin-list request, which OpenRGB 1.x never answers in --server mode.
 PROTOCOL_VERSION = 3
 CLIENT_NAME = APP_NAME
@@ -259,6 +260,8 @@ class OpenRGBProvider:
         self.message = ""
         self.launched = False
         self.launched_elevated = False
+        self._found: tuple[float, tuple, Path | None, bool] = (-1e9, (), None, False)   # (when, what it depended on, exe, bundled)
+        self._finding = threading.Lock()
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread = threading.Thread(target=self._run, name="openrgb", daemon=True)
@@ -284,6 +287,25 @@ class OpenRGBProvider:
             if candidate and candidate.is_file():
                 return candidate
         return None
+
+    def found(self) -> tuple[Path | None, bool]:
+        """Where OpenRGB.exe is and whether it's the app's own copy, for the window, which asks
+        every second. Searching the folders each time made it wait for the disk: a folder on a
+        disk that spun down, or one a virus scanner is busy with, can take seconds to answer. So
+        the answer is kept, and looked up again in the background once a minute; right away when
+        what it depends on changed (a path you set, a download that finished)."""
+        key = (self.settings.get("path") or "", installer.describe().get("state"))
+        at, was, exe, bundled = self._found
+        if key != was:
+            self._find(key)
+        elif time.monotonic() - at > FIND_EVERY and not self._finding.locked():
+            threading.Thread(target=self._find, args=(key,), name="find-openrgb", daemon=True).start()
+        return self._found[2], self._found[3]
+
+    def _find(self, key: tuple) -> None:
+        with self._finding:
+            exe = self.exe_path()
+            self._found = (time.monotonic(), key, exe, exe is not None and exe == bundled_exe())
 
     def launch(self, elevated: bool = False) -> None:
         exe = self.exe_path()
@@ -492,12 +514,12 @@ class OpenRGBProvider:
         self.settings.setdefault("zone_sizes", {}).setdefault(dev.parent_key, {})[zone["name"]] = size
 
     def describe(self) -> dict:
-        exe = self.exe_path()
+        exe, bundled = self.found()
         return {
             "status": self.status,
             "message": self.message,
             "path": str(exe) if exe else "",
-            "bundled": exe is not None and exe == bundled_exe(),
+            "bundled": bundled,
             "install": installer.describe(),
             "elevated": self.launched_elevated or bool(self.settings.get("elevated")),
             "pawnio": pawnio_installed(),

@@ -12,6 +12,7 @@ import numpy as np
 from . import keys, show, sun
 from .audio import quiet
 from .colors import RGB, hex_to_rgb, hsv, lerp, scale
+from .lol import LENGTH
 from .state import LightState
 
 
@@ -955,6 +956,85 @@ class CS2(Effect):
         return _rgb(_mix(out, _WHITE, g.get("flashed") or 0.0))
 
 
+_ORDER = np.array([30.0, 110.0, 255.0])       # League: the blue side
+_CHAOS = np.array([255.0, 40.0, 30.0])        # ... and the red side
+_COLD = np.array([90.0, 100.0, 125.0])        # dead: a cold grey
+_KILL = np.array([255.0, 200.0, 40.0])        # your kill: gold
+_MULTI = np.array([255.0, 240.0, 150.0])      # a multikill: the same gold, brighter
+_BARON = np.array([135.0, 30.0, 235.0])
+_HERALD = np.array([205.0, 120.0, 255.0])
+_LOSS = np.array([110.0, 8.0, 8.0])
+_DRAGONS = {                                  # each dragon in its own color
+    "fire": (255.0, 70.0, 10.0), "water": (0.0, 200.0, 190.0), "earth": (190.0, 120.0, 30.0),
+    "air": (200.0, 230.0, 255.0), "hextech": (0.0, 230.0, 255.0), "chemtech": (60.0, 255.0, 60.0),
+    "elder": (225.0, 200.0, 255.0),
+}
+
+
+class LeagueOfLegends(Effect):
+    """League of Legends, as the game tells it (lol.LolState): the room in your team's color
+    (blue side blue, red side red) with your health as a bar across the stage, a dim cold grey
+    while you're dead with the respawn bar filling back up, a gold flash for your kill (brighter
+    and longer for a multikill), a sweep when your team gets the ace, your team's dragon in the
+    dragon's color, the baron in purple, the herald in violet. The enemy taking an objective
+    doesn't flash. The end holds gold for a win and a dim red for a loss.
+
+    Safety: lol.py only starts a flash when the one before is over (and never closer than 0.34 s),
+    so there are never more than three flashes in any second, like Storm and Counter-Strike 2.
+    Slow lights (Hue, Govee: ctx["fps"] <= SLOW_FPS) get each flash held, not decayed, for at
+    least 0.3 s, so they show it at all."""
+    id, name = "game_lol", "League of Legends"
+    group = "game"
+    uses = ()
+    HOLD = 0.3
+    RESULT_HOLD, RESULT_FADE = 5.0, 1.5
+
+    def render(self, t, n, st, mem, ctx):
+        g = ctx.get("lol") or {}
+        start, end, _ = ctx.get("span", (0.0, 1.0, "front"))
+        x = start + (end - start) * (np.arange(n) + 0.5) / n      # where each pixel sits: 0 left .. 1 right
+        ago = g.get("ago") or {}
+        slow = (ctx.get("fps") or 100) <= show.SLOW_FPS
+        result = next((k for k in ("win", "lose") if ago.get(k, 99) < self.RESULT_HOLD + self.RESULT_FADE), None)
+        if not g.get("inMatch") and result is None:   # no match: both sides' colors drift slowly across the room
+            u = (0.5 + 0.5 * np.sin(2 * np.pi * (x * 0.8 - t * 0.05)))[:, None]
+            return _rgb((_ORDER * u + _CHAOS * (1 - u)) * (0.35 + 0.08 * math.sin(t * 0.8)))
+        team = {"ORDER": _ORDER, "CHAOS": _CHAOS}.get(g.get("team"), _NEUTRAL)
+        if g.get("dead"):                     # dead: dim grey, and the respawn bar fills with your team's color
+            back = np.tile(_COLD * (0.10 + 0.02 * math.sin(t * 1.5)), (n, 1))
+            back_up = max(0.0, min(1.0, g.get("respawn") or 0.0))
+            if n == 1:
+                out = _mix(back, team * 0.5, back_up)
+            else:
+                out = _mix(back, team * 0.5, np.clip((back_up - x) / 0.04 + 0.5, 0.0, 1.0))
+        else:
+            hp = max(0.0, min(1.0, g.get("health") if g.get("health") is not None else 1.0))
+            if n == 1:
+                out = np.tile(team * (0.25 + 0.75 * hp), (1, 1))
+            else:
+                lit = np.clip((hp - x) / 0.04 + 0.5, 0.0, 1.0)
+                out = team[None, :] * (0.07 + 0.93 * lit[:, None])
+        for kind, color, power in (("my_kill", _KILL, 0.8), ("multikill", _MULTI, 1.0),
+                                   ("dragon", np.array(_DRAGONS.get(str(g.get("dragon") or "").lower(), _DRAGONS["hextech"])), 0.9),
+                                   ("baron", _BARON, 0.9), ("herald", _HERALD, 0.85)):
+            a, length = ago.get(kind, 99), LENGTH[kind]
+            if a < length:
+                level = power if slow and a < max(length, self.HOLD) else power * (1 - a / length)
+                out = _mix(out, color, level)
+        a = ago.get("ace", 99)
+        if a < LENGTH["ace"]:
+            if n == 1 or slow:                # one light, or one that is too slow to show a sweep: a held flash
+                out = _mix(out, team * 0.4 + _WHITE * 0.6, 0.85 if slow else 0.85 * (1 - a / LENGTH["ace"]))
+            else:                             # a bright band running from the left across the stage
+                p = a / LENGTH["ace"]
+                out = _mix(out, team * 0.4 + _WHITE * 0.6, 0.9 * np.exp(-((x - (p * 1.4 - 0.2)) / 0.16) ** 2))
+        if result:                            # the end: gold held for a win, a dim red for a loss
+            a = ago[result]
+            level = 1.0 if a < self.RESULT_HOLD else 1 - (a - self.RESULT_HOLD) / self.RESULT_FADE
+            out = _mix(out, _KILL if result == "win" else _LOSS, max(0.0, level) * (0.85 if result == "win" else 0.9))
+        return _rgb(out)
+
+
 def _rgb(arr: np.ndarray) -> list[RGB]:
     a = np.clip(arr, 0, 255).astype(int)
     return [(int(r), int(g), int(b)) for r, g, b in a]
@@ -964,7 +1044,7 @@ EFFECTS: dict[str, Effect] = {e.id: e for e in (
     Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
-    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(),
+    ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(),
 )}
 MUSIC_EFFECTS = {e.id for e in EFFECTS.values() if e.group == "music"}
 HEARING_EFFECTS = MUSIC_EFFECTS | {"screen_sound"}        # ask the audio analysis for its picture

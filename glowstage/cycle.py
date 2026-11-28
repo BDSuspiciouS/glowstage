@@ -78,6 +78,8 @@ class PresetCycle:
         if len(names) < 2:
             raise ValueError("Choose at least two presets")
         now = time.time() if now is None else now
+        m.wallpaper.cancel()            # these don't both decide what the lights look like
+        m.focus.cancel()
         with self._lock:
             self.names, self.minutes, self.shuffle = names, minutes, bool(shuffle)
             self._queue, self._current = [], ""
@@ -172,11 +174,12 @@ class PresetCycle:
         with self._lock:
             if not self.active:
                 return False
-            if m.automations.active:
-                # An automatic look is on: it wins, and what it changes is not you. Skip the turn.
+            if m.automations.active or m.away.holding:
+                # An automatic look is on, or you're away and the lights are off for you: what
+                # changes them is not you. Skip the turn.
                 if now >= self.next_at:
                     self.next_at = now + self.minutes * 60
-                    log.info("Presets in turn: skipped a turn for the automatic look")
+                    log.info("Presets in turn: skipped a turn (%s)", "an automatic look" if m.automations.active else "you're away")
                     m._changed()
                 return True
             if (self._set is not None and not _same(looks, self._set)) or preset not in (self._preset, self._alt):

@@ -262,5 +262,42 @@ class Start(Base):
         self.assertIsNone(fresh.cycle.describe())
 
 
+
+class SteppingAway(Base):
+    """Locking the PC switches the lights off (away.py): that isn't you taking over."""
+
+    def leave(self):
+        """Lock the PC with "lights off when you step away" on for every light."""
+        self.m.config["settings"]["away_lights"] = "all"
+        self.m.away.set("locked", True)
+
+    def come_back(self, settled=True):
+        self.m.away.set("locked", False)
+        if settled:
+            self.m.away.back_at = -1e9              # (the few seconds for the lights to settle are over)
+
+    def setUp(self):
+        super().setUp()
+        self.c.start(NAMES, 5, False, now=T0)
+
+    def test_locking_the_pc_doesnt_stop_it(self):
+        self.leave()
+        self.assertTrue(self.c.tick(T0 + 100))
+        self.assertTrue(self.c.tick(T0 + 300))         # a turn while away: skipped
+        self.assertEqual(self.c.describe()["at"], T0 + 600)
+        self.come_back()
+        self.assertTrue(self.c.tick(T0 + 400))
+        self.assertTrue(self.c.active)
+        self.assertTrue(self.c.tick(T0 + 600))
+        self.assertEqual(self.shown(), "Reading")
+
+    def test_by_hand_after_coming_back_still_stops_it(self):
+        self.leave()
+        self.c.tick(T0 + 100)
+        self.come_back()
+        self.m.apply_preset("Gaming")
+        self.assertFalse(self.c.tick(T0 + 200))
+
+
 if __name__ == "__main__":
     unittest.main()

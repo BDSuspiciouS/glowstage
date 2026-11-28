@@ -84,7 +84,7 @@ class App:
         self.tray.refresh_look()   # (the icon's color; it decides itself if that changed)
         # The tray menu shows the presets, the one that's on and whether the show runs.
         sig = (self.manager.preset_names(), self.config["settings"].get("active_preset", ""),
-               self.manager.show_running(), self.manager.sleep.until, self.manager.cycle.active, self.manager.can_undo(),
+               self.manager.show_running(), self.manager.sleep.until, self.manager.cycle.active, self.manager.focus.active, self.manager.wallpaper.active, self.manager.can_undo(),
                self.manager.brightness_on(), self.manager.groups_present())
         if sig != self._preset_names:
             self._preset_names = sig

@@ -9,7 +9,10 @@ connected, and only on this PC. CS2 reads the file when it starts.
 
 What comes in: your team, health, armor, whether you're flashed, smoked or burning, your kills
 this round, the round phase, the bomb, and who won the round. The "game_cs2" effect (effects.py)
-turns that into light; the automatic looks switch the lights to it while you're in a match."""
+turns that into light; the automatic looks switch the lights to it while you're in a match.
+
+League of Legends needs no file: Riot's own Live Client Data API answers on this PC while a match
+runs, and lol.py asks it once a switch in Setup → Games is on."""
 
 from __future__ import annotations
 
@@ -22,6 +25,8 @@ import time
 import winreg
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from .lol import LolPoller
 
 log = logging.getLogger(__name__)
 
@@ -178,6 +183,7 @@ class Games:
         self.config = config
         self.on_change = on_change
         self.cs2 = CS2State()
+        self.lol = LolPoller(on_change=self._lol_noticed)
         self._server: ThreadingHTTPServer | None = None
         self._was_in_match = False
         self._found: tuple[float, Path | None] = (-1e9, None)
@@ -210,8 +216,11 @@ class Games:
         threading.Thread(target=self._look, name="find-cs2", daemon=True).start()
         if self.settings.get("cs2"):
             self._listen()
+        if self.settings.get("lol"):
+            self.lol.start()
 
     def stop(self) -> None:
+        self.lol.stop()
         if self._server:
             self._server.shutdown()
             self._server.server_close()
@@ -308,12 +317,37 @@ class Games:
         self.stop()
         self.on_change()
 
+    # -- League of Legends --
+
+    def set_lol(self, on: bool) -> None:
+        """The switch in Setup → Games: ask the game's own API only while it's on."""
+        self.settings["lol"] = bool(on)
+        self.config.save_soon()
+        if on:
+            self.lol.start()
+        else:
+            self.lol.stop()
+        self.on_change()
+
+    def _lol_noticed(self) -> None:
+        """A match starts or ends: tell the window (the rest it reads every second)."""
+        self.on_change()
+
+    def lol_active(self, now: float) -> bool:
+        """You're in a League of Legends match and the game is answering."""
+        return bool(self.settings.get("lol")) and self.lol.in_match(now)
+
     def describe(self) -> dict:
         now = time.monotonic()
         folder = self.folder()
         connected = bool(self.settings.get("cs2"))
         snap = self.cs2.snapshot(now)
-        return {"cs2": {
+        on = bool(self.settings.get("lol"))
+        lol = self.lol.snapshot(now)
+        return {"lol": {
+            "on": on, "receiving": on and self.lol.receiving(now), "inMatch": on and lol["inMatch"],
+            "team": lol["team"], "health": round(lol["health"] * 100),
+        }, "cs2": {
             "found": folder is not None, "connected": connected and folder is not None,
             "fileThere": bool(folder) and self._file_there,
             "receiving": connected and self.cs2.alive(now), "inMatch": connected and snap["inMatch"],

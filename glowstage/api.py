@@ -12,7 +12,7 @@ from pathlib import Path
 
 import webview
 
-from . import automations, backups, diagnostics, genre_install, online, palette, screen, webfix, whatsnew, winutil
+from . import automations, backups, diagnostics, genre_install, online, palette, screen, wallpaper, webfix, whatsnew, winutil
 from .devices import openrgb_install as installer
 from .manager import friendly_error
 from .paths import APP_NAME, DONATE, REPO, VERSION
@@ -77,6 +77,8 @@ class Api:
                  "sleep": self._m.sleep.describe(),
                  "wake": self._m.wake.describe(),
                  "cycle": self._m.cycle.describe(),
+                 "focus": self._m.focus.describe(),
+                 "wallpaper": self._m.wallpaper.describe(),
                  "askSupport": self._ask_support(),
                  "whatsNew": whatsnew.card(self._app.config["settings"]),
                  "remote": self._app.remote.describe()}
@@ -119,6 +121,20 @@ class Api:
     @_safe
     def stop_cycle(self):
         self._m.cycle.cancel()
+
+    @_safe
+    def start_focus(self, work, rest, rounds, look=""):
+        """Focus timer: work, a break the lights show in green, a few rounds (focus.py)."""
+        self._m.remember()      # (the work light is a change by hand: Undo goes back to before it)
+        self._m.focus.start(work, rest, rounds, look)
+
+    @_safe
+    def skip_focus(self):
+        self._m.focus.skip()
+
+    @_safe
+    def stop_focus(self):
+        self._m.focus.cancel()
 
     @_safe
     def cancel_wake(self):
@@ -311,6 +327,25 @@ class Api:
         return {"colors": colors, "name": stem[:1].upper() + stem[1:], "thumb": palette.thumbnail_url(img)}
 
     @_safe
+    def colors_from_wallpaper(self):
+        """The colors of the desktop wallpaper, now on the lights (Undo like a preset): the same
+        answer as colors_from_picture."""
+        colors, img = wallpaper.look()
+        self._m.remember()
+        if not self._m.light_from_colors(colors):
+            raise ValueError("Switch a light on first, then try again")
+        return {"colors": colors, "name": wallpaper.NAME, "thumb": palette.thumbnail_url(img)}
+
+    @_safe
+    def start_wallpaper_follow(self):
+        """Keep the lights in the colors of the wallpaper as it changes (wallpaper.py)."""
+        self._m.wallpaper.start()
+
+    @_safe
+    def stop_wallpaper_follow(self):
+        self._m.wallpaper.cancel()
+
+    @_safe
     def save_preset(self, name, ids=None):
         self._m.save_preset(name, ids)
 
@@ -471,6 +506,11 @@ class Api:
     @_safe
     def games_disconnect(self):
         self._app.manager.games.disconnect()
+
+    @_safe
+    def games_lol(self, on):
+        """League of Legends: switch asking the game's own live data on or off (nothing is installed)."""
+        self._app.manager.games.set_lol(bool(on))
 
     @_safe
     def stop_automation(self):
