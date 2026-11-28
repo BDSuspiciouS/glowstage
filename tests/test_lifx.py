@@ -200,6 +200,7 @@ class DeviceTests(unittest.TestCase):
     def test_show_color_and_power_off(self):
         bulb = self.bulb()
         dev = self.make(bulb)
+        dev.moment = 0                      # (at once: the glide is tested apart)
         dev.connect()
         dev.show_color((255, 0, 0), LightState(brightness=50))
         self.assertEqual(bulb.payloads(lifx.LIGHT_SET_POWER), [struct.pack("<HI", 65535, 0)])
@@ -226,6 +227,7 @@ class DeviceTests(unittest.TestCase):
     def test_apply_off_and_color(self):
         bulb = self.bulb()
         dev = self.make(bulb)
+        dev.moment = 0                      # (at once: the glide is tested apart)
         dev.connect()
         dev.apply(LightState(on=True, brightness=100, color="#00ff00"))
         self.assertEqual(len(bulb.payloads(lifx.SET_COLOR)), 1)

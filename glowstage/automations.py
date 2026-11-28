@@ -620,7 +620,14 @@ class Automations:
         if self._sound_since is None or now - self._sound_since < SOUND_FIRST or busy or self._hands_off:
             self._checks = 0
             return
-        heard = self.manager.engine.audio.request()   # wakes the music analysis (it listens 3 s per ask)
+        audio = self.manager.engine.audio
+        if audio.source and audio.active and not audio.pc_requested():
+            # (A microphone is in use right now: the room's sound must not start anything, and the
+            # PC's sound can't be heard at the same time. The start by music is tied to the PC's own
+            # sound: the meter above reads the output, so noise in the room never gets here.)
+            self._checks = 0
+            return
+        heard = audio.request(pc_sound=True)   # wakes the music analysis (it listens 3 s per ask)
         self._checks = self._checks + 1 if not heard["silent"] and heard["bpm_conf"] >= MUSIC_CONF else 0
         if self._checks >= MUSIC_CHECKS:
             log.info("Music at %.0f BPM", heard["bpm"])

@@ -123,7 +123,7 @@ class HALight(Device):
         if self.color:
             body["rgb_color"] = list(full)
         body["brightness"] = _brightness(brightness_pct / 100 * value)
-        body["transition"] = 0
+        body["transition"] = round(self.moment, 2)
         return body
 
     def connect(self) -> None:
@@ -174,7 +174,7 @@ class HALight(Device):
 
     def power_off(self, timeout: float = 3.0) -> None:
         self.hub.forget(self.entity_id)
-        self._service("turn_off", {"entity_id": self.entity_id, "transition": 0}, timeout)
+        self._service("turn_off", {"entity_id": self.entity_id, "transition": round(self.moment, 2)}, timeout)
 
     def send_frame(self, colors: list[RGB]) -> None:
         if not colors:

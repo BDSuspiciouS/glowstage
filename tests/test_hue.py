@@ -318,6 +318,7 @@ class ControlTests(BridgeCase):
     def test_show_color_body(self):
         hub = self.connected()
         desk = self.light(hub, "1")
+        desk.moment = 0.1                   # (a glide of a tenth of a second: transitiontime 1)
         desk.show_color((255, 0, 0), LightState(brightness=100))
         path, body, _ = self.fake.puts("1")[-1]
         self.assertEqual(path, f"/api/{TOKEN}/lights/1/state")
@@ -354,7 +355,7 @@ class ControlTests(BridgeCase):
     def test_power_off(self):
         hub = self.connected()
         self.light(hub, "1").power_off(timeout=1.0)
-        self.assertEqual(self.fake.puts("1")[-1][1], {"on": False})
+        self.assertEqual(self.fake.puts("1")[-1][1], {"on": False, "transitiontime": 4})   # ("smooth": 0.35 s)
 
     def test_apply_uses_state(self):
         hub = self.connected()
@@ -362,7 +363,7 @@ class ControlTests(BridgeCase):
         desk.apply(LightState(on=True, brightness=100, color="#00ff00"))
         self.assertEqual(self.fake.puts("1")[-1][1]["on"], True)
         desk.apply(LightState(on=False))
-        self.assertEqual(self.fake.puts("1")[-1][1], {"on": False})
+        self.assertEqual(self.fake.puts("1")[-1][1], {"on": False, "transitiontime": 4})
 
     def test_read_state(self):
         hub = self.connected()

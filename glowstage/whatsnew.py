@@ -21,13 +21,13 @@ GOES = ("sleep", "focus", "search", "show:colors", "setup:automatic", "setup:pho
 NOTES: dict[str, list[dict]] = {
     "0.9.8": [
         {"title": "Snowfall, Holiday lights, Candy cane", "go": "effect:snow",
-         "text": "Three looks for December, and Candle, Ocean, Lava lamp and Thunderstorm for any evening."},
+         "text": "Three looks for December, and Fireflies, Rain, Plasma and Sunset for any evening."},
+        {"title": "Your own groups", "go": "setup:lights",
+         "text": "Desk, Bed, Living room: each with its own switch, brightness and colors, on Home and your phone."},
         {"title": "Colors from a picture", "go": "presets:picture",
          "text": "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors."},
         {"title": "The light show in your colors", "go": "show:colors",
-         "text": "Pick 2 to 5 colors and the show keeps all of its moves, but in your colors only."},
-        {"title": "Focus timer", "go": "focus",
-         "text": "Work for a while, then a short break: your room turns soft green, so you see it's time to get up."},
+         "text": "Pick 2 to 5 colors and the show keeps all of its moves. It can listen to a microphone too, if you like."},
         {"title": "League of Legends, Dota 2, Rocket League", "go": "setup:games",
          "text": "Your side's color, your health or boost across the lights, a flash for every kill or goal."},
         {"title": "On air with OBS", "go": "setup:automatic",

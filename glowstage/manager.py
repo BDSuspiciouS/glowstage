@@ -11,6 +11,7 @@ import time
 from typing import Callable
 
 from . import genre_install
+from .audio import DEFAULT_MIC, clean_source
 from .config import Config
 from .devices import asrock_gpu, qmk_keyboard
 from .automations import Automations, clean_app_looks
@@ -24,7 +25,7 @@ from .timer import SleepTimer
 from .wake import WakeUp, wake_minutes
 from .games import Games
 from .obs import ObsWatcher
-from .devices.base import COLOR_ORDERS, MAX_FLOOR, WARMTH_RANGE, Device
+from .devices.base import COLOR_ORDERS, GLIDES, MAX_FLOOR, WARMTH_RANGE, Device
 from .devices.discovery import Discovery
 from .devices.hub import Hub, NotPairedError
 from .devices.openrgb_dev import OpenRGBProvider
@@ -40,6 +41,7 @@ log = logging.getLogger(__name__)
 
 BLUETOOTH_SYNC_MS = 200          # a typical Bluetooth delay (SBC/AAC: 150-250 ms)
 SYNC_MIN_MS, SYNC_MAX_MS = -100, 400
+MAX_GROUPS, GROUP_NAME = 12, 24       # your own groups of lights: how many, and the longest name
 
 
 def is_network(dev: Device) -> bool:
@@ -66,7 +68,7 @@ class DeviceWorker:
     with your hand; so is anything submitted with instant=True (Find a light's flashes). Effects
     and the lights' own effects are never faded: they move by themselves."""
 
-    FADE = 0.35        # seconds a change glides over
+    FADE = 0.35        # seconds a change glides over (the device's own `glide` wins: "How lights change")
     QUICK = 0.25       # a change this soon after the last one is part of a drag: no glide
 
     def __init__(self, device: Device, on_error):
@@ -105,8 +107,9 @@ class DeviceWorker:
                     self._shown = None
                     continue
                 target = solid(state, self.device.cap)
-                if not instant and getattr(self.device, "fades", False) and self._shown is not None \
-                        and target is not None and target != self._shown:
+                self.device.moment = 0.0 if instant else self.device.glide   # (lights that glide by themselves)
+                if not instant and getattr(self.device, "fades", False) and self.device.glide > 0 \
+                        and self._shown is not None and target is not None and target != self._shown:
                     if not self._glide(self._shown, target, state):
                         continue           # a newer state came: it glides on from where this one is
                 self.device.apply(state)
@@ -121,7 +124,8 @@ class DeviceWorker:
         """Steps from `start` to `end` at the light's own pace. False when a newer state arrived
         on the way (self._shown is then where the glide got to)."""
         dev = self.device
-        steps = max(2, round(self.FADE * min(dev.max_fps, 30)))
+        fade = dev.glide if dev.glide != Device.glide else self.FADE    # (at the usual glide: the worker's own FADE)
+        steps = max(2, round(fade * min(dev.max_fps, 30)))
         full = state.patched({"on": True, "mode": "color", "brightness": 100})
         colors = blend(start, end, [(k / steps) ** 2 * (3 - 2 * k / steps) for k in range(1, steps)])
         for rgb in _rgb(colors):
@@ -131,7 +135,7 @@ class DeviceWorker:
             self._shown = rgb
             with self._cv:
                 if self._pending is None:
-                    self._cv.wait(self.FADE / steps)
+                    self._cv.wait(fade / steps)
                 if self._pending is not None:
                     return False
         return True
@@ -172,6 +176,7 @@ class DeviceManager:
         self.openrgb = OpenRGBProvider(config["openrgb"], self._on_openrgb_change)
         self.discovery = Discovery(self._on_discovered)
         self.engine = EffectEngine(self)
+        self.engine.audio.set_source(config["settings"].get("show_input", ""))   # (a microphone only if you chose one)
         self.games = Games(config, self._changed)
         self.obs = ObsWatcher(config, self._changed)
         self.automations = Automations(self)
@@ -248,6 +253,7 @@ class DeviceManager:
             dev.name = self.config["names"].get(dev.id) or dev.name
             self._balance_device(dev)
             self.night.fit(dev)
+            dev.glide = dev.moment = self.glide_seconds()
 
     def _add_entry(self, dev_id: str, entry: dict) -> Device | Hub | None:
         """Make the light (or hub) for a config entry and connect it in the background."""
@@ -502,6 +508,161 @@ class DeviceManager:
         with self.lock:
             return any(self.states[i].on for i in self.visible_ids()
                        if self.devices[i].online and (self.devices[i].group == "pc") == (group == "pc"))
+
+    # ---- your own groups of lights ("Desk", "Bed"): a list in the settings, next to the PC and room ----
+
+    def my_groups(self) -> list[dict]:
+        """Your groups as [{"name", "ids"}], in their order. The settings file can be edited by
+        hand, so anything that isn't a group with a name (or repeats one) is skipped here."""
+        out, seen = [], set()
+        for g in self.config.data.get("groups") or []:
+            name = g.get("name") if isinstance(g, dict) else None
+            ids = g.get("ids") if isinstance(g, dict) else None
+            if not isinstance(name, str) or not name.strip() or name.strip().casefold() in seen or not isinstance(ids, list):
+                continue
+            seen.add(name.strip().casefold())
+            out.append({"name": name.strip(), "ids": [i for i in dict.fromkeys(ids) if isinstance(i, str)]})
+        return out[:MAX_GROUPS]
+
+    def find_group(self, name) -> str | None:
+        """The real name of the group called `name`, in any case (names are unique that way); None if none."""
+        key = name.strip().casefold() if isinstance(name, str) else ""
+        return next((g["name"] for g in self.my_groups() if g["name"].casefold() == key), None)
+
+    def group_lights(self, name: str) -> list[str]:
+        """The lights of a group that exist right now and aren't hidden. (Ones that went away stay
+        in the group, so they are back in it when they come back.)"""
+        found = self.find_group(name)
+        if found is None:
+            raise ValueError("There's no such group")
+        with self.lock:
+            mine = next(g for g in self.my_groups() if g["name"] == found)["ids"]
+            return [i for i in self.visible_ids() if i in mine]
+
+    def _group_name(self, name, skip: str | None = None) -> str:
+        name = name.strip() if isinstance(name, str) else ""
+        if not name:
+            raise ValueError("Give the group a name")
+        if len(name) > GROUP_NAME:
+            raise ValueError(f"A group name can be {GROUP_NAME} letters at most")
+        if any(g["name"].casefold() == name.casefold() and g["name"] != skip for g in self.my_groups()):
+            raise ValueError(f"There's already a group called {name}")
+        return name
+
+    def _ticked(self, ids) -> list[str]:
+        """The lights chosen for a group, checked: at least one, and all of them lights Glowstage has now."""
+        if not isinstance(ids, (list, tuple)):
+            raise ValueError("Choose at least one light")
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            raise ValueError("Choose at least one light")
+        with self.lock:
+            visible = self.visible_ids()
+        if any(i not in visible for i in ids):
+            raise ValueError("One of those lights is gone")
+        return [i for i in visible if i in ids]
+
+    def _save_groups(self, groups: list[dict]) -> None:
+        self.config.data["groups"] = groups
+        self.config.save_soon()
+        self._changed()
+
+    def create_group(self, name: str, ids) -> str:
+        """A new group with these lights, last in the list. The name it got (trimmed)."""
+        groups = self.my_groups()
+        if len(groups) >= MAX_GROUPS:
+            raise ValueError(f"You can have {MAX_GROUPS} groups at most")
+        name = self._group_name(name)
+        self._save_groups([*groups, {"name": name, "ids": self._ticked(ids)}])
+        return name
+
+    def rename_group(self, old: str, new: str) -> None:
+        found = self.find_group(old)
+        if found is None:
+            raise ValueError("There's no such group")
+        new = self._group_name(new, skip=found)
+        self._save_groups([{**g, "name": new} if g["name"] == found else g for g in self.my_groups()])
+
+    def delete_group(self, name: str) -> None:
+        """Removes the group only: its lights stay exactly as they are."""
+        found = self.find_group(name)
+        if found is None:
+            raise ValueError("There's no such group")
+        self._save_groups([g for g in self.my_groups() if g["name"] != found])
+
+    def set_group_lights(self, name: str, ids) -> None:
+        """The lights of a group, as chosen in its window. Lights that are gone (or hidden) right
+        now are kept in it: the window can't show them, and they should be back when they are."""
+        found = self.find_group(name)
+        if found is None:
+            raise ValueError("There's no such group")
+        ticked = self._ticked(ids)
+        with self.lock:
+            visible = set(self.visible_ids())
+        groups = self.my_groups()
+        for g in groups:
+            if g["name"] == found:
+                g["ids"] = ticked + [i for i in g["ids"] if i not in visible]
+        self._save_groups(groups)
+
+    def move_group(self, name: str, step: int) -> None:
+        """A group earlier (-1) or later (+1): Home, the phone and the tray show them in this order."""
+        found = self.find_group(name)
+        if found is None:
+            raise ValueError("There's no such group")
+        groups = self.my_groups()
+        at = next(k for k, g in enumerate(groups) if g["name"] == found)
+        groups.insert(max(0, min(len(groups) - 1, at + int(step))), groups.pop(at))
+        self._save_groups(groups)
+
+    def groups_info(self) -> list[dict]:
+        """For the window: each group with all its lights (ids), how many of them exist now
+        ("lights") and how many of those are on and answering ("on")."""
+        with self.lock:
+            visible = set(self.visible_ids())
+            out = []
+            for g in self.my_groups():
+                here = [i for i in g["ids"] if i in visible and i in self.states]
+                out.append({"name": g["name"], "ids": g["ids"], "lights": len(here),
+                            "on": sum(1 for i in here if self.states[i].on and self.devices[i].online)})
+            return out
+
+    def custom_any_on(self, name: str) -> bool:
+        """Is any light of this group on (and answering)? What a toggle flips."""
+        with self.lock:
+            return any(self.states[i].on and self.devices[i].online
+                       for i in self.group_lights(name) if i in self.states)
+
+    def _group_targets(self, name: str) -> list[str]:
+        ids = self.group_lights(name)
+        if not ids:
+            raise ValueError("That group has no lights right now")
+        return ids
+
+    def set_group_power(self, name: str, on: bool) -> None:
+        """A group's lights on or off, as one change that Undo takes back."""
+        ids = self._group_targets(name)
+        self.remember()
+        self.update(ids, {"on": bool(on)})
+
+    def set_group_brightness(self, name: str, value: int, undo: bool = True) -> None:
+        """Every light of the group that is on gets this brightness (lights that are off stay as
+        they are). A slider passes undo=False: not every step of a drag is a change to undo."""
+        ids = self._group_targets(name)
+        value = max(1, min(100, int(value)))
+        with self.lock:
+            ids = [i for i in ids if i in self.states and self.states[i].on]
+        if ids:
+            if undo:
+                self.remember()
+            self.update(ids, {"brightness": value})
+
+    def set_group_look(self, name: str, patch: dict) -> None:
+        """A color or an effect (a patch like {"mode": "color", "color": "#ff8800"}) for the
+        group's lights, as one change that Undo takes back."""
+        ids = self._group_targets(name)
+        self.remember()
+        self.update(ids, dict(patch))
 
     def set_power_all(self, on: bool) -> None:
         self.update(None, {"on": on})
@@ -760,6 +921,23 @@ class DeviceManager:
     def _balance_device(self, dev: Device) -> None:
         b = self.balance(dev.id)
         dev.set_balance(b["warmth"], b["max"], b["order"])
+
+    # ---- how lights change: instantly, smoothly or slowly ----------------------------------------
+
+    def glide_seconds(self) -> float:
+        return GLIDES.get(self.config["settings"].get("glide") or "smooth", GLIDES["smooth"])
+
+    def set_glide(self, how: str) -> None:
+        """"instant", "smooth" or "slow": how long a new look takes on every light from now on."""
+        if how not in GLIDES:
+            raise ValueError("Choose how your lights change from the list")
+        self.config["settings"]["glide"] = how
+        self.config.save_soon()
+        seconds = GLIDES[how]
+        with self.lock:
+            for dev in self.devices.values():
+                dev.glide = dev.moment = seconds
+        self._changed()
 
     def balance(self, dev_id: str) -> dict:
         """What is set for this light: {"warmth": -50..50, "max": 20..100, "order": "RGB"} (0, 100
@@ -1198,6 +1376,7 @@ class DeviceManager:
             "revision": self.revision,
             "devices": devices,
             "presets": self.preset_previews(),
+            "groups": self.groups_info(),
             "activePreset": self.config["settings"].get("active_preset", ""),
             "showExcluded": list(self.config.data.get("show_excluded") or []),
             "schedules": list(self.config.data.get("schedules") or []),
@@ -1218,7 +1397,8 @@ class DeviceManager:
             "openrgb": self.openrgb.describe(),
             "genreAi": {**genre_install.describe(), "active": self.engine.show.genre.model_name},
             "audio": {"device": self.engine.audio.device, "listening": self.engine.audio.active,
-                      "kind": self.engine.audio.device_kind, "sync": self.show_sync()},
+                      "kind": self.engine.audio.device_kind, "sync": self.show_sync(),
+                      "source": self.engine.audio.source, "missing": self.engine.audio.missing},
             "show": self.engine.show.info() if self.engine.show_active else None,
             "auto": self.automations.active,
             "autoPaused": self.automations.paused_until(),
@@ -1269,6 +1449,11 @@ class DeviceManager:
         from how it is connected. Bluetooth plays the sound ~0.2 s after the PC sends it."""
         audio = self.engine.audio
         saved = self.config.data.get("show_sync") or {}
+        if audio.source:    # a microphone hears the music right away: 0 ms unless set for this microphone
+            name = audio.device if audio.device_kind == "microphone" else ""
+            if name and name in saved:
+                return {"ms": int(saved[name]), "auto": False}
+            return {"ms": 0, "auto": True}
         if audio.device and audio.device in saved:
             return {"ms": int(saved[audio.device]), "auto": False}
         if audio.device_kind == "bluetooth":
@@ -1279,11 +1464,39 @@ class DeviceManager:
         """Set the sync for the sound output in use (or, before anything was heard, for every
         output that has none of its own); None goes back to the automatic guess."""
         saved = self.config.data.setdefault("show_sync", {})
-        key = self.engine.audio.device or ""
+        audio = self.engine.audio
+        key = audio.device or ""
+        if audio.source and (not key or audio.device_kind != "microphone"):
+            raise ValueError("Glowstage doesn't know the microphone's name yet: start the show once")
         if ms is None:
             saved.pop(key, None)
         else:
             saved[key] = int(round(min(SYNC_MAX_MS, max(SYNC_MIN_MS, float(ms))) / 5) * 5)
+        self.config.save_soon()
+        self._changed()
+
+    # ---- what the light show listens to: the PC's sound (default) or a microphone -----------------
+
+    def show_inputs(self) -> dict:
+        """The PC's microphones, Windows' default marked, and what is chosen now ("" = the PC's sound)."""
+        found = self.engine.audio.microphones()
+        inputs = [{"id": m["id"], "name": m["name"], "default": m["id"] == found["default"]} for m in found["inputs"]]
+        return {"inputs": inputs, "input": self.engine.audio.source}
+
+    def set_show_input(self, value) -> None:
+        """Listen to "" (what the PC plays), "default" (Windows' default microphone) or a
+        microphone's id. Nothing opens until the show or a music look needs the sound."""
+        value = clean_source(value)
+        name = ""
+        if value:
+            found = self.engine.audio.microphones()
+            names = {m["id"]: m["name"] for m in found["inputs"]}
+            wanted = found["default"] if value == DEFAULT_MIC else value
+            if value != DEFAULT_MIC and wanted not in names:
+                raise ValueError("That microphone isn't there")
+            name = names.get(wanted, "")
+        self.config["settings"]["show_input"] = value
+        self.engine.audio.set_source(value, name)
         self.config.save_soon()
         self._changed()
 

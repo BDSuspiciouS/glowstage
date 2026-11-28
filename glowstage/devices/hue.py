@@ -209,14 +209,14 @@ class HueLight(Device):
             out["color"] = "#{:02x}{:02x}{:02x}".format(*xy_to_rgb(*st["xy"]))
         return out
 
-    def _body(self, rgb: RGB, factor: float, streaming: bool = False) -> dict:
+    def _body(self, rgb: RGB, factor: float, streaming: bool = False, transition: int = TRANSITION) -> dict:
         """The state to send for `rgb` scaled by `factor` (0..1): off for black, else on with bri >= 1.
         While streaming, black stays on at the lowest brightness instead: switching a Hue light
         off and on between the beats of a show makes it flicker and click."""
         top = max(rgb)
         if (top <= 0 or factor <= 0) and not streaming:
-            return {"on": False, "transitiontime": TRANSITION}
-        body: dict = {"on": True, "transitiontime": TRANSITION}
+            return {"on": False, "transitiontime": transition}
+        body: dict = {"on": True, "transitiontime": transition}
         if self.has_bri:
             body["bri"] = max(1, min(254, round(254 * factor * top / 255)))
         if self.has_color and top > 0:
@@ -225,11 +225,13 @@ class HueLight(Device):
 
     def show_color(self, rgb: RGB, state: LightState) -> None:
         self.hub.drop(self.id)
-        self.hub.request("PUT", self._path("state"), self._body(rgb, state.brightness / 100))
+        self.hub.request("PUT", self._path("state"), self._body(rgb, state.brightness / 100,
+                                                                transition=round(self.moment * 10)))
 
     def power_off(self, timeout: float = 3.0) -> None:
         self.hub.drop(self.id)
-        self.hub.request("PUT", self._path("state"), {"on": False}, timeout=timeout)
+        self.hub.request("PUT", self._path("state"), {"on": False, "transitiontime": round(self.moment * 10)},
+                         timeout=timeout)
 
     def begin_stream(self, state: LightState) -> None:
         self.hub.drop(self.id)

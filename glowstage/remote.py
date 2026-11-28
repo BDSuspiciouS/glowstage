@@ -33,6 +33,7 @@ PHOTO_PATH = "/api/picture"     # a photo from the phone (shrunk there first; pa
 PRESET_NAME = 40                # the longest preset name the phone can give
 LINK_STEP = 10                  # "brighter" and "darker" by link (the same step as the hotkeys)
 GROUPS = (("pc", "PC"), ("room", "Room"))
+MINE = "g:"                     # the key of one of your own groups on the phone: "g:" and its name
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
 
 # The looks the phone offers: the everyday animations, the calm ones and Screen sync, with the colors
@@ -55,6 +56,10 @@ LOOKS = (
     ("snow", ("#07103a", "#4a6aa8", "#e6f0ff")),
     ("string_lights", ("#f01810", "#18be34", "#ffa018", "#1846ff")),
     ("candy_cane", ("#de1224", "#fff6ee", "#de1224")),
+    ("fireflies", ("#031a20", "#b0dc34", "#052630")),
+    ("rain", ("#0d1526", "#324a78", "#96beff")),
+    ("plasma", ("#ff1ea8", "#6a3cff", "#00d7ff")),
+    ("sunset", ("#e84604", "#ee388a", "#3e2ed0")),
     ("daylight", ("#ffe6cc", "#ff8a3a", "#ffc27a")),
     ("screen", ("#3a6bff", "#ff8a3a", "#2bd3c4")),
 )
@@ -259,6 +264,14 @@ class Remote:
             lit = [r for r in mine if r["on"] and r["online"]]
             groups.append({"key": key, "name": name, "on": bool(lit),
                            "brightness": round(sum(r["brightness"] for r in lit) / len(lit)) if lit else 0})
+        for g in m.my_groups():                           # your own groups, after those two ("g:<name>")
+            ids = set(g["ids"])
+            mine = [r for r in rows if r["id"] in ids]
+            if not mine:
+                continue                                  # (all its lights are gone for now: no row)
+            lit = [r for r in mine if r["on"] and r["online"]]
+            groups.append({"key": MINE + g["name"], "name": g["name"], "on": bool(lit),
+                           "brightness": round(sum(r["brightness"] for r in lit) / len(lit)) if lit else 0})
         return {
             "on": len(on), "count": len(lights),
             "brightness": round(sum(st.brightness for st in on) / len(on)) if on else 0,
@@ -433,6 +446,8 @@ class Remote:
             except ValueError as e:
                 return fail(409, str(e))
             args = [look]
+        elif action == "group" and len(args) in (2, 3):
+            return self._group_link(args)
         elif action == "pause" and len(args) == 1:
             try:
                 m.automations.pause("tomorrow" if args[0] == "tomorrow" else number(args[0]))
@@ -458,13 +473,52 @@ class Remote:
             return fail(404, "Unknown action")
         return 200, {"ok": True, "action": "/".join([action, *args])}
 
+    def _my_group(self, key) -> str:
+        """The name of one of your own groups from the phone's key: "g:Desk" (any case) or its
+        number in the list (0 is the first). ValueError when there's no such group."""
+        m = self.manager
+        if isinstance(key, str) and key.startswith(MINE):
+            name = m.find_group(key[len(MINE):])
+        elif isinstance(key, int) and not isinstance(key, bool):
+            mine = m.my_groups()
+            name = mine[key]["name"] if 0 <= key < len(mine) else None
+        else:
+            name = None
+        if name is None:
+            raise ValueError("There's no such group")
+        return name
+
+    def _group_link(self, args: list[str]) -> tuple[int, dict]:
+        """/do/group/<name>/on|off|toggle and /do/group/<name>/brightness/<0-100>: one of your own
+        groups. The name can be typed in any case; the answer holds the name as it is spelled."""
+        m = self.manager
+        name = m.find_group(args[0])
+        verb, rest = args[1], args[2:]
+        if name is None:
+            return 404, {"ok": False, "error": f"No group called {args[0]}"}
+        if verb in ("on", "off", "toggle") and not rest:
+            do = lambda: m.set_group_power(name, (not m.custom_any_on(name)) if verb == "toggle" else verb == "on")
+        elif verb == "brightness" and len(rest) == 1:
+            value = int(rest[0]) if rest[0].isascii() and rest[0].isdigit() and len(rest[0]) <= 4 else None
+            if value is None or value > 100:
+                return 400, {"ok": False, "error": "Brightness goes from 0 to 100"}
+            do = lambda: m.set_group_brightness(name, value)      # (0 is the lowest light, not off)
+        else:
+            return 404, {"ok": False, "error": "Unknown action"}
+        try:
+            do()
+        except ValueError as e:
+            return 409, {"ok": False, "error": str(e)}
+        return 200, {"ok": True, "action": "/".join(["group", name, verb, *rest])}
+
     def _act_lights(self, what: str, req: dict) -> None:
         """The groups and single lights: everything is checked before anything changes."""
         m = self.manager
+        mine = None                           # (the name of one of your own groups, when that is what was asked for)
         if what in ("group", "group_brightness"):
             group = req.get("group")
             if group not in ("pc", "room"):
-                raise ValueError("There's no such group")
+                mine = self._my_group(group)
         else:
             dev_id = req.get("id")
             with m.lock:
@@ -478,6 +532,8 @@ class Remote:
             on = req.get("on")
             if not isinstance(on, bool):
                 raise ValueError("on must be true or false")
+            if mine:
+                return m.set_group_power(mine, on)       # (remembers the lights itself, once the group is known to have some)
             m.remember()                      # (one change, one undo)
             if what == "group":
                 m.set_power_group(group, on)
@@ -491,6 +547,8 @@ class Remote:
         if what == "light_brightness":
             m.update([dev_id], {"brightness": value})
             return
+        if mine:
+            return m.set_group_brightness(mine, value, undo=False)
         with m.lock:                          # (only the group's lights that are on)
             ids = [i for i in m.visible_ids()
                    if i in m.states and m.states[i].on and _group_of(m.devices[i]) == group]

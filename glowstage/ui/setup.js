@@ -27,7 +27,7 @@ function settingsSignature() {
   const d = S.data;
   return JSON.stringify([d.devices.map(x => [x.id, x.name, x.online, x.error, x.paired, x.hidden, x.zones, x.label, x.balance]),
     d.hubs, d.openrgb, d.genreAi, d.settings, d.games, d.obs, (d.drivers || []).length, d.stage, d.schedules,
-    (d.presets || []).map(p => p.name), d.hotkeysTaken, d.hotkeyKeys, d.remote, d.appLooks]);
+    (d.presets || []).map(p => p.name), d.hotkeysTaken, d.hotkeyKeys, d.remote, d.appLooks, d.groups]);
 }
 
 function renderSettings(force = false) {
@@ -105,7 +105,105 @@ function lightsSection() {
       h("button", { class: "btn", type: "button", text: "Search now",
         onclick: async () => { await call("search"); toast("Looking for lights on your network…"); } }))),
     h("p", { class: "hint", text: "Everything Glowstage found, in your PC and on your network. Rename lights, hide ones you don't use, set up fan LED counts." }),
-    rows.length ? rows : h("p", { class: "hint", text: "No lights found yet." }));
+    rows.length ? groupsPart() : null,
+    rows.length ? rows : h("p", { class: "hint", text: "No lights found yet." }),
+    h("label", { class: "toggle-row", style: "margin-top:12px" }, h("span", { text: "When a light changes to a new color or preset" }),
+      h("select", { "aria-label": "How lights change", onchange: async e => {
+          const r = await callRaw("set_setting", "glide", e.target.value);
+          if (!r || r.ok === false) toast((r && r.error) || "Couldn't save that", true);
+          S.settingsSig = ""; refresh(true); } },
+        [["instant", "Change at once"], ["smooth", "Glide (a third of a second)"], ["slow", "Fade slowly (two seconds)"]]
+          .map(([v, t]) => h("option", { value: v, text: t, selected: v === (S.data.settings.glide || "smooth") })))),
+    h("p", { class: "hint", text: "Dragging a slider or the color wheel always follows your hand at once, and effects move by themselves. Some lights (Govee, Elgato, Magic Home, Twinkly) change at once whatever you pick." }));
+}
+
+/* ---- your own groups: "Desk", "Bed", "Living room"... Home, the phone, the tray and links use them ---- */
+
+const MAX_GROUPS = 12;
+
+function groupsPart() {
+  const groups = S.data.groups || [];
+  const rows = groups.map((g, i) => {
+    const names = g.ids.map(id => byId(id)).filter(Boolean).map(d => d.name);
+    const away = g.ids.length - names.length;
+    const sub = names.length ? `${plural(names.length, "light")}: ${names.join(", ")}` : "No lights right now";
+    return h("div", { class: "dev-row" },
+      h("div", { class: "dev-line" }, h("span", { class: "group-row-name", text: g.name })),
+      h("div", { class: "dev-sub", text: sub + (away && names.length ? ` (and ${away} that ${away === 1 ? "isn't" : "aren't"} here now)` : "") }),
+      h("div", { class: "dev-actions" },
+        h("button", { class: "btn", type: "button", text: "Edit", "aria-label": `Edit ${g.name}`, onclick: () => openGroupDialog(g) }),
+        h("button", { class: "btn", type: "button", text: "Move up", "aria-label": `Move ${g.name} up`, disabled: i === 0,
+          onclick: async () => { await call("move_group", g.name, -1); refresh(true); } }),
+        h("button", { class: "btn", type: "button", text: "Move down", "aria-label": `Move ${g.name} down`, disabled: i === groups.length - 1,
+          onclick: async () => { await call("move_group", g.name, 1); refresh(true); } }),
+        h("button", { class: "btn btn-quiet", type: "button", text: "Delete", "aria-label": `Delete ${g.name}`, onclick: () => confirmDeleteGroup(g.name) })));
+  });
+  return h("section", { class: "your-groups" },
+    h("h4", {}, "Your groups", h("span", { class: "count", text: groups.length || "" })),
+    h("p", { class: "hint", text: groups.length
+      ? "Each group has its own card on Home, a row on your phone and a place in the tray menu. A light can be in more than one."
+      : "Put lights together under your own name, like Desk or Bed, to switch them with one button. A light can be in more than one group." }),
+    rows,
+    h("div", { class: "form-actions" },
+      h("button", { class: "btn", type: "button", text: "Make a group", disabled: groups.length >= MAX_GROUPS, onclick: () => openGroupDialog(null) }),
+      groups.length >= MAX_GROUPS ? h("span", { class: "hint", text: `You can have ${MAX_GROUPS} groups at most.` }) : null));
+}
+
+function confirmDeleteGroup(name) {
+  openModal({
+    title: `Delete “${name}”?`,
+    body: h("p", { class: "hint", text: "The group is removed from Home, your phone and the tray menu. Your lights don't change." }),
+    ok: "Delete group",
+    onOk: async () => { await call("delete_group", name); refresh(true); return true; },
+  });
+}
+
+/** The window to make a group (`group` is null) or change one: a name and the lights to tick, in
+ *  the same two parts as when saving a preset. Lights that are gone right now stay in the group. */
+function openGroupDialog(group) {
+  const input = h("input", { class: "text-input", style: "width:100%", placeholder: "e.g. Desk", maxlength: "24", "aria-label": "Group name", value: group ? group.name : "" });
+  const boxes = new Map(), picker = [];
+  const ticked = new Set(group ? group.ids : []);
+  for (const [key, title] of [["pc", "In your PC"], ["room", "In your room"]]) {
+    const lights = visible().filter(d => (d.group === "pc") === (key === "pc"));
+    if (!lights.length) continue;
+    const setAll = on => { for (const d of lights) boxes.get(d.id).checked = on; };
+    const rows = lights.map(d => {
+      const box = h("input", { type: "checkbox", class: "switch", checked: ticked.has(d.id), "aria-label": d.name });
+      boxes.set(d.id, box);
+      return h("label", { class: "check-row" }, h("span", { class: "check-text" }, h("span", { class: "check-name", text: d.name })), box);
+    });
+    picker.push(
+      h("div", { class: "pick-group" },
+        h("span", { class: "field-label", text: title }),
+        h("span", { class: "pick-all" },
+          h("button", { class: "btn btn-quiet", type: "button", text: "All", "aria-label": `All lights ${title.toLowerCase()}`, onclick: () => setAll(true) }),
+          h("button", { class: "btn btn-quiet", type: "button", text: "None", "aria-label": `No lights ${title.toLowerCase()}`, onclick: () => setAll(false) }))),
+      h("div", { class: "check-list" }, rows));
+  }
+  openModal({
+    title: group ? `Edit “${group.name}”` : "Make a group",
+    body: h("div", {}, h("p", { class: "hint", style: "margin-bottom:12px", text: "Choose a name and tick the lights that belong in it." }), input, picker),
+    ok: group ? "Save group" : "Make group",
+    onOk: async () => {
+      const name = input.value.trim();
+      if (!name) return "Give the group a name.";
+      const ids = [...boxes].filter(([, b]) => b.checked).map(([id]) => id);
+      if (!ids.length) return "Choose at least one light.";
+      let r;
+      if (!group) r = await callRaw("create_group", name, ids);
+      else {
+        r = name === group.name ? { ok: true } : await callRaw("rename_group", group.name, name);
+        if (r.ok !== false) { group = { ...group, name }; r = await callRaw("set_group_lights", name, ids); }   // (renamed: a retry goes by the new name)
+      }
+      if (!r || r.ok === false) return (r && r.error) || "That didn't work.";
+      toast(group ? `Saved ${name}` : `Made ${name}`);
+      refresh(true);
+      return true;
+    },
+  });
+  setTimeout(() => input.focus(), 30);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") $("#modal-ok").click(); });
 }
 
 /** "Balanced: warmer, 70% at full, colors in GRB order" for a light that has something set; nothing for one that hasn't. */
@@ -759,6 +857,10 @@ function linksPart(r) {
       .map(([hex, name]) => ["color/" + hex, `Color: ${name} (swap the code for any color)`]),
     ...[["rainbow", "Rainbow wave"], ["fire", "Fire"], ["candle", "Candle"], ["aurora", "Aurora"], ["ocean", "Ocean"],
       ["screen", "Screen sync"]].map(([id, name]) => ["effect/" + id, `Look: ${name}`]),
+    ...(S.data.groups || []).flatMap(g => [[`group/${encodeURIComponent(g.name)}/on`, `Group ${g.name}: on`],
+      [`group/${encodeURIComponent(g.name)}/off`, `Group ${g.name}: off`],
+      [`group/${encodeURIComponent(g.name)}/toggle`, `Group ${g.name}: switch on or off`],
+      [`group/${encodeURIComponent(g.name)}/brightness/50`, `Group ${g.name}: brightness 50 % (0 to 100)`]]),
     ["show/start", "Start the light show"], ["show/stop", "Stop the light show"],
     ["sleep/30", "Sleep timer 30 min"], ["sleep/cancel", "Cancel the sleep timer"],
     ["pause/60", "Pause automatic looks for an hour"], ["pause/tomorrow", "Pause automatic looks until tomorrow"],

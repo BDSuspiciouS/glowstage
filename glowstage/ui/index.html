@@ -166,6 +166,19 @@
             <input type="checkbox" id="show-auto" class="switch">
           </label>
         </div>
+        <div class="card control control-listen">
+          <div class="colors-head">
+            <span class="control-text"><span class="control-title">Listen to</span><span id="show-listen-sub" class="muted"></span></span>
+            <div class="seg" role="radiogroup" aria-label="What the show listens to">
+              <button id="show-listen-pc" type="button" role="radio" aria-checked="true">What this PC plays</button>
+              <button id="show-listen-mic" type="button" role="radio" aria-checked="false">A microphone</button>
+            </div>
+          </div>
+          <div id="show-mic-box" class="listen-box" hidden>
+            <select id="show-mic-pick" aria-label="Microphone"></select>
+            <span id="show-mic-note" class="muted"></span>
+          </div>
+        </div>
         <div class="card control control-colors">
           <div class="colors-head">
             <span class="control-text"><span class="control-title">Colors</span><span id="show-colors-sub" class="muted"></span></span>

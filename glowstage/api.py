@@ -187,6 +187,16 @@ class Api:
     def set_show_sync(self, ms):
         self._m.set_show_sync(ms)
 
+    @_safe
+    def show_inputs(self):
+        """The PC's microphones for "Listen to" on the Light show page (listing opens none of them)."""
+        return self._m.show_inputs()
+
+    @_safe
+    def set_show_input(self, value):
+        """What the light show listens to: "" (what the PC plays), "default" or a microphone's id."""
+        self._m.set_show_input(value)
+
     def _ask_support(self) -> bool:
         """Show the support card? Once, after five days of use (and again a month after "Later")."""
         s = self._app.config["settings"]
@@ -388,6 +398,43 @@ class Api:
         """A copy of a preset right after it: the copy's name."""
         return self._m.duplicate_preset(name)
 
+    # ---- your own groups of lights (Setup → Lights → Your groups, Home) ------------------------
+
+    @_safe
+    def create_group(self, name, ids):
+        return self._m.create_group(name, ids)
+
+    @_safe
+    def rename_group(self, old, new):
+        self._m.rename_group(old, new)
+
+    @_safe
+    def set_group_lights(self, name, ids):
+        self._m.set_group_lights(name, ids)
+
+    @_safe
+    def delete_group(self, name):
+        self._m.delete_group(name)
+
+    @_safe
+    def move_group(self, name, step):
+        self._m.move_group(name, max(-1, min(1, int(step))))
+
+    @_safe
+    def group_power(self, name, on):
+        """A group's lights on or off (Undo takes it back, even for a group of one light)."""
+        self._m.set_group_power(name, bool(on))
+
+    @_safe
+    def group_brightness(self, name, value):
+        """The brightness of a group's lights that are on (a slider: no Undo for each step)."""
+        self._m.set_group_brightness(name, value, undo=False)
+
+    @_safe
+    def group_look(self, name, patch):
+        """A color or an effect for a group's lights, as one change."""
+        self._m.set_group_look(name, patch)
+
     @_safe
     def nudge_brightness(self, delta):
         """Every light that is on a bit brighter or darker (the + and - keys in the window)."""
@@ -511,7 +558,7 @@ class Api:
         if key == "autostart":
             winutil.set_autostart(bool(value))
             return
-        if key not in self._app.config["settings"] or key == "hotkey_keys":   # (the keys have calls of their own)
+        if key not in self._app.config["settings"] or key in ("hotkey_keys", "show_input"):   # (the keys and the microphone have calls of their own)
             raise ValueError(f"Unknown setting {key}")
         if key in ("auto_game", "auto_video"):   # "", "screen", "screen_sound" or "preset:<name>"
             value = str(value or "")
@@ -528,6 +575,8 @@ class Api:
                 raise ValueError("Choose a look from the list")
         if key == "away_lights" and value not in SCOPES:
             raise ValueError("Choose what happens from the list")
+        if key == "glide":
+            return self._app.manager.set_glide(str(value))
         self._app.config["settings"][key] = value
         self._app.config.save_soon()
         if key == "hotkeys":

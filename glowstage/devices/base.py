@@ -8,6 +8,11 @@ from ..colors import RGB, hex_to_rgb
 from ..state import LightState
 
 
+# "How lights change" (Setup → Lights): the seconds a new look takes, on every light that can glide
+# (the local ones step through it themselves, manager.DeviceWorker; the others are told: WLED's tt,
+# Hue's transitiontime, LIFX's duration, Home Assistant's transition, Nanoleaf's duration).
+GLIDES = {"instant": 0.0, "smooth": 0.35, "slow": 2.0}
+
 WARMTH_RANGE = 50        # the white balance slider goes from -50 (cooler) to +50 (warmer)
 MAX_FLOOR = 20           # "brightness at 100%" can't go below this (percent)
 KEEP_MIN = 0.4           # white balance never takes a channel below 40% of what it was
@@ -57,6 +62,8 @@ class Device:
     gains: tuple[float, float, float] | None = None   # the light's balance (set_balance); None: as it comes
     swap: tuple[int, int, int] | None = None          # its color order (order_swap); None: RGB, as it comes
     cap: int | None = None       # the night limit (night.py): no brightness above this now; None: none
+    glide = 0.35                 # seconds a new color, brightness or on/off takes ("How lights change", GLIDES)
+    moment = 0.35                # ... for the change being applied now: 0 for a drag or a flash (DeviceWorker sets it)
 
     def __init__(self, dev_id: str, name: str):
         self.id = dev_id

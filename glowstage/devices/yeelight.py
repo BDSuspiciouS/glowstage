@@ -168,16 +168,22 @@ class YeelightDevice(Device):
         except (TypeError, ValueError):
             return None
 
+    def _how(self) -> list:
+        """Yeelight's own glide: "smooth" over the time set (30 ms at least), or "sudden"."""
+        ms = round(self.moment * 1000)
+        return ["smooth", ms] if ms >= 30 else ["sudden", 0]
+
     def show_color(self, rgb: RGB, state: LightState) -> None:
-        cmds: list[tuple[str, list]] = [("set_power", ["on", "sudden", 0])]
+        how = self._how()
+        cmds: list[tuple[str, list]] = [("set_power", ["on", *how])]
         if self._color:
-            cmds.append(("set_rgb", [_rgb_int(rgb), "sudden", 0]))
-        cmds.append(("set_bright", [_bright(state.brightness), "sudden", 0]))
+            cmds.append(("set_rgb", [_rgb_int(rgb), *how]))
+        cmds.append(("set_bright", [_bright(state.brightness), *how]))
         self._talk(cmds, 3.0)
 
     def power_off(self, timeout: float = 3.0) -> None:
         self._close_music()
-        self._talk([("set_power", ["off", "sudden", 0])], timeout)
+        self._talk([("set_power", ["off", *self._how()])], timeout)
 
     def begin_stream(self, state: LightState) -> None:
         self._close_music()

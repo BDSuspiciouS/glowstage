@@ -10,7 +10,7 @@
     ["comet", "Comet", ["speed", "color", "color2"]], ["twinkle", "Starlight", ["speed", "color", "color2"]],
     ["fire", "Fire", ["speed"]], ["aurora", "Aurora", ["speed"]], ["candle", "Candle", ["speed"]], ["ocean", "Ocean", ["speed"]],
     ["lava", "Lava lamp", ["speed"]], ["storm", "Thunderstorm", ["speed"]],
-    ["snow", "Snowfall", ["speed"]], ["string_lights", "Holiday lights", ["speed"]], ["candy_cane", "Candy cane", ["speed", "color", "color2"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
+    ["snow", "Snowfall", ["speed"]], ["string_lights", "Holiday lights", ["speed"]], ["candy_cane", "Candy cane", ["speed", "color", "color2"]], ["fireflies", "Fireflies", ["speed"]], ["rain", "Rain", ["speed"]], ["plasma", "Plasma", ["speed", "color", "color2"]], ["sunset", "Sunset", ["speed"]], ["typing", "Typing ripples", ["speed", "color", "color2"]], ["pc_load", "PC load", ["color", "color2"]], ["daylight", "Follow the sun", []], ["screen", "Screen sync", []], ["screen_sound", "Screen + sound", []],
     ["music_show", "Light show", ["speed"], "music"],
     ["music_party", "Party", ["speed"], "music"], ["music_ripple", "Bass ripple", ["speed"], "music"],
     ["music_spectrum", "Spectrum", ["speed"], "music"], ["music_pulse", "Beat pulse", ["speed", "color", "color2"], "music"],
@@ -20,10 +20,17 @@
     ["music_fire", "Music fire", ["speed"], "music"], ["music_aurora", "Northern lights", ["speed"], "music"],
     ["music_heart", "Heartbeat", ["speed", "color", "color2"], "music"]]
     .map(([id, name, uses, group]) => ({ id, name, uses, group: group || "animation",
-      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "ocean", "lava", "storm", "snow", "string_lights", "candy_cane", "pc_load"].includes(id) }));
+      flows: ["rainbow", "spectrum", "breathing", "wave", "gradient", "comet", "aurora", "ocean", "lava", "storm", "snow", "string_lights", "candy_cane", "fireflies", "rain", "plasma", "sunset", "pc_load"].includes(id) }));
   const zones = [{ index: 0, name: "Pump", leds: 29, min: 29, max: 29, resizable: false, detected: -1 },
     ...[1, 2, 3, 4, 5, 6].map(i => ({ index: i, name: `Corsair Fan Header ${i}`, leds: i <= 3 ? 8 : 0, min: 0, max: 34,
       resizable: true, detected: i <= 3 ? 8 : null }))];
+  const fakeMics = [{ id: "mic-usb", name: "Microphone (USB Audio)", default: false },
+    { id: "mic-array", name: "Microphone Array (Realtek(R) Audio)", default: true }];
+  // ?mic starts on the default microphone, ?mic=usb on the USB one, and &missing makes it one that isn't there
+  const micAsked = (location.search.match(/[?&]mic=usb(?=&|$)/) ? "usb" : /[?&]mic(&|$)/.test(location.search) ? "default" : "");
+  // ?groups: two of your own groups to start with (Setup → Lights → Your groups; Home; the phone)
+  const groupDefs = /[?&]groups\b/.test(location.search)
+    ? [{ name: "Desk", ids: ["wled:1", "wled:2", "qmk:gx87"] }, { name: "Evening", ids: ["wled:1", "nanoleaf:1", "hue:001788:3", "gone:lamp"] }] : [];
   const data = {
     revision: 1,
     showExcluded: [],
@@ -118,7 +125,10 @@
       { name: "Red room", effects: ["music_pulse"], colors: ["#c8001a", "#5a00c8"] },
       { name: "After dark", effects: ["music_bloom", "music_heart", "music_romantic"], colors: ["#1a10c8", "#7a00a8", "#c0001c", "#6a0060"] }],
     effects,
-    audio: { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", sync: { ms: 200, auto: true } },
+    audio: micAsked
+      ? { device: micAsked === "usb" ? fakeMics[0].name : fakeMics[1].name, listening: false, kind: "microphone",
+          source: micAsked === "usb" ? "mic-usb" : "default", missing: /[?&]missing/.test(location.search), sync: { ms: 0, auto: true } }
+      : { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", source: "", missing: false, sync: { ms: 200, auto: true } },
     show: { style: "Techno", ai: true, aiError: "", confidence: 0.62, genres: ["Techno", "Electronic music"],
       mood: "Exciting", section: "drop", scene: "chase16", bpm: 128, half: false, chord: /[?&]mycolors/.test(location.search) ? "" : "Am in C", mine: /[?&]mycolors/.test(location.search) },
     autoPaused: /[?&]paused/.test(location.search) ? Date.now() / 1000 + 50 * 60 : 0,
@@ -127,10 +137,10 @@
     auto: (location.search.match(/[?&]auto=(cs2|lol|dota|rl|call|live|game|video|music|app:[a-z0-9.]+)/) || [])[1] || null,
     updating: { state: "idle", progress: 0, message: "", canInstall: true },
     whatsNew: /[?&]new/.test(location.search) ? { version: "0.9.8", items: [
-      { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Candle, Ocean, Lava lamp and Thunderstorm for any evening." },
+      { title: "Snowfall, Holiday lights, Candy cane", go: "effect:snow", text: "Three looks for December, and Fireflies, Rain, Plasma and Sunset for any evening." },
+      { title: "Your own groups", go: "setup:lights", text: "Desk, Bed, Living room: each with its own switch, brightness and colors, on Home and your phone." },
       { title: "Colors from a picture", go: "presets:picture", text: "Pick a photo, take one with your phone, or use your wallpaper: your lights take its main colors." },
-      { title: "The light show in your colors", go: "show:colors", text: "Pick 2 to 5 colors and the show keeps all of its moves, but in your colors only." },
-      { title: "Focus timer", go: "focus", text: "Work for a while, then a short break: your room turns soft green, so you see it's time to get up." },
+      { title: "The light show in your colors", go: "show:colors", text: "Pick 2 to 5 colors and the show keeps all of its moves. It can listen to a microphone too, if you like." },
       { title: "League of Legends, Dota 2, Rocket League", go: "setup:games", text: "Your side's color, your health or boost across the lights, a flash for every kill or goal." },
       { title: "On air with OBS", go: "setup:automatic", text: "While you stream or record, your lights take a preset: one light red like an ON AIR sign." },
       { title: "A night limit, and softer flashes", go: "setup:schedule", text: "Keep every light dim at night, whatever switches it on, or turn every flash into a soft swell." }] } : null,
@@ -155,7 +165,7 @@
         inMatch: /[?&]dota\b/.test(location.search), team: "radiant", health: 64 },
       rl: { found: true, connected: /[?&]rl\b/.test(location.search), fileThere: true, receiving: /[?&]rl\b/.test(location.search),
         inMatch: /[?&]rl\b/.test(location.search), team: "orange", boost: 64 } },
-    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, show_colors: /[?&]mycolors/.test(location.search) ? ["#ff3ca0", "#00d9ff", "#ffd000"] : [], soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "", auto_live: /[?&](auto=live|obs)/.test(location.search) ? "preset:Focus" : "",
+    settings: { recent_colors: ["#ff8800", "#2d9cff", "#ffb46b", "#9b59ff", "#00e0a0"], close_to_tray: true, start_minimized: false, restore_on_launch: true, autostart: false, show_strobe: true, glide: "smooth", show_colors: /[?&]mycolors/.test(location.search) ? ["#ff3ca0", "#00d9ff", "#ffd000"] : [], soft_flashes: /[?&]soft/.test(location.search), auto_show: /[?&]auto=music/.test(location.search), show_input: micAsked === "usb" ? "mic-usb" : micAsked, auto_game: "preset:Gaming", auto_video: "", auto_call: /[?&]auto=call/.test(location.search) ? "preset:Gaming" : "", auto_live: /[?&](auto=live|obs)/.test(location.search) ? "preset:Focus" : "",
       lights_on_at_startup: true, pc_lights_off_at_shutdown: true, room_lights_off_at_shutdown: true, away_lights: "", flow: false,
       setup_done: !/[?&]tour\b/.test(location.search) },
   };
@@ -252,6 +262,18 @@
     },
   };
   HK.publish();
+  const grp = fn => { try { return ok(fn()); } catch (e) { return Promise.resolve({ ok: false, error: e.message }); } };
+  const findGroup = name => { const g = groupDefs.find(x => x.name.toLowerCase() === String(name).trim().toLowerCase());
+    if (!g) throw new Error("There's no such group"); return g; };
+  const groupName = (name, self) => { name = String(name || "").trim();
+    if (!name) throw new Error("Give the group a name");
+    if (name.length > 24) throw new Error("A group name can be 24 letters at most");
+    if (groupDefs.some(g => g !== self && g.name.toLowerCase() === name.toLowerCase())) throw new Error(`There's already a group called ${name}`);
+    return name; };
+  const ticked = ids => { if (!ids || !ids.length) throw new Error("Choose at least one light");
+    if (ids.some(i => !data.devices.some(d => d.id === i && !d.hidden))) throw new Error("One of those lights is gone");
+    return [...new Set(ids)]; };
+  const groupDevices = g => data.devices.filter(d => g.ids.includes(d.id) && !d.hidden);
   const hk = fn => { try { return ok(fn()); } catch (e) { return Promise.resolve({ ok: false, error: e.message }); } };
   window.pywebview = { api: {
     get_hotkeys: () => ok(HK.list()),
@@ -262,6 +284,11 @@
     reset_hotkeys: () => hk(() => { HK.over = {}; HK.publish(); return HK.list(); }),
     pause_hotkeys: () => ok(), resume_hotkeys: () => ok(),
     get_state: () => { const state = JSON.parse(JSON.stringify(data)), f = state.focus;
+      state.groups = groupDefs.map(g => {   // (what manager.groups_info() says: the lights that are here, and how many are on)
+        const here = g.ids.filter(i => data.devices.some(d => d.id === i && !d.hidden));
+        return { name: g.name, ids: [...g.ids], lights: here.length,
+          on: here.filter(i => { const d = data.devices.find(x => x.id === i); return d.online && d.state.on; }).length };
+      });
       if (f) {   // (what focus.py's describe() says: the minutes left count down here too)
         const left = Math.max(1, Math.ceil((f.at - Date.now() / 1000) / 60));
         f.left = left;
@@ -270,6 +297,22 @@
           : f.round >= f.rounds ? "Then your lights go back to how they were." : `Then a break of ${f.rest} minutes: your lights turn soft green.`;
       }
       return ok(state); },
+    // your own groups, with the app's rules: 12 at most, names of 1-24 letters that differ, a light in several
+    create_group: (name, ids) => grp(() => { name = groupName(name);
+      if (groupDefs.length >= 12) throw new Error("You can have 12 groups at most");
+      groupDefs.push({ name, ids: ticked(ids) }); data.revision++; return name; }),
+    rename_group: (old, name) => grp(() => { const g = findGroup(old); name = groupName(name, g);
+      g.name = name; data.revision++; }),
+    set_group_lights: (name, ids) => grp(() => { const g = findGroup(name), on = ticked(ids);
+      g.ids = [...on, ...g.ids.filter(i => !data.devices.some(d => d.id === i && !d.hidden))]; data.revision++; }),
+    delete_group: name => grp(() => { groupDefs.splice(groupDefs.indexOf(findGroup(name)), 1); data.revision++; }),
+    move_group: (name, step) => grp(() => { const at = groupDefs.indexOf(findGroup(name)), [g] = groupDefs.splice(at, 1);
+      groupDefs.splice(Math.max(0, Math.min(groupDefs.length, at + step)), 0, g); data.revision++; }),
+    group_power: (name, on) => grp(() => { const g = findGroup(name), here = groupDevices(g);
+      if (!here.length) throw new Error("That group has no lights right now");
+      for (const d of here) d.state.on = !!on; data.revision++; }),
+    group_brightness: (name, value) => grp(() => { for (const d of groupDevices(findGroup(name))) if (d.state.on) d.state.brightness = Math.max(1, Math.min(100, value)); }),
+    group_look: (name, patch) => grp(() => { for (const d of groupDevices(findGroup(name))) Object.assign(d.state, patch); data.revision++; }),
     update: (ids, patch) => {
       for (const d of data.devices) if (!ids || ids.includes(d.id)) Object.assign(d.state, patch);
       return ok();
@@ -412,7 +455,20 @@
       data.revision++;
       return ok();
     },
-    set_show_sync: ms => { data.audio.sync = ms === null ? { ms: 200, auto: true } : { ms, auto: false }; return ok(); },
+    set_show_sync: ms => { data.audio.sync = ms === null ? { ms: data.audio.source ? 0 : 200, auto: true } : { ms, auto: false }; return ok(); },
+    // A couple of fake microphones (add ?mic to start on the default one, ?mic&missing for one that isn't there).
+    show_inputs: () => ok({ inputs: fakeMics.map(m => ({ ...m })), input: data.audio.source }),
+    set_show_input: value => {
+      value = String(value || "");
+      const mic = value === "default" ? fakeMics.find(m => m.default) : fakeMics.find(m => m.id === value);
+      if (value && !mic && value !== "default") return Promise.resolve({ ok: false, error: "That microphone isn't there" });
+      data.settings.show_input = value;
+      data.audio = value
+        ? { device: mic ? mic.name : "", listening: false, kind: "microphone", source: value, missing: false, sync: { ms: 0, auto: true } }
+        : { device: "Headphones (WH-1000XM4)", listening: false, kind: "bluetooth", source: "", missing: false, sync: { ms: 200, auto: true } };
+      data.revision++;
+      return ok();
+    },
     reset_stage: () => ok(), search: () => ok(), open_link: () => ok(), restart_app: () => ok(),
     pair: () => Promise.resolve({ ok: false, error: "The bridge's link button wasn't pressed." }),
     set_dmx_fixtures: (id, fixtures) => { data.hubs[1].fixtures = fixtures; return ok(); },

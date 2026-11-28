@@ -265,11 +265,12 @@ class LifxDevice(Device):
         self.error = None
 
     def show_color(self, rgb: RGB, state: LightState) -> None:
+        ms = round(self.moment * 1000)
         self._send_acked(LIGHT_SET_POWER, set_power_payload(True))
-        self._send_acked(SET_COLOR, set_color_payload(rgb_to_hsbk(rgb, state.brightness / 100)))
+        self._send_acked(SET_COLOR, set_color_payload(rgb_to_hsbk(rgb, state.brightness / 100), ms))
 
     def power_off(self, timeout: float = 3.0) -> None:
-        self._send_acked(LIGHT_SET_POWER, set_power_payload(False), min(timeout / 2, self.timeout))
+        self._send_acked(LIGHT_SET_POWER, set_power_payload(False, round(self.moment * 1000)), min(timeout / 2, self.timeout))
 
     def begin_stream(self, state: LightState) -> None:
         self._send_acked(LIGHT_SET_POWER, set_power_payload(True))

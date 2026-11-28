@@ -139,7 +139,9 @@ class ControlTests(unittest.TestCase):
         self.addCleanup(self.bulb.close)
 
     def device(self, support=COLOR_SUPPORT):
-        return yeelight.YeelightDevice("yeelight:x", "Lamp", "127.0.0.1", self.bulb.port, "color", support)
+        dev = yeelight.YeelightDevice("yeelight:x", "Lamp", "127.0.0.1", self.bulb.port, "color", support)
+        dev.moment = 0                      # (at once: the glide is tested apart)
+        return dev
 
     def test_connect_sends_get_prop_line(self):
         dev = self.device()
@@ -187,6 +189,12 @@ class ControlTests(unittest.TestCase):
         dev.show_color((255, 128, 0), LightState(brightness=30))
         self.assertEqual([c["method"] for c in self.bulb.commands()], ["set_power", "set_bright"])
         self.assertEqual(self.bulb.commands()[1]["params"], [30, "sudden", 0])
+
+    def test_a_glide_is_smooth(self):
+        dev = self.device()
+        dev.moment = 2.0
+        dev.show_color((255, 128, 0), LightState(brightness=80))
+        self.assertTrue(all(c["params"][-2:] == ["smooth", 2000] for c in self.bulb.commands()))
 
     def test_power_off_via_apply(self):
         dev = self.device()

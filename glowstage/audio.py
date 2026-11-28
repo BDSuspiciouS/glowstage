@@ -1,11 +1,16 @@
 """Listens to what the PC is playing (WASAPI loopback of the default output device, so no
 microphone) and turns it into what the music effects need: loudness, 16 frequency bands from
-bass to treble, beats, snare/hi-hat hits and the tempo. Runs only while a music effect is in use."""
+bass to treble, beats, snare/hi-hat hits and the tempo. Runs only while a music effect is in use.
+
+Only when the person chooses it, it listens to a microphone instead (for music that doesn't come
+from the PC: a record player, a party, a band). It is the same analysis, on sound that is thrown
+away as it is analyzed; the stream is only open while something needs the sound."""
 
 from __future__ import annotations
 
 import collections
 import logging
+import queue
 import threading
 import time
 import warnings
@@ -27,6 +32,15 @@ SILENCE_RMS = 2e-5           # (-94 dBFS: what the PC plays is digital silence b
                              # played very softly, e.g. with the player turned far down, still counts)
 KEEP_SECONDS = 4.5           # raw sound kept for the genre detector (it looks at up to 4 s)
 TEMPO_SECONDS = 8.0          # onset history the tempo is estimated from
+
+# A microphone hears the room: much quieter than what the PC plays, and never really silent.
+MIC_TARGET = 0.1             # the level (rms) the analysis gets to see, about what music from the PC has
+MIC_FLOOR = 2e-3             # (-54 dBFS) below this the microphone only hears the room: it counts as silence
+                             # and isn't turned up, so a quiet room doesn't become noise
+MIC_MAX_GAIN = MIC_TARGET / MIC_FLOOR
+MIC_MEMORY = 0.995           # the loudest recent level fades by this much per block: ~4 s
+FOLLOW_SECONDS = 2.0         # how often it looks for a switch of output or microphone
+DEFAULT_MIC = "default"      # the setting's value that follows Windows' default microphone
 
 
 def quiet() -> dict:
@@ -106,10 +120,52 @@ def output_kind(speaker) -> str:
         return "local"
 
 
+class MicGain:
+    """Automatic gain for a microphone: brings what it hears to a level the analysis can use.
+
+    It follows the loudest recent level (it turns down at once when it gets loud, and turns up
+    slowly over a few seconds when it gets quiet), so a quiet party and a loud band both arrive at
+    about MIC_TARGET. Below MIC_FLOOR it does nothing: that is the room, not the music."""
+
+    def __init__(self):
+        self.env = MIC_FLOOR
+        self.heard = False       # did the last block hold more than the room's noise?
+
+    def apply(self, data: np.ndarray) -> np.ndarray:
+        rms = float(np.sqrt(np.mean(np.square(data, dtype=np.float64)))) if data.size else 0.0
+        self.heard = rms > MIC_FLOOR
+        self.env = max(self.env * MIC_MEMORY, rms, MIC_FLOOR)
+        if not self.heard:
+            return data
+        gain = min(MIC_MAX_GAIN, MIC_TARGET / self.env)
+        return np.clip(data * gain, -1.0, 1.0).astype(np.float32)
+
+
+def clean_source(value) -> str:
+    """The setting "show_input": "" (what the PC plays), "default" or a microphone's id."""
+    return str(value or "").strip()[:300]
+
+
+def list_microphones(sc) -> dict:
+    """The PC's microphones as {"inputs": [{"id", "name"}], "default": id of Windows' default or ""}.
+    What the speakers play ("loopback") is left out. Needs the audio thread (see microphones)."""
+    inputs = [{"id": str(m.id), "name": str(m.name)} for m in sc.all_microphones(include_loopback=False)]
+    try:
+        default = str(sc.default_microphone().id)
+    except Exception:       # no microphone at all
+        default = ""
+    return {"inputs": inputs, "default": default}
+
+
 class AudioAnalyzer:
     def __init__(self):
         self.device = ""
-        self.device_kind = "local"
+        self.device_kind = "local"      # "local", "bluetooth", "remote", or "microphone"
+        self.source = ""                # what it listens to: "" the PC's sound, "default" or a microphone's id
+        self.missing = False            # the chosen microphone isn't there
+        self._pc_until = 0.0            # asked for the PC's own sound until then, whatever the source (see request)
+        self._agc: MicGain | None = None
+        self._jobs: queue.Queue = queue.Queue()
         self._last_failure = ""      # the last reason listening failed (logged once)
         self._retry = 2.0
         self._snap = quiet()
@@ -161,12 +217,29 @@ class AudioAnalyzer:
 
     # ---- used by the effect engine ----------------------------------------------------------
 
-    def request(self) -> dict:
-        """Keep listening for the next few seconds and return the latest analysis."""
-        self._wanted_until = time.monotonic() + 3.0
-        if self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="audio", daemon=True)
-            self._thread.start()
+    def set_source(self, source, name: str = "") -> None:
+        """Listen to the PC's sound ("") or a microphone ("default" or its id; `name` is what to show
+        until the stream says it). The stream follows on its own within a moment."""
+        source = clean_source(source)
+        self.missing = False
+        self._last_failure = ""
+        if source == self.source and not name:
+            return
+        self.source = source
+        self.device = name if source else ""
+        self.device_kind = "microphone" if source else "local"
+
+    def pc_requested(self) -> bool:
+        return time.monotonic() < self._pc_until
+
+    def request(self, pc_sound: bool = False) -> dict:
+        """Keep listening for the next few seconds and return the latest analysis. `pc_sound` asks
+        for the PC's own sound even while a microphone is chosen: the automatic start by music
+        uses it, so the room's sound never starts the show."""
+        now = time.monotonic()
+        self._wanted_until = now + 3.0
+        self._pc_until = now + 3.0 if pc_sound else 0.0
+        self._ensure_thread()
         with self._lock:
             snap = dict(self._snap)
         now = time.monotonic()
@@ -193,6 +266,42 @@ class AudioAnalyzer:
     def active(self) -> bool:
         return time.monotonic() < self._wanted_until
 
+    def _ensure_thread(self) -> None:
+        if self._thread is None:
+            self._thread = threading.Thread(target=self._run, name="audio", daemon=True)
+            self._thread.start()
+
+    def microphones(self, timeout: float = 5.0) -> dict:
+        """The PC's microphones (see list_microphones). The audio thread lists them: it is the one
+        that set up soundcard's Windows COM. Listing does not open any of them."""
+        done, box = threading.Event(), {}
+
+        def job(sc):
+            try:
+                box["result"] = list_microphones(sc)
+            except Exception as e:
+                box["error"] = e
+            done.set()
+
+        self._jobs.put(job)
+        self._ensure_thread()
+        if not done.wait(timeout):
+            raise OSError("The microphones can't be listed right now")
+        if "error" in box:
+            raise OSError(f"The microphones can't be listed: {box['error']}")
+        return box["result"]
+
+    def _serve_jobs(self, sc) -> None:
+        while True:
+            try:
+                job = self._jobs.get_nowait()
+            except queue.Empty:
+                return
+            job(sc)
+
+    def _source_now(self) -> str:
+        return "" if self.pc_requested() else self.source
+
     # ---- capture -----------------------------------------------------------------------------
 
     def _run(self) -> None:
@@ -204,42 +313,99 @@ class AudioAnalyzer:
             log.warning("Music effects unavailable: %s", e)
             return
         while True:
-            if not self.active:
-                with self._lock:
-                    self._snap = quiet()
-                time.sleep(0.3)
-                continue
-            try:
-                speaker = sc.default_speaker()
-                mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
-                self.device_kind = output_kind(speaker)
-                self.device = speaker.name
-                log.info("Listening to %s (%s) for music effects", speaker.name, self.device_kind)
-                self._reset()
-                checked = time.monotonic()
-                with mic.recorder(samplerate=RATE, blocksize=BLOCK) as rec:
-                    while self.active:
-                        self._analyze(rec.record(numframes=BLOCK))
-                        if time.monotonic() - checked > 2.0:  # follow a switch to speakers/headphones
-                            checked = time.monotonic()
-                            if sc.default_speaker().id != speaker.id:
-                                break
-            except Exception as e:
-                # (No sound output at all, e.g. a Remote Desktop session that was closed: say so
-                # once, then retry ever more calmly. A line every 2 s filled the log in a day and
-                # pushed out everything else in it.)
-                failed = str(e)
-                if failed != self._last_failure:
-                    log.warning("Listening to the PC's audio failed: %s", failed)
-                    self._last_failure, self._retry = failed, 2.0
-                else:
-                    self._retry = min(30.0, self._retry * 1.5)
+            self._step(sc)
+
+    def _step(self, sc) -> None:
+        """One turn of the audio thread: answer questions, and listen only while something needs
+        the sound (when nothing does, no stream is open and a microphone is let go)."""
+        self._serve_jobs(sc)
+        if not self.active:
+            with self._lock:
+                self._snap = quiet()
+            time.sleep(0.3)
+            return
+        try:
+            self._listen_once(sc)
+        except Exception as e:
+            # (No sound output at all, e.g. a Remote Desktop session that was closed: say so
+            # once, then retry ever more calmly. A line every 2 s filled the log in a day and
+            # pushed out everything else in it.)
+            mic = bool(self._source_now())
+            failed = str(e)
+            if failed != self._last_failure:
+                log.warning("Listening to the %s failed: %s", "microphone" if mic else "PC's audio", failed)
+                self._last_failure, self._retry = failed, 2.0
+            else:
+                self._retry = min(30.0, self._retry * 1.5)
+            if mic:
+                self.missing = True      # (a microphone that stops answering is gone, as far as we can tell)
+            else:
                 self.device = ""
-                time.sleep(self._retry)
-                continue
-            self._last_failure = ""
+            time.sleep(self._retry)
+            return
+        self._last_failure = ""
+
+    def _listen_once(self, sc) -> None:
+        """One stretch of listening: until nothing needs the sound, or the output, the microphone or
+        the choice between them changes. The stream is closed when it returns."""
+        source = self._source_now()
+        if source:
+            self._listen_microphone(sc, source)
+        else:
+            self._listen_pc(sc)
+
+    def _listen_pc(self, sc) -> None:
+        speaker = sc.default_speaker()
+        mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+        self.device_kind = output_kind(speaker)
+        self.device = speaker.name
+        self.missing = False
+        self._agc = None
+        log.info("Listening to %s (%s) for music effects", speaker.name, self.device_kind)
+        self._reset()
+        checked = time.monotonic()
+        with mic.recorder(samplerate=RATE, blocksize=BLOCK) as rec:
+            while self.active and not self._source_now():
+                self._serve_jobs(sc)
+                self._analyze(rec.record(numframes=BLOCK))
+                if time.monotonic() - checked > FOLLOW_SECONDS:  # follow a switch to speakers/headphones
+                    checked = time.monotonic()
+                    if sc.default_speaker().id != speaker.id:
+                        break
+
+    def _listen_microphone(self, sc, source: str) -> None:
+        wanted = list_microphones(sc)["default"] if source == DEFAULT_MIC else source
+        mic = next((m for m in sc.all_microphones(include_loopback=False) if str(m.id) == wanted), None) if wanted else None
+        if mic is None:
+            # Gone (unplugged, or none at all): say so and wait for it. Never switch to another one.
+            if not self.missing:
+                log.info("The microphone for the light show isn't there")
+            self.missing = True
+            with self._lock:
+                self._snap = quiet()
+            time.sleep(2.0)
+            return
+        self.missing = False
+        self.device_kind = "microphone"
+        self.device = str(mic.name)
+        self._agc = MicGain()
+        log.info("Listening to the microphone %s for music effects", mic.name)
+        self._reset()
+        checked = time.monotonic()
+        with mic.recorder(samplerate=RATE, blocksize=BLOCK) as rec:
+            while self.active and self._source_now() == source:
+                self._serve_jobs(sc)
+                self._analyze(rec.record(numframes=BLOCK))
+                if time.monotonic() - checked > FOLLOW_SECONDS:   # follow Windows' default, notice an unplugged one
+                    checked = time.monotonic()
+                    now = list_microphones(sc)
+                    if str(mic.id) not in {m["id"] for m in now["inputs"]} or (
+                            source == DEFAULT_MIC and now["default"] != str(mic.id)):
+                        break
 
     def _analyze(self, data: np.ndarray) -> None:
+        if self._agc is not None:
+            data = self._agc.apply(data)       # (a microphone: brought to a usable level, room noise left alone)
         mono = data.mean(axis=1).astype(np.float32) if data.ndim == 2 else data.astype(np.float32)
         n = len(mono)
         if n == 0:
@@ -250,7 +416,7 @@ class AudioAnalyzer:
         self._impacts.feed(data, now)       # (stereo: which side a shot is on)
 
         rms = float(np.sqrt(np.mean(mono ** 2)))
-        if rms > SILENCE_RMS:
+        if self._agc.heard if self._agc is not None else rms > SILENCE_RMS:
             self._last_sound = now
         silent = now - self._last_sound > 0.6
 

@@ -121,7 +121,9 @@ const S = {
   native: {},              // device id -> {effects, palettes}
   nativeBuiltFor: "",
   tiles: new Map(),
-  groups: null,
+  groups: null,            // the PC and room sections on Home
+  mine: null,              // "Your groups" on Home (your own groups' cards)
+  targetName: "",          // the panel's title when it shows one of your groups
   settingsSig: "",
   fxBuilt: "",
 };
@@ -649,6 +651,10 @@ const FX_LOOK = {
   snow: "linear-gradient(90deg, #07103a, #07103a 20%, #dbe8ff 26%, #07103a 33%, #101e50 55%, #c4d6ff 62%, #07103a 70%, #07103a)",
   string_lights: "linear-gradient(90deg, #f01810, #f01810 12%, #0b0b0b 17%, #18be34 22%, #18be34 33%, #0b0b0b 38%, #ffa018 43%, #ffa018 54%, #0b0b0b 59%, #1846ff 64%, #1846ff 75%, #0b0b0b 80%, #f01810 85%)",
   candy_cane: "repeating-linear-gradient(115deg, #de1224 0 10px, #fff6ee 10px 20px)",
+  fireflies: "linear-gradient(90deg, #031a20, #031a20 18%, #4a6a1e 24%, #b0dc34 28%, #4a6a1e 33%, #031a20 40%, #052630 58%, #7a9a28 66%, #031a20 74%, #031a20)",
+  rain: "linear-gradient(90deg, #0d1526, #0d1526 15%, #324a78 30%, #96beff 34%, #0d1526 40%, #0d1526 58%, #2a4068 72%, #96beff 76%, #0d1526 84%, #0d1526)",
+  plasma: "linear-gradient(90deg, #ff1ea8, #6a3cff 32%, #00d7ff 55%, #8a40ff 78%, #ff1ea8)",
+  sunset: "linear-gradient(90deg, #ffa21e, #e84604 14%, #ee388a 50%, #3e2ed0)",
   typing: "linear-gradient(90deg, #1b1430, #00e5ff 28%, #1b1430 48%, #7c4dff 72%, #1b1430)",
   pc_load: "linear-gradient(90deg, #2bff6a 0%, #ffd23a 35%, #ff3a2a 70%, #1b2a20 70%)",
   music_organ: "linear-gradient(90deg, #ff2a2a, #2aff5a, #2a6bff)",
@@ -823,6 +829,7 @@ function updateTile(node, d) {
 
 function renderTiles() {
   const host = $("#light-groups");
+  renderMyGroups(host);
   if (!S.groups) {
     S.groups = {};
     for (const [key, title] of [["pc", "In your PC"], ["room", "In your room"]]) {
@@ -882,6 +889,7 @@ function liveTiles(ts) {
 }
 
 function selectStrip(id, additive) {
+  S.targetName = "";
   if (id === "__all") S.selected = null;
   else if (additive) {
     const cur = new Set(S.selected || []);
@@ -903,6 +911,83 @@ function toggleStrip(id) {
   if (!d) return;
   if (d.paired === false) return openPairDialog(d);
   send([id], { on: !d.state.on }, "on:" + id);
+}
+
+/* ---- your own groups on Home: a compact card each, above the PC and room sections ---- */
+
+/** The lights of one of your groups that are here now (the group's ids can hold lights that are gone). */
+const myGroupIds = g => g.ids.filter(id => { const d = byId(id); return d && !d.hidden; });
+const myGroup = name => ((S.data && S.data.groups) || []).find(g => g.name === name);
+
+function makeGroupCard(name) {
+  const power = h("button", { class: "tile-power", type: "button" }, icon("power"));
+  const slider = h("div", { class: "slider", role: "slider", tabindex: "0", "aria-valuemin": "0", "aria-valuemax": "100", "aria-label": `Brightness, ${name}` },
+    h("div", { class: "slider-fill" }));
+  const look = h("button", { class: "btn btn-sm", type: "button", text: "Color & effects", "aria-label": `Color and effects for ${name}` });
+  const card = h("div", { class: "tile group-card", "data-name": name },
+    h("div", { class: "tile-top" },
+      h("span", { class: "tile-icon" }, icon("presets")),
+      h("div", { class: "tile-text" }, h("span", { class: "tile-name", text: name }), h("span", { class: "tile-meta" })),
+      power),
+    slider, look);
+  const ids = () => { const g = myGroup(name); return g ? myGroupIds(g) : []; };
+  bindSlider(slider, "__g:" + name, v => send(ids(), { brightness: v }, "bri:__g:" + name));
+  power.addEventListener("click", () => toggleMyGroup(name));
+  look.addEventListener("click", () => { S.selected = ids(); S.targetName = name; openSheet(); });
+  return { card, power, slider, look };
+}
+
+function renderMyGroups(host) {
+  const list = (S.data && S.data.groups) || [];
+  if (!S.mine) {
+    const grid = h("div", { class: "group-cards" }), count = h("span", { class: "count" });
+    const sec = h("section", { class: "light-group my-groups", hidden: true }, h("div", { class: "section-head" }, h("h2", {}, "Your groups", count)), grid);
+    S.mine = { sec, grid, count, cards: new Map() };
+    host.prepend(sec);
+  }
+  const mine = S.mine;
+  mine.sec.hidden = !list.length;
+  mine.count.textContent = list.length;
+  for (const g of list) if (!mine.cards.has(g.name)) mine.cards.set(g.name, makeGroupCard(g.name));
+  for (const [name, c] of mine.cards) if (!list.some(g => g.name === name)) { c.card.remove(); mine.cards.delete(name); }
+  const order = list.map(g => g.name);
+  if ([...mine.grid.children].map(n => n.dataset.name).join("\n") !== order.join("\n")) fill(mine.grid, order.map(n => mine.cards.get(n).card));
+  for (const g of list) {
+    const c = mine.cards.get(g.name), members = myGroupIds(g).map(byId);
+    const lit = members.filter(d => d.online && d.state.on);
+    const base = lit.length ? lit : members;
+    const avg = base.length ? Math.round(base.reduce((a, d) => a + d.state.brightness, 0) / base.length) : 100;
+    c.card.classList.toggle("is-off", !lit.length);
+    c.card.classList.toggle("is-offline", !members.length);
+    c.card.style.setProperty("--c", lit.length ? glowColor(lit[0]) : "#888");
+    c.card.style.setProperty("--lit", lit.length ? (0.35 + 0.65 * avg / 100).toFixed(2) : 0);
+    $(".tile-meta", c.card).textContent = !members.length ? "No lights right now" : `${lit.length} of ${members.length} on`;
+    c.power.hidden = c.slider.hidden = c.look.hidden = !members.length;
+    c.power.classList.toggle("is-on", lit.length > 0);
+    c.power.setAttribute("aria-label", `Turn ${g.name} ${lit.length ? "off" : "on"}`);
+    c.power.title = lit.length ? "Turn off" : "Turn on";
+    if (S.dragging !== "__g:" + g.name) {
+      const colors = lit.slice(0, 8).map(glowColor);
+      setSlider(c.slider, avg, colors.length > 1 ? `linear-gradient(90deg, ${colors.join(", ")})` : colors[0] || "#f3f1ed", !lit.length);
+    }
+  }
+}
+
+/* A group's power button: off if any of its lights is on, else on. The app remembers the lights
+   first (even for a group of one light), so Undo works after it. */
+async function toggleMyGroup(name) {
+  const g = myGroup(name);
+  const ids = g ? myGroupIds(g) : [];
+  if (!ids.length) return;
+  const anyOn = ids.some(id => { const d = byId(id); return d.online && d.state.on; });
+  for (const id of ids) byId(id).state.on = !anyOn;
+  S.quietUntil = Date.now() + 900;
+  render();
+  const r = await callRaw("group_power", name, !anyOn);
+  S.quietUntil = 0;
+  refresh(true);
+  if (!r || r.ok === false) { toast((r && r.error) || "Something went wrong", true); return; }
+  if (anyOn) undoable(`${name} is off`);
 }
 
 /* The lights of one group on Home ("pc" or "room"), as their ids. */
@@ -1132,9 +1217,16 @@ function openSavePreset() {
           h("button", { class: "btn btn-quiet", type: "button", text: "None", "aria-label": `No lights ${title.toLowerCase()}`, onclick: () => setAll(false) }))),
       h("div", { class: "check-list" }, rows));
   }
+  // "Pick a group": ticks only that group's lights (it replaces what was ticked).
+  const mine = (S.data.groups || []).filter(g => g.ids.some(id => boxes.has(id)));
+  const quick = mine.length ? h("div", { class: "pick-group pick-groups" },
+    h("span", { class: "field-label", text: "Pick a group" }),
+    h("span", { class: "pick-all" }, mine.map(g => h("button", {
+      class: "btn btn-quiet", type: "button", text: g.name, "aria-label": `Only the lights in ${g.name}`,
+      onclick: () => { for (const [id, box] of boxes) box.checked = g.ids.includes(id); } })))) : null;
   openModal({
     title: "Save as preset",
-    body: h("div", {}, h("p", { class: "hint", style: "margin-bottom:12px", text: "Saves the color, effect and brightness of the lights you tick, as they are now. Lights you leave out keep their look when you switch it on." }), input, picker),
+    body: h("div", {}, h("p", { class: "hint", style: "margin-bottom:12px", text: "Saves the color, effect and brightness of the lights you tick, as they are now. Lights you leave out keep their look when you switch it on." }), input, quick, picker),
     ok: "Save preset",
     onOk: async () => {
       if (!input.value.trim()) return "Give the preset a name.";
@@ -1253,6 +1345,7 @@ function openSheet() {
 function closeSheet() {
   S.sheetOpen = false;
   S.selected = null;
+  S.targetName = "";
   $("#sheet").hidden = true;
   render();
 }
@@ -1260,11 +1353,13 @@ function closeSheet() {
 function renderTarget() {
   const ids = targetIds(), devs = ids.map(byId).filter(Boolean);
   const one = S.selected && devs.length === 1 ? devs[0] : null;
-  $("#target-name").textContent = !S.selected ? "All lights" : one ? one.name : `${devs.length} lights`;
+  const named = S.selected && !one && S.targetName && myGroup(S.targetName) ? S.targetName : "";   // (one of your groups)
+  $("#target-name").textContent = !S.selected ? "All lights" : one ? one.name : named || `${devs.length} lights`;
   const offline = devs.filter(d => !d.online).length;
   $("#target-meta").textContent = !S.selected
     ? `${devs.length} lights${offline ? ` · ${offline} offline` : ""}`
-    : one ? [kindTitle(one), stripMeta(one).text].filter(Boolean).join(" · ") : devs.map(d => d.name).join(", ");
+    : one ? [kindTitle(one), stripMeta(one).text].filter(Boolean).join(" · ")
+    : named ? `${devs.length} lights` : devs.map(d => d.name).join(", ");
   const box = $("#target-icon"), ic = one ? typeIcon(one) : "presets";
   if (box.dataset.icon !== ic) { box.dataset.icon = ic; fill(box, icon(ic)); }
   $(".sheet-target").style.setProperty("--c", one ? glowColor(one) : "#f3f1ed");
@@ -1582,6 +1677,83 @@ const PREVIEW = {
       return lerp(a, b, m);
     });
   },
+  fireflies: (t, n, st) => {   /* the same fireflies as effects.py's Fireflies, from a fixed seed */
+    const seed = 7, dusk = [3, 20, 27], glow = [176, 220, 52], pace = Math.pow(rate(st.speed) / 0.3, 0.35);
+    const bulb = n === 1, space = n > 1 ? 1 / n : 0.1;
+    const fl = Array.from({ length: bulb ? 2 : 7 }, (_, k) => {
+      const duty = 0.5 + 0.15 * hash01(k, seed + 3), phase = t * pace / (9 + 8 * hash01(k, seed + 1)) + hash01(k, seed + 2);
+      const cycle = Math.floor(phase), x = (phase - cycle) / duty, cell = k * 7919 + cycle;
+      return { amp: (0.6 + 0.4 * hash01(cell, seed + 7)) * (bulb && hash01(cell, seed + 9) >= 0.55 ? 0 : 1) * Math.sin(Math.PI * clamp(x, 0, 1)) ** 2,
+        pos: 0.05 + 0.9 * hash01(cell, seed + 6) + (hash01(k, seed + 5) - 0.5) * 0.12 * (x - 0.5),
+        sigma: Math.max(0.02 + 0.015 * hash01(k, seed + 4), 0.8 * space) };
+    });
+    if (bulb) return [lerp([5, 28, 36], glow, 1 - fl.reduce((c, f) => c * (1 - 0.8 * f.amp), 1))];
+    return Array.from({ length: n }, (_, i) => {
+      const u = (i + 0.5) / n;
+      const clear = fl.reduce((c, f) => c * (1 - f.amp * Math.exp(-0.5 * ((u - f.pos) / f.sigma) ** 2)), 1);
+      return lerp(scaleRgb(dusk, 0.8 + 0.4 * noise(u * 2 + t * 0.02, 61)), glow, 1 - clear);
+    });
+  },
+  rain: (t, n, st) => {   /* the same drops as effects.py's Rain, from a fixed seed: thin, running towards the start */
+    const seed = 7, sky = [13, 21, 38], drop = [150, 190, 250], splash = [190, 222, 255], sp = Math.pow(rate(st.speed) / 0.3, 0.25);
+    const ss = (lo, hi, x) => { const k = clamp((x - lo) / (hi - lo), 0, 1); return k * k * (3 - 2 * k); };
+    if (n === 1) {
+      let level = 0.3 * noise(t * 0.08, seed + 3);
+      for (let k = 0; k < 4; k++) {
+        const ph = (t * sp / (6 + 5 * hash01(k, seed + 7)) + hash01(k, seed + 8)) % 1;
+        level += (0.45 + 0.35 * hash01(k, seed + 2)) * 0.55 * Math.sin(Math.PI * clamp(ph / 0.3, 0, 1)) ** 2;
+      }
+      return [lerp([22, 38, 70], [110, 158, 235], level)];
+    }
+    const space = 1 / n, count = clamp(Math.trunc(0.28 / (4.5 * space)), 2, 9);
+    const ds = Array.from({ length: count }, (_, k) => {
+      const depth = hash01(k, seed + 2), pace = (0.07 + 0.07 * depth) * sp, pos = (((hash01(k, seed + 1) - pace * t) % 1) + 1) % 1;
+      const age = (1 - pos) / Math.max(pace, 1e-6);
+      return { pos, amp: (0.45 + 0.35 * depth) * ss(0, 0.05, pos) * (1 - ss(0.95, 1, pos)),
+        sigma: Math.max(0.013 + 0.006 * depth, 2 * space), tail: Math.max(0.025 + 0.03 * depth, 3 * space),
+        glow: (hash01(k, seed + 5) < 0.3 ? 0.5 + 0.4 * hash01(k, seed + 6) : 0) * ss(0, 0.15, age) * Math.exp(-age / 0.45) * (age < 2.5 ? 1 : 0),
+        spread: Math.max(0.015 + 0.03 * Math.min(age, 1.5), space) };
+    });
+    return Array.from({ length: n }, (_, i) => {
+      const u = (i + 0.5) / n;
+      let clear = 1, dry = 1;
+      for (const f of ds) {
+        const d = u - f.pos, head = Math.exp(-0.5 * (d / f.sigma) ** 2);
+        clear *= 1 - f.amp * (d < 0 ? head : Math.exp(-d / f.tail) * (0.3 + 0.7 * head));
+        dry *= 1 - f.glow * Math.exp(-0.5 * (Math.max(u - 0.01, 0) / f.spread) ** 2);
+      }
+      const out = lerp(scaleRgb(sky, 0.8 + 0.4 * noise(u * 2 + t * 0.04, 71)), drop, 1 - clear);
+      return lerp(out, splash, (1 - dry) * 0.6);
+    });
+  },
+  plasma: (t, n, st) => {   /* three slow sine fields mixed, between the two colors (magenta and cyan while they are still the app's violet and cyan) */
+    const stock = st.color.toLowerCase() === "#7c4dff" && st.color2.toLowerCase() === "#00e5ff";
+    const a = stock ? [255, 30, 170] : hexToRgb(st.color), b = stock ? [0, 215, 255] : hexToRgb(st.color2);
+    const seed = 7, r = rate(st.speed) * 0.35, tau = 2 * Math.PI, p = Array.from({ length: 6 }, (_, i) => hash01(i, seed + 8));
+    const ss = (lo, hi, x) => { const k = clamp((x - lo) / (hi - lo), 0, 1); return k * k * (3 - 2 * k); };
+    return Array.from({ length: n }, (_, i) => {
+      const u = (i + 0.5) / n;
+      const s = 0.4 * Math.sin(tau * (u * 1.3 + t * r * 0.6 + p[0])) + 0.35 * Math.sin(tau * (u * 2.1 - t * r * 0.45 + p[1]))
+        + 0.25 * Math.sin(tau * (u * 0.7 + 0.35 * Math.sin(tau * (t * r * 0.3 + p[2])) + t * r * 0.2 + p[3]));
+      const glow = 0.78 + 0.22 * (0.5 + 0.5 * Math.sin(tau * (u * 1.7 - t * r * 0.35 + p[4])));
+      return scaleRgb(blendOk(a, b, ss(0.1, 0.9, 0.5 + 0.5 * clamp(1.35 * s, -1, 1))), glow);
+    });
+  },
+  sunset: (t, n, st) => {   /* orange to pink to violet-blue, sliding very slowly, with the sun low at the orange end */
+    const seed = 7, p = rate(st.speed) * 0.25, tau = 2 * Math.PI, ph = [0, 1, 2].map(i => hash01(i, seed + 9));
+    const stops = [[232, 70, 4], [238, 56, 138], [62, 46, 208]], sun = [255, 150, 30];
+    const ramp = x => x < 0.5 ? lerp(stops[0], stops[1], x / 0.5) : lerp(stops[1], stops[2], (x - 0.5) / 0.5);
+    if (n === 1) {
+      const x = 0.5 - 0.5 * Math.cos(tau * (t * p * 0.5 + ph[0]));
+      return [lerp(ramp(x), sun, 0.35 * (1 - x) ** 2)];
+    }
+    const at = 0.16 + 0.06 * Math.sin(tau * (t * p * 0.35 + ph[1]));
+    return Array.from({ length: n }, (_, i) => {
+      const u = (i + 0.5) / n;
+      const x = clamp(0.07 + 0.86 * u + 0.06 * Math.sin(tau * (t * p * 0.5 + ph[0])) + 0.05 * (noise(u * 1.5 + t * p * 0.3, seed + 4) - 0.5), 0, 1);
+      return lerp(scaleRgb(ramp(x), 0.85 + 0.15 * noise(u * 2.5 - t * p * 0.2, seed + 5)), sun, 0.55 * Math.exp(-0.5 * ((u - at) / 0.14) ** 2));
+    });
+  },
   typing: (t, n, st) => {   /* someone typing: a key every 0.17 s, with pauses between words */
     const c = hexToRgb(st.color), bg = scaleRgb(hexToRgb(st.color2), 0.08), tau = 1.6 * Math.pow(0.12, st.speed / 100);
     const level = new Array(n).fill(0), step = 0.17, last = Math.floor(t / step);
@@ -1801,6 +1973,10 @@ function renderEffects() {
     : fx.id === "snow" ? "Soft white flakes drift down through a winter-night blue, now and then one catching the light. Flakes move towards the start of a strip, and a bulb brightens softly as one passes. Speed sets how fast it snows. With Flow on, the flakes drift across your whole setup."
     : fx.id === "string_lights" ? "A string of red, green, gold and blue bulbs, each one dimming and brightening slowly on its own, with a dark gap between them. A bulb takes the four colors in turn. Speed sets how lively the twinkle is. With Flow on, the string runs on across your whole setup."
     : fx.id === "candy_cane" ? "Red and white stripes with soft edges move slowly along your lights, like a candy cane. Pick two other colors for green and white, or anything you like. A bulb fades between the two. With Flow on, the stripes run across your whole setup."
+    : fx.id === "fireflies" ? "A deep summer-night green-blue with a handful of soft yellow-green glows that slowly light up, drift a little and fade, each on its own rhythm. A bulb glows softly now and then. Speed sets how quick the rhythms are. With Flow on, the fireflies roam across your whole setup."
+    : fx.id === "rain" ? "Thin drops run down through a dark slate-blue, each with a bright head and a fading tail, and some end in a splash. Drops run towards the start of a strip, like Snowfall, and a bulb brightens softly as one passes. Speed sets how hard it rains. With Flow on, the drops run across your whole setup."
+    : fx.id === "plasma" ? "Smooth flowing fields of color, like an old plasma screensaver: vivid but slow. It uses the two colors you pick, magenta, violet and cyan while they are still the usual violet and cyan. Speed sets how fast the fields move. With Flow on, one plasma covers your whole setup."
+    : fx.id === "sunset" ? "A slow gradient from deep orange through pink to violet-blue, drifting very slowly, with a soft glow where the sun sits low. A bulb slowly breathes through the same colors. Speed sets how slowly it drifts. With Flow on, one sunset spans your whole setup."
     : fx.id === "pc_load" ? "Your lights fill up as your PC gets busy, from the first color when it's idle to the second when it's working hard. The graphics card shows its own load. Glowstage asks Windows twice a second while this runs and keeps nothing."
     : fx.id === "music_show" ? showNote(S.data.show, audio)
     : fx.group === "music" ? `Listening to ${audio.device || "your PC's sound output"}. Speed sets how punchy it is; when the music stops, the lights glow softly.`
@@ -1916,7 +2092,8 @@ function renderShow() {
       ? `Started by itself for the music · back to your lights after 30 s of quiet`
       : running.length ? `Running on ${running.length} of ${all.length} lights`
       : out ? `Uses ${all.length} lights, ${out} sit${out === 1 ? "s" : ""} it out` : `Uses all ${all.length} lights`)
-    + ` · listening to ${audio.device || "your PC's sound output"}`;
+    + (audio.source ? (audio.missing ? " · The microphone isn't there" : ` · listening to ${audio.device || "your microphone"}`)
+                    : ` · listening to ${audio.device || "your PC's sound output"}`);
   const p = running[0] || all[0];
   if (S.dragging !== "__intensity") {
     const v = p ? p.state.speed : 70;
@@ -1930,11 +2107,60 @@ function renderShow() {
   $("#show-auto").checked = !!S.data.settings.auto_show;
   renderShowColors();
   const g = S.data.genreAi;
+  const hears = audio.source ? "Listens to your microphone on this PC only (the sound is analyzed as it comes in and thrown away: nothing is recorded, saved or sent)"
+                             : "Listens to what your PC plays (no microphone)";
   $("#show-how").textContent = g && g.installed
-    ? "Listens to what your PC plays (no microphone), hears which of 400 music styles it is with the enhanced genre AI on this PC, and follows the beat, build-ups and drops."
-    : "Listens to what your PC plays (no microphone), hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.";
+    ? `${hears}, hears which of 400 music styles it is with the enhanced genre AI on this PC, and follows the beat, build-ups and drops.`
+    : `${hears}, hears the genre with a small AI model on this PC, and follows the beat, build-ups and drops.`;
   $("#show-ai-get").hidden = !g || g.installed;
+  renderListen(audio);
   renderSync(audio);
+}
+
+/* Listen to: what this PC plays (the default) or a microphone, for music that doesn't come from the PC.
+   The list of microphones is asked for only once "A microphone" is chosen; listing them opens none. */
+const MIC_NOTE = "Windows shows its microphone icon in the taskbar while the show or a music look is running, and the microphone is let go when it stops. "
+  + "The sound is analyzed on this PC as it comes in and thrown away: nothing is recorded, saved or sent. "
+  + "Start by itself still follows the PC's own sound, never the room.";
+let micsLoading = false;
+
+async function loadMics() {
+  if (micsLoading) return;
+  micsLoading = true;
+  const r = await callRaw("show_inputs");
+  micsLoading = false;
+  S.mics = r && r.ok !== false && r.result ? r.result.inputs : (S.mics || []);
+  if (!r || r.ok === false) toast((r && r.error) || "Couldn't list the microphones", true);
+  if (S.data) renderListen(S.data.audio || {});
+}
+
+function renderListen(audio) {
+  const mic = !!audio.source;
+  $("#show-listen-pc").setAttribute("aria-checked", String(!mic));
+  $("#show-listen-mic").setAttribute("aria-checked", String(mic));
+  $("#show-listen-sub").textContent = mic
+    ? "A microphone hears the room: for a record player, a party or a band."
+    : "The sound this PC plays, as it always has. No microphone.";
+  $("#show-mic-box").hidden = !mic;
+  if (!mic) return;
+  if (!S.mics && !micsLoading) loadMics();
+  const mics = S.mics || [];
+  const chosen = audio.source;
+  const gone = chosen !== "default" && !mics.some(m => m.id === chosen);
+  const key = JSON.stringify([chosen, mics, gone && audio.device]);
+  const pick = $("#show-mic-pick");
+  if (S.micKey !== key) {      // (not rebuilt every second: that would close the open list)
+    S.micKey = key;
+    const def = mics.find(m => m.default);
+    const options = [["default", def ? `The default microphone (${def.name})` : "The default microphone"],
+      ...mics.map(m => [m.id, m.default ? `${m.name} · default` : m.name])];
+    if (gone && S.mics) options.push([chosen, `${audio.device || "Your microphone"} (not connected)`]);
+    fill(pick, options.map(([v, t]) => h("option", { value: v, text: t, selected: v === chosen })));
+    pick.value = chosen;
+  }
+  const note = $("#show-mic-note");
+  note.classList.toggle("is-warn", !!audio.missing);
+  note.textContent = audio.missing ? "The microphone isn't there. The show waits for it and uses it again when it's back. " + MIC_NOTE : MIC_NOTE;
 }
 
 /* Colors of the show: "Follow the music" (none saved) or "My colors" (2 to 5 of your own). */
@@ -2012,7 +2238,8 @@ function renderSync(audio) {
   }
   const out = audio.device ? audio.device.replace(/^\w+ \((?:\d+- )?(.+)\)$/, "$1") : "";
   $("#show-sync-hint").textContent = !sync.auto
-    ? `Set for ${out || "every sound output"}.`
+    ? `Set for ${out || (audio.source ? "this microphone" : "every sound output")}.`
+    : audio.source ? "A microphone hears the music as it plays, so the lights don't wait. Lights ahead of the music? Slide right."
     : audio.kind === "bluetooth" ? "Bluetooth plays the sound about 0.2 s late, so the lights wait for it."
     : audio.kind === "remote" ? "Remote Desktop delays the sound. Lights ahead of the music? Slide right."
     : "Lights ahead of the music? Slide right. Behind it? Slide left.";
@@ -2256,6 +2483,17 @@ function bindStatic() {
   $("#show-colors-music").addEventListener("click", () => { if (showColors().length) setShowColors([]); });
   $("#show-colors-mine").addEventListener("click", () => { if (showColors().length < SHOW_COLORS_MIN) startMyColors(); });
   $("#show-colors-pick").addEventListener("change", e => { addShowColor(e.target.value); rememberColor(e.target.value); });
+  const listen = async value => {
+    const r = await callRaw("set_show_input", value);
+    if (!r || r.ok === false) { toast((r && r.error) || "Something went wrong", true); return; }
+    S.mics = null;
+    S.micKey = "";
+    refresh(true);
+  };
+  $("#show-listen-pc").addEventListener("click", () => { if (S.data.audio.source) listen(""); });
+  $("#show-listen-mic").addEventListener("click", () => { if (!S.data.audio.source) listen("default"); });
+  $("#show-mic-pick").addEventListener("change", e => listen(e.target.value));
+  $("#show-mic-pick").addEventListener("focus", () => { if (S.data.audio.source) loadMics(); });   // (a microphone plugged in since)
   $("#show-auto").addEventListener("change", async e => {
     await call("set_setting", "auto_show", e.target.checked);
     if (e.target.checked) toast("The show starts by itself when music plays");
@@ -2314,7 +2552,7 @@ function searchItems() {
   const d = S.data;
   if (!d) return [];
   const items = [];
-  const add = (kind, name, run) => items.push({ kind, name, run, id: "qs-opt-" + items.length });
+  const add = (kind, name, run) => { const it = { kind, name, run, id: "qs-opt-" + items.length }; items.push(it); return it; };
   const anyOn = visible().some(x => x.state.on && x.online);
   add(0, "All lights on", () => send(null, { on: true }, "on:all"));
   add(0, "All lights off", () => { if (anyOn) toggleStrip("__all"); else toast("Your lights are already off"); });
@@ -2334,6 +2572,11 @@ function searchItems() {
   add(0, runningShow().length ? "Stop the light show" : "Start the light show", () => $("#show-start").click());
   // (the window can't ask the app whether there is something to undo: it knows what it just offered Undo for)
   if (d.canUndo === undefined ? S.undoReady : d.canUndo) add(0, "Undo", undoNow);
+  for (const g of d.groups || []) {       // (only found when you type: 24 more lines would crowd the first view)
+    if (!myGroupIds(g).length) continue;
+    add(0, `${g.name} on`, () => switchMyGroup(g.name, true)).quiet = true;
+    add(0, `${g.name} off`, () => switchMyGroup(g.name, false)).quiet = true;
+  }
   add(0, "Report a problem", openReport);
   add(0, "Keyboard shortcuts", openKeys);
   for (const p of d.presets || []) add(1, p.name, () => applyPreset(p));
@@ -2355,6 +2598,14 @@ function searchItems() {
   return items;
 }
 
+/** One of your groups on or off from the search box (off offers Undo, like the power button). */
+async function switchMyGroup(name, on) {
+  const r = await callRaw("group_power", name, on);
+  S.quietUntil = 0; refresh(true);
+  if (!r || r.ok === false) { toast((r && r.error) || "Something went wrong", true); return; }
+  on ? toast(`${name} is on`) : undoable(`${name} is off`);
+}
+
 /** Setup, scrolled to one section (the sections that have no "set-" name). */
 function goToSection(id) {
   go("setup");
@@ -2364,7 +2615,7 @@ function goToSection(id) {
 /** Names that start with the letters first, then names with a word that does, then names that contain them. */
 function searchMatches(items, query) {
   const q = query.trim().toLowerCase();
-  if (!q) return [...items.filter(i => i.kind === 0), ...items.filter(i => i.kind === 1).slice(0, 4)];
+  if (!q) return [...items.filter(i => i.kind === 0 && !i.quiet), ...items.filter(i => i.kind === 1).slice(0, 4)];
   const rank = name => {
     const n = name.toLowerCase();
     if (n.startsWith(q)) return 0;

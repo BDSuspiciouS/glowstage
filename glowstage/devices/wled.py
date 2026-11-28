@@ -94,12 +94,12 @@ class WledDevice(Device):
 
     def show_color(self, rgb: RGB, state: LightState) -> None:
         self._post({
-            "on": True, "bri": _bri(state.brightness), "live": False, "tt": 2,
+            "on": True, "bri": _bri(state.brightness), "live": False, "tt": round(self.moment * 10),
             "seg": self._segs(fx=0, col=[list(rgb)]),
         })
 
     def power_off(self, timeout: float = 3.0) -> None:
-        self._post({"on": False, "live": False}, timeout)
+        self._post({"on": False, "live": False, "tt": round(self.moment * 10)}, timeout)
 
     def begin_stream(self, state: LightState) -> None:
         self._post({"on": True, "bri": _bri(state.brightness), "tt": 0})

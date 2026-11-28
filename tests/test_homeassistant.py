@@ -233,7 +233,9 @@ class TestLight(Base):
         self.hub_ = self.hub()
         self.hub_.connect()
         self.desk = self.hub_.devices[f"{self.hub_.id}:light.desk"]
+        self.desk.moment = 0          # (at once: the glide is tested apart)
         self.lamp = self.hub_.devices[f"{self.hub_.id}:light.lamp"]
+        self.lamp.moment = 0          # (at once: the glide is tested apart)
 
     def test_show_color_body(self):
         self.desk.show_color((255, 0, 0), LightState(brightness=50))
@@ -270,6 +272,7 @@ class TestStreaming(Base):
         self.hub_ = self.hub()
         self.hub_.connect()
         self.desk = self.hub_.devices[f"{self.hub_.id}:light.desk"]
+        self.desk.moment = 0          # (at once: the glide is tested apart)
         self.strip = self.hub_.devices[f"{self.hub_.id}:light.strip"]
 
     def test_frames_collapse_to_latest(self):

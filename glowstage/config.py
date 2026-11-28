@@ -81,6 +81,7 @@ DEFAULTS = {
     "devices": {},      # network lights: id -> {kind, host, port, token}
     "names": {},        # custom display names: id -> name
     "hidden": [],       # device ids hidden from the UI
+    "groups": [],       # your own groups of lights: [{"name": "Desk", "ids": [...]}], 12 at most (a light that is gone stays in them)
     "balance": {},      # id -> {"warmth": -50..50, "max": 20..100}: a light's white balance and what full brightness means for it
     "states": {},       # id -> LightState dict (restored on launch)
     "presets": DEFAULT_PRESETS,
@@ -100,7 +101,9 @@ DEFAULTS = {
                  "lights_on_at_startup": True, "pc_lights_off_at_shutdown": True,
                  "room_lights_off_at_shutdown": True, "show_strobe": True,
                  "show_colors": [],      # the light show in your own colors: 2-5 as #rrggbb, [] = the colors follow the music
+                 "show_input": "",       # what the light show listens to: "" = what the PC plays, "default" = Windows' default microphone, or a microphone's id (audio.py)
                  "soft_flashes": False,  # no light jumps: every look brightens and dims softly (soft.py)
+                 "glide": "smooth",      # how lights change: "instant", "smooth" or "slow" (devices/base.py GLIDES)
                  "setup_done": False,    # the welcome tour ran (or was skipped)
                  "active_preset": "",    # the preset the lights show now ("" once changed by hand)
                  "hotkeys": False,       # Ctrl+Alt+Shift+L/S/1-9 from any program (see hotkeys.py)

@@ -561,6 +561,207 @@ class CandyCane(Effect):
         return _rgb(a + (b - a) * m[:, None])
 
 
+# ---- more everyday looks: a summer night, rain, plasma and a sunset -----------------------------
+
+NIGHT_SEED = random.getrandbits(24)    # one per run, shared by every light: the whole room sees the same fireflies and rain
+DUSK = np.array((3.0, 20.0, 27.0))            # a summer night, green-blue and dark
+DUSK_BULB = np.array((5.0, 28.0, 36.0))
+FIREFLY = np.array((176.0, 220.0, 52.0))      # a soft yellow-green
+FIREFLIES = 7
+
+
+def _seed_of(mem: dict) -> int:
+    return mem.setdefault("seed", NIGHT_SEED)
+
+
+def _pace(speed: int, power: float) -> float:
+    """1 at speed 50; a gentle range either side (a low power keeps the fastest setting calm)."""
+    return (rate(speed) / 0.3) ** power
+
+
+class Fireflies(Effect):
+    """A summer night: a deep green-blue dusk with a handful of soft yellow-green glows. Each one
+    slowly lights up, drifts a little along the light and fades, on its own rhythm, then rests and
+    lights up again somewhere else. A bulb glows softly now and then. Speed: how quick the rhythms are.
+    A firefly's place and brightness are a plain function of time and the run's seed (no state), so
+    every light with the seed sees the same fireflies, and with Flow they live on the whole stage.
+    Each cycle starts and ends dark, so a firefly never pops in or out."""
+    id, name = "fireflies", "Fireflies"
+    flows = True
+
+    def _table(self, mem: dict) -> dict:
+        seed = _seed_of(mem)
+        table = mem.get("fireflies")
+        if table is None or table["seed"] != seed:
+            k = np.arange(FIREFLIES)
+            table = mem["fireflies"] = {
+                "seed": seed, "k": k, "period": 9.0 + 8.0 * _hash_np(k, seed + 1), "offset": _hash_np(k, seed + 2),
+                "duty": 0.5 + 0.15 * _hash_np(k, seed + 3),         # the lit share of a cycle; the rest is rest
+                "sigma": 0.02 + 0.015 * _hash_np(k, seed + 4), "drift": (_hash_np(k, seed + 5) - 0.5) * 0.12}
+        return table
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        f = self._table(mem)
+        seed = f["seed"]
+        bulb = n == 1 and not ctx.get("flow")
+        few = slice(0, 2) if bulb else slice(None)      # (a bulb glows now and then, not all the time)
+        k, duty = f["k"][few], f["duty"][few]
+        phase = t * _pace(st.speed, 0.35) / f["period"][few] + f["offset"][few]
+        cycle = np.floor(phase)
+        x = (phase - cycle) / duty                      # 0..1 while it is lit, past 1 while it rests
+        env = np.sin(np.pi * np.clip(x, 0.0, 1.0)) ** 2
+        cell = k * 7919 + cycle.astype(np.int64)        # (a new place and strength every cycle)
+        amp = 0.6 + 0.4 * _hash_np(cell, seed + 7)
+        if bulb:    # it lights up in only about every other cycle of either of two fireflies
+            amp = amp * (_hash_np(cell, seed + 9) < 0.55)
+            lit = 1 - np.prod(1 - 0.8 * amp * env)
+            return _rgb((DUSK_BULB + (FIREFLY - DUSK_BULB) * lit)[None, :])
+        u = _places_mid(n, ctx)
+        pos = 0.05 + 0.9 * _hash_np(cell, seed + 6) + f["drift"][few] * (x - 0.5)
+        sigma = np.maximum(f["sigma"][few], 0.8 * _spacing(n, ctx))     # (never thinner than the LEDs)
+        spot = np.exp(-0.5 * ((u[:, None] - pos[None, :]) / sigma) ** 2)
+        lit = 1 - np.prod(1 - amp * env * spot, axis=1)
+        sky = DUSK * (0.8 + 0.4 * _noise_np(u * 2.0 + t * 0.02, 61))[:, None]
+        return _rgb(sky + (FIREFLY - sky) * lit[:, None])
+
+
+RAIN_SKY = np.array((13.0, 21.0, 38.0))      # dark slate-blue
+RAIN_DROP = np.array((150.0, 190.0, 250.0))
+RAIN_SPLASH = np.array((190.0, 222.0, 255.0))
+RAIN_LOW, RAIN_HIGH = np.array((22.0, 38.0, 70.0)), np.array((110.0, 158.0, 235.0))     # what a bulb shows, at its dimmest and brightest
+RAIN_DROPS = 9
+
+
+class Rain(Effect):
+    """Rain: a dark slate-blue with thin drops running down the light, each a short bright head with
+    a tail that fades behind it. They run towards the start of a light, the same way as Snowfall's
+    flakes (strips are normally wired from the bottom up), but quicker and thinner, and the nearer
+    ones are brighter. Some drops end in a splash: a soft glow at the start that spreads and fades.
+    A bulb stays a cool blue and brightens softly now and then as a drop passes. Speed: how hard it
+    rains. A drop's place is a plain function of time and the run's seed, so every light with the seed
+    sees the same rain, and with Flow the drops run on from light to light."""
+    id, name = "rain", "Rain"
+    flows = True
+
+    def _drops(self, mem: dict) -> dict:
+        seed = _seed_of(mem)
+        drops = mem.get("drops")
+        if drops is None or drops["seed"] != seed:
+            k = np.arange(RAIN_DROPS)
+            depth = _hash_np(k, seed + 2)
+            drops = mem["drops"] = {
+                "seed": seed, "start": _hash_np(k, seed + 1), "fall": 0.07 + 0.07 * depth,   # of the length per second at speed 50
+                "sigma": 0.013 + 0.006 * depth, "tail": 0.025 + 0.03 * depth, "amp": 0.45 + 0.35 * depth,
+                "splash": (_hash_np(k, seed + 5) < 0.3) * (0.5 + 0.4 * _hash_np(k, seed + 6)),
+                "period": 6.0 + 5.0 * _hash_np(k, seed + 7), "offset": _hash_np(k, seed + 8)}
+        return drops
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        f = self._drops(mem)
+        seed = f["seed"]
+        speed = _pace(st.speed, 0.25)
+        if n == 1 and not ctx.get("flow"):     # a bulb: a cool blue that drifts, and brightens softly as a drop passes
+            phase = (t * speed / f["period"][:4] + f["offset"][:4]) % 1.0
+            pulse = f["amp"][:4] * 0.55 * np.sin(np.pi * np.clip(phase / 0.3, 0.0, 1.0)) ** 2
+            level = np.clip(0.3 * float(_noise_np(np.array([t * 0.08]), seed + 3)[0]) + pulse.sum(), 0.0, 1.0)
+            return _rgb((RAIN_LOW + (RAIN_HIGH - RAIN_LOW) * level)[None, :])
+        u = _places_mid(n, ctx)
+        space = _spacing(n, ctx)
+        # On a short light a drop is a few whole LEDs wide, so fewer of them run at once (the count follows
+        # the LED spacing, not the LED count, so with Flow two halves of a stage still show one rain).
+        f = {key: v[:int(np.clip(0.28 / (4.5 * space), 2, RAIN_DROPS))] if isinstance(v, np.ndarray) else v for key, v in f.items()}
+        pace = f["fall"] * speed
+        pos = (f["start"] - pace * t) % 1.0                              # (towards the start; wraps round)
+        sigma = np.maximum(f["sigma"], 2 * space)                         # (thin, but never thinner than the LEDs)
+        tail = np.maximum(f["tail"], 3 * space)
+        d = u[:, None] - pos[None, :]
+        head = np.exp(-0.5 * (d / sigma) ** 2)
+        behind = np.exp(-np.maximum(d, 0.0) / tail) * (0.3 + 0.7 * head)     # (d > 0: behind the head, further from the start)
+        shape = np.where(d < 0, head, behind)
+        gate = _smooth(0.0, 0.05, pos) * (1 - _smooth(0.95, 1.0, pos))      # a drop fades out as it lands and in as it starts
+        lit = 1 - np.prod(1 - f["amp"] * gate * shape, axis=1)
+        # A splash starts when a drop has just run off the start (it comes in again at the far end).
+        age = (1.0 - pos) / np.maximum(pace, 1e-6)
+        spread = 0.015 + 0.03 * np.minimum(age, 1.5)
+        glow = f["splash"] * _smooth(0.0, 0.15, age) * np.exp(-age / 0.45) * (age < 2.5)
+        splash = 1 - np.prod(1 - glow * np.exp(-0.5 * (np.maximum(u[:, None] - 0.01, 0.0) / np.maximum(spread, space)) ** 2), axis=1)
+        sky = RAIN_SKY * (0.8 + 0.4 * _noise_np(u * 2.0 + t * 0.04, 71))[:, None]
+        out = sky + (RAIN_DROP - sky) * lit[:, None]
+        return _rgb(out + (RAIN_SPLASH - out) * (splash * 0.6)[:, None])
+
+
+PLASMA_MAGENTA, PLASMA_CYAN = (255, 30, 170), (0, 215, 255)     # the plasma of the app's usual violet and cyan: these, with violet between
+
+
+class Plasma(Effect):
+    """Smooth flowing fields of color, like an old plasma screensaver: three slow sine fields of
+    different lengths and speeds are mixed, and the mix picks a color between the first color and the
+    second (through the hues between them, as Gradient does), while another slow wave dims and
+    brightens it a little. While the colors are still the app's usual violet and cyan it is magenta,
+    violet and cyan; pick two colors for anything else. With Flow one plasma covers the whole stage.
+    Speed: how fast the fields move. Only the fields' starting points are random: they come from the
+    run's seed, so every light shows the same plasma at the same time."""
+    id, name = "plasma", "Plasma"
+    uses = ("speed", "color", "color2")
+    flows = True
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        seed = _seed_of(mem)
+        if (st.color.lower(), st.color2.lower()) == APP_COLORS:
+            a, b = PLASMA_MAGENTA, PLASMA_CYAN
+        else:
+            a, b = hex_to_rgb(st.color), hex_to_rgb(st.color2)
+        u = _places_mid(n, ctx)
+        r, tau = rate(st.speed) * 0.35, 2 * math.pi
+        p = [_hash01(i, seed + 8) for i in range(6)]
+        f1 = np.sin(tau * (u * 1.3 + t * r * 0.6 + p[0]))
+        f2 = np.sin(tau * (u * 2.1 - t * r * 0.45 + p[1]))
+        f3 = np.sin(tau * (u * 0.7 + 0.35 * math.sin(tau * (t * r * 0.3 + p[2])) + t * r * 0.2 + p[3]))
+        mix = _smooth(0.1, 0.9, 0.5 + 0.5 * np.clip(1.35 * (0.4 * f1 + 0.35 * f2 + 0.25 * f3), -1.0, 1.0))
+        glow = 0.78 + 0.22 * (0.5 + 0.5 * np.sin(tau * (u * 1.7 - t * r * 0.35 + p[4])))
+        return _rgb(blend(a, b, mix) * glow[:, None])
+
+
+SUN_ORANGE, SUN_PINK, SUN_VIOLET = (232, 70, 4), (238, 56, 138), (62, 46, 208)
+SUN_GLOW = np.array((255, 150, 30), float)
+SUNSET = [(0.0, SUN_ORANGE), (0.5, SUN_PINK), (1.0, SUN_VIOLET)]
+
+
+class Sunset(Effect):
+    """A sunset: a slow gradient from deep orange at the start of a light, through pink, to a
+    violet-blue at the end, sliding very slowly to and fro, with a soft golden glow where the sun sits
+    low, near the orange end. A bulb slowly breathes through the same colors. With Flow one sunset
+    spans the whole stage. Speed: how slowly it drifts. Only where the drift starts is random, and
+    that comes from the run's seed, so every light shows the same sky at the same time."""
+    id, name = "sunset", "Sunset"
+    flows = True
+
+    def render(self, t, n, st, mem, ctx):
+        if n == 0:
+            return []
+        seed = _seed_of(mem)
+        p, tau = rate(st.speed) * 0.25, 2 * math.pi
+        ph = [_hash01(i, seed + 9) for i in range(3)]
+        if n == 1 and not ctx.get("flow"):      # a bulb: out through the whole sky and back
+            x = np.array([0.5 - 0.5 * math.cos(tau * (t * p * 0.5 + ph[0]))])
+            sun = (0.35 * (1 - x) ** 2)[:, None]
+            base = _ramp(x, SUNSET)
+            return _rgb(base + (SUN_GLOW - base) * sun)
+        u = _places_mid(n, ctx)
+        x = np.clip(0.07 + 0.86 * u + 0.06 * math.sin(tau * (t * p * 0.5 + ph[0]))
+                    + 0.05 * (_noise_np(u * 1.5 + t * p * 0.3, seed + 4) - 0.5), 0.0, 1.0)
+        base = _ramp(x, SUNSET) * (0.85 + 0.15 * _noise_np(u * 2.5 - t * p * 0.2, seed + 5))[:, None]
+        at = 0.16 + 0.06 * math.sin(tau * (t * p * 0.35 + ph[1]))       # where the sun sits, low at the orange end
+        glow = (0.55 * np.exp(-0.5 * ((u - at) / 0.14) ** 2))[:, None]
+        return _rgb(base + (SUN_GLOW - base) * glow)
+
+
 class Typing(Effect):
     """Every key you press lights up and sends a ripple across the keyboard (where its LEDs are
     known: fixture "geometry"); every other light glows where the key sits on the board, left to
@@ -1363,7 +1564,7 @@ def _rgb(arr: np.ndarray) -> list[RGB]:
 
 
 EFFECTS: dict[str, Effect] = {e.id: e for e in (
-    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Snow(), StringLights(), CandyCane(), Typing(), PcLoad(), Daylight(),
+    Rainbow(), Spectrum(), Breathing(), Wave(), Gradient(), Comet(), Twinkle(), Fire(), Aurora(), Candle(), Ocean(), Lava(), Storm(), Snow(), StringLights(), CandyCane(), Fireflies(), Rain(), Plasma(), Sunset(), Typing(), PcLoad(), Daylight(),
     Screen(), ScreenSound(),
     LightShow(), Party(), BassRipple(), MusicSpectrum(), BeatPulse(), VuMeter(), Romantic(),
     ColorOrgan(), CenterBloom(), Sparkle(), Meteor(), MusicFire(), NorthernLights(), Heartbeat(), CS2(), LeagueOfLegends(), Dota2(), RocketLeague(),

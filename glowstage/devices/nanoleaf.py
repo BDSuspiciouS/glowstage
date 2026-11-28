@@ -107,7 +107,7 @@ class NanoleafDevice(Device):
         h, s, v = rgb_to_hsv(rgb)
         self._state({
             "on": {"value": True},
-            "brightness": {"value": round(state.brightness * max(v, 0.01)), "duration": 0},
+            "brightness": {"value": round(state.brightness * max(v, 0.01)), "duration": round(self.moment)},
             "hue": {"value": round(h * 360) % 360},
             "sat": {"value": round(s * 100)},
         })

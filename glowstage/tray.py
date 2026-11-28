@@ -146,8 +146,9 @@ class Tray:
         yield MenuItem("All lights off", lambda: (m.remember(), m.set_power_all(False)))
         yield MenuItem("Brightness", Menu(*self._brightness_items()), enabled=lambda item: bool(m.brightness_on()))
         groups = m.groups_present()
-        if groups:
-            yield MenuItem("Lights", Menu(*self._group_items(groups)))
+        mine = [g["name"] for g in m.groups_info() if g["lights"]]
+        if groups or mine:
+            yield MenuItem("Lights", Menu(*self._group_items(groups, mine)))
         yield MenuItem("Stop the light show" if m.show_running() else "Start the light show",
                        lambda: (m.remember(), m.toggle_show()))
         presets = m.preset_names()
@@ -189,11 +190,24 @@ class Tray:
         m = self.app.manager
         return lambda: (m.remember(), m.set_brightness_on(value))
 
-    def _group_items(self, groups):
+    def _group_items(self, groups, mine=()):
         for group, label in (("pc", "PC"), ("room", "Room")):
             if group in groups:
                 for on in (True, False):
                     yield MenuItem(f"{label} lights {'on' if on else 'off'}", self._group_action(group, on))
+        for name in mine:       # your own groups, after those two (a group with no lights now has no entry)
+            for on in (True, False):
+                yield MenuItem(f"{name.replace('&', '&&')} {'on' if on else 'off'}", self._my_group_action(name, on))
+
+    def _my_group_action(self, name: str, on: bool):
+        m = self.app.manager
+
+        def run():
+            try:
+                m.set_group_power(name, on)      # (remembers the lights first: Undo covers it)
+            except ValueError:
+                pass                             # the group went away or lost its lights since the menu was built
+        return run
 
     def _group_action(self, group: str, on: bool):
         m = self.app.manager

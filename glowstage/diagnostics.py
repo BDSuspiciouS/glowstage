@@ -60,6 +60,9 @@ def report(app) -> str:
                for i in sorted(shown) if i in m.devices and m.balance(i)["order"] != "RGB"]
     if ordered:
         out.append("Lights with a color order: " + ", ".join(ordered))
+    mine = m.groups_info()
+    if mine:
+        out.append("Groups: " + ", ".join(f"{g['name']} ({g['lights']} of {len(g['ids'])} lights there)" for g in mine))
     o = m.openrgb.describe()
     out.append(f"OpenRGB: {o.get('status') or '?'}" + (f" ({o['message']})" if o.get("message") else "")
                + (", as administrator" if o.get("elevated") else ""))
@@ -77,7 +80,8 @@ def report(app) -> str:
     out.append("Also: " + ", ".join([
         f"phone remote {'on' if app.remote.settings.get('on') else 'off'}",
         f"hotkeys {hotkeys.summary(s, m.preset_names(), taken)}", f"presets in turn {'on' if m.cycle.active else 'off'}", f"focus timer {'on' if m.focus.active else 'off'}", f"following the wallpaper {'on' if m.wallpaper.active else 'off'}", f"automatic looks {'paused' if m.automations.paused_until() else 'on'}", f"night limit {m.night.describe()['max']}% now" if m.night.applied is not None else f"night limit {'on' if m.night.settings['on'] else 'off'}", f"schedules {len(app.config.data.get('schedules') or [])}",
-        f"sound {m.engine.audio.device or 'not listening now'}"]))
+        f"sound {m.engine.audio.device or 'not listening now'}"
+        + (" (microphone" + (", not there" if m.engine.audio.missing else "") + ")" if m.engine.audio.source else " (PC's sound)")]))
     problems = recent_problems()
     out.append("Last warnings in the log:" if problems else "No warnings in the log.")
     out += problems

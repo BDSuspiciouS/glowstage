@@ -13,7 +13,7 @@
 <p align="center">
   <b>Turn your room into a stage.</b> Glowstage drives your PC's RGB, your LED strips and your smart lights together<br>
   and puts on a festival-style light show to whatever your PC plays: Spotify, YouTube, games.<br>
-  No microphone, no cloud, no account. Free and open source.
+  No microphone needed, no cloud, no account. Free and open source.
 </p>
 
 <p align="center">
@@ -40,12 +40,12 @@
 - **Your PC's pulse.** With *PC load* your lights fill up like a bar as your PC gets busy, from calm to hard at work, and the graphics card shows its own load.
 - **Your keyboard ripples as you type.** With *Typing ripples* every key you press lights up and sends a ripple across the keyboard, and your other lights glow where the key sits. It only looks at which key is down while the look runs, and keeps and sends nothing.
 - **Snow and holiday lights.** For December, *Snowfall*, *Holiday lights* (the classic string of colored bulbs, each twinkling on its own) and *Candy cane*.
-- **Calm looks for the evening.** *Candle* flickers like a row of candles, *Ocean* rolls slow waves, *Lava lamp* drifts warm blobs, and *Thunderstorm* lets lightning strike now and then, never more than three flashes a second.
+- **Calm looks for the evening.** *Candle* flickers like a row of candles, *Ocean* rolls slow waves, *Lava lamp* drifts warm blobs, *Fireflies* glow and drift through a summer dusk, *Rain* runs down your lights, *Plasma* and *Sunset* flow slowly, and *Thunderstorm* lets lightning strike now and then, never more than three flashes a second.
 - **Light that follows the sun.** *Follow the sun* lights your room like the day outside: cool and bright at noon, golden as the sun sets, warm in the evening and a low amber glow at night. It knows when the sun rises and sets where you live from Windows' region setting, without location access or the internet.
 - **Presets for every moment.** Focus, Reading, Cozy, Gaming, Movie and more, each lighting your PC and your room its own way. Save your own with one click, for every light or only some (a room preset leaves your PC alone), or take the colors of a photo, one you snap with your phone, or your wallpaper (and follow it when it changes). Let a few take turns by themselves, every few minutes. Run them from the tray or a hotkey, on a schedule (*Cozy* 30 minutes before sunset, *Late night* at 23:00, everything off at 1:00), or automatically: *Gaming* when a game goes full screen, *Movie* for a full-screen video, *Focus* while Photoshop is open or while you're on a call, an ON AIR light while you stream in OBS, and back to your own look afterwards.
 - **A focus timer you see in your lights.** Work for 25 minutes, then a 5 minute break, a few rounds: your room turns a calm soft green for the break, so you notice from the corner of your eye that it's time to get up, and comes back as it was afterwards.
 - **A sunset at night, a sunrise in the morning.** At bedtime the sleep timer fades your lights out slowly, and a night limit keeps every light dim until morning, whatever switches it on. In the morning *Wake up slowly* brings your room's lights up before your alarm, from a dim deep red through amber to bright warm white.
-- **Your PC and your room, apart or together.** Each group has its own brightness, switch and colors, so you can dim the room and keep the PC bright. *Gradient* blends two colors along each light or across the room, whites go from 2200 K candlelight to 6500 K daylight, and *Pick from screen* takes a color from anything on your screen. *Balance* makes a strip's bluish white match your bulbs, or tames a light that's brighter than the rest.
+- **Your PC and your room, apart or together.** Each group has its own brightness, switch and colors, so you can dim the room and keep the PC bright, and you can make your own groups (*Desk*, *Bed*, *Living room*). *Gradient* blends two colors along each light or across the room, whites go from 2200 K candlelight to 6500 K daylight, and *Pick from screen* takes a color from anything on your screen. *Balance* makes a strip's bluish white match your bulbs, or tames a light that's brighter than the rest.
 - **Everything a few keys away.** Press Ctrl+K and type a few letters to switch on a preset, open a light or jump to a setting. Keys 1 to 9 pick your presets, hotkeys work from any program (choose your own, macro keys too), and *Undo* puts your lights back when you change your mind. The tray icon glows in your lights' color.
 - **Lights off when you step away.** Lock the PC, let its screen go off or put it to sleep, and the PC's lights (or all of them) switch off; they come back as they were when you return (Setup → Automatic).
 - **In sync with what you hear.** Bluetooth headphones play the sound later than your PC sends it; Glowstage notices and waits for them. Slow lights (Hue, Govee, Home Assistant) get calmer looks that still catch every hit.
@@ -108,7 +108,7 @@ Open **Light show** and move **Sync**. Bluetooth headphones and speakers are det
 <details>
 <summary><b>The light show doesn't react</b></summary>
 
-Glowstage listens to the sound your PC plays on its default output (no microphone). Check that the music plays on that output, and that the player itself isn't muted. A player turned far down still works.
+Glowstage listens to the sound your PC plays on its default output (no microphone, unless you chose one on the Light show page). Check that the music plays on that output, and that the player itself isn't muted. A player turned far down still works.
 </details>
 
 <details>
@@ -138,7 +138,7 @@ It asks the Live Client Data API, which League of Legends itself offers on your 
 <details>
 <summary><b>Does Glowstage use my camera or microphone?</b></summary>
 
-No. The light show listens to the sound your PC plays, not to a microphone. *On a call* (off until you pick a look for it) only reads whether Windows says an app is using your camera or microphone, the same thing the privacy icon in your taskbar shows. It never sees or hears what they pick up.
+Not unless you ask it to. The light show listens to the sound your PC plays. Only if you pick *A microphone* on the Light show page (for a record player or a party) does it listen to one, while the show runs: the sound is analyzed as it comes in and thrown away, nothing is recorded, saved or sent, and Windows shows its microphone icon meanwhile. *On a call* (off until you pick a look for it) only reads whether Windows says an app is using your camera or microphone, the same thing the privacy icon in your taskbar shows. It never sees or hears what they pick up.
 </details>
 
 <details>
